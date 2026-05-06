@@ -1,0 +1,254 @@
+@import "tailwindcss";
+
+/* Atelier — editorial, paper-and-ink. Fraunces (variable serif italic) for display,
+   Geist for body, JetBrains Mono for tabular data (SKUs, IDs, paise). */
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Geist:wght@300..700&family=JetBrains+Mono:wght@400..600&display=swap");
+
+@theme {
+  /* Paper & ink palette — warm cream surfaces, no pure white anywhere. */
+  --color-paper: #f4eee2;
+  --color-paper-2: #ece5d6;
+  --color-surface: #fbf7ec;
+  --color-surface-raised: #fffdf3;
+  --color-ink: #1a1410;
+  --color-ink-2: #4a3f36;
+  --color-ink-3: #8a7e70;
+  --color-ink-4: #b8ab95;
+  --color-rule: #d9cfbc;
+  --color-rule-strong: #b8ab95;
+
+  /* Single accent — khadi indigo. Sparingly used; mostly for primary actions. */
+  --color-accent: #1f2961;
+  --color-accent-fg: #f4eee2;
+  --color-accent-soft: #e3e4ee;
+
+  /* Status — muted earth tones, never neon. */
+  --color-success: #4f6b3f;
+  --color-success-soft: #e1e6cf;
+  --color-warning: #9c6b30;
+  --color-warning-soft: #f0dbb6;
+  --color-danger: #8c3838;
+  --color-danger-soft: #f0d5d0;
+  --color-info: #3f5878;
+  --color-info-soft: #dce2ec;
+
+  /* Type stack — display serif (Fraunces) + sans body (Geist) + mono data. */
+  --font-display: "Fraunces", "Iowan Old Style", "Hoefler Text", "Georgia", serif;
+  --font-sans:
+    "Geist", system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
+
+  /* Sharp, journalistic radii — not rounded SaaS. */
+  --radius-xs: 1px;
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+
+  --tracking-tight: -0.025em;
+  --tracking-display: -0.04em;
+  --tracking-section: 0.18em;
+  --tracking-stamp: 0.14em;
+}
+
+@variant dark (&:where(.dark, .dark *));
+
+html, body, #root {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11", "cv02";
+  font-variant-numeric: lining-nums proportional-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Paper grain overlay — a faint SVG noise behind everything for material warmth. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.55;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0.10  0 0 0 0 0.08  0 0 0 0 0.06  0 0 0 0.045 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+#root { position: relative; z-index: 1; }
+
+/* All editorial titles + display copy use Fraunces. */
+.font-display { font-family: var(--font-display); font-feature-settings: "ss01", "ss02"; }
+.font-mono { font-feature-settings: "tnum", "zero"; font-variant-numeric: tabular-nums; }
+
+/* Drop cap — for first character of long descriptions. */
+.dropcap::first-letter {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 3.6em;
+  line-height: 0.85;
+  float: left;
+  margin: 0.05em 0.08em 0 0;
+  color: var(--color-ink);
+}
+
+/* Stamp — square, slightly rotated, ink-ish. Used for status badges. */
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.22rem 0.55rem;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-stamp);
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-xs);
+  white-space: nowrap;
+  transform: rotate(-0.6deg);
+  position: relative;
+}
+.stamp::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.06;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.6' numOctaves='1'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+.stamp.tilt-r { transform: rotate(0.8deg); }
+.stamp.tilt-l { transform: rotate(-1.4deg); }
+
+/* Hairline rule with optional middle ornament. */
+.rule {
+  border: 0;
+  border-top: 1px solid var(--color-rule);
+}
+.rule-thick { border-top: 2px solid var(--color-ink); }
+
+/* Section label: tiny, tracked, capitalised — like a magazine kicker. */
+.kicker {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-section);
+  text-transform: uppercase;
+  color: var(--color-ink-3);
+}
+
+/* Editorial big italic title — uses Fraunces opsz 144 for display sizes. */
+.editorial {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: var(--tracking-display);
+  line-height: 0.96;
+  font-variation-settings: "opsz" 144;
+}
+
+/* Underline-style input — single bottom rule that thickens on focus. */
+.field-underline {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--color-rule-strong);
+  border-radius: 0;
+  padding: 0.55rem 0.1rem;
+  font-family: var(--font-sans);
+  width: 100%;
+  color: var(--color-ink);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.field-underline:focus {
+  outline: none;
+  border-bottom-color: var(--color-ink);
+  box-shadow: 0 1px 0 var(--color-ink);
+}
+/* Placeholders should *never* be read as a real value. Italicised, faded, and
+   distinctly different from the ink colour of typed-in text. */
+.field-underline::placeholder {
+  color: var(--color-ink-3);
+  opacity: 0.55;
+  font-style: italic;
+  font-family: var(--font-display);
+  font-weight: 400;
+}
+
+/* Focus ring — subtle ink outline rather than coloured neon. */
+:where(button, a, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline: 1.5px solid var(--color-ink);
+  outline-offset: 3px;
+  border-radius: 0;
+}
+
+/* Page transitions — staggered fade-up. Apply with [data-stagger]. */
+@keyframes inkrise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+[data-stagger] > * {
+  animation: inkrise 540ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+[data-stagger] > *:nth-child(1) { animation-delay: 30ms; }
+[data-stagger] > *:nth-child(2) { animation-delay: 110ms; }
+[data-stagger] > *:nth-child(3) { animation-delay: 180ms; }
+[data-stagger] > *:nth-child(4) { animation-delay: 250ms; }
+[data-stagger] > *:nth-child(5) { animation-delay: 320ms; }
+[data-stagger] > *:nth-child(6) { animation-delay: 390ms; }
+[data-stagger] > *:nth-child(n+7) { animation-delay: 460ms; }
+
+/* Subtle press feel for clickable rows. */
+.press {
+  transition: transform 90ms ease, background-color 160ms ease;
+}
+.press:active { transform: translateY(1px); }
+
+/* Selection — ink on cream. */
+::selection {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+/* Sonner toasts must sit above every dialog / sheet (which use z-50) AND any other
+   library overlay that may sneak in (Radix Popover / dropdown portals all default
+   to ~50). The previous value (200) was beaten by some lib overlays in production;
+   we now lift to a clearly-dominant tier. The Toaster also carries an inline style
+   so the rule is belt-and-suspenders. The `> ol` cascade ensures Sonner's internal
+   list (which Sonner positions via its own inline z-index) cannot drop below us. */
+[data-sonner-toaster],
+[data-sonner-toaster] > ol,
+[data-sonner-toaster] > ol > li {
+  z-index: 9999 !important;
+}
+
+/* react-colorful — match the rest of the design system: square corners, ink
+   borders, and a slightly larger hue rail so the thumb is easier to grab. */
+.closetx-colorful .react-colorful {
+  width: 100%;
+  height: 180px;
+}
+.closetx-colorful .react-colorful__saturation {
+  border-radius: 2px;
+  border-bottom: 1px solid var(--color-rule);
+  margin-bottom: 10px;
+}
+.closetx-colorful .react-colorful__hue {
+  height: 14px;
+  border-radius: 2px;
+}
+.closetx-colorful .react-colorful__pointer {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-paper);
+  box-shadow: 0 0 0 1.5px var(--color-ink);
+}
+
+/* Scrollbars (webkit) — thin and ink-toned. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-rule-strong);
+  border-radius: 0;
+  border: 2px solid var(--color-paper);
+}
+::-webkit-scrollbar-track { background: transparent; }
