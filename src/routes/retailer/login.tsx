@@ -9,6 +9,7 @@ import type { RetailerProfile } from '@/lib/types';
 import { AuthShell } from '@/components/forms/AuthShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { FieldError, Label } from '@/components/ui/label';
 
 const Schema = z.object({
@@ -80,7 +81,7 @@ export default function RetailerLogin() {
         </div>
         <div>
           <Label htmlFor="password" required>Password</Label>
-          <Input id="password" type="password" autoComplete="current-password" {...register('password')} />
+          <PasswordInput id="password" autoComplete="current-password" {...register('password')} />
           <FieldError>{errors.password?.message}</FieldError>
         </div>
         <Button type="submit" variant="accent" size="lg" className="w-full" loading={isSubmitting}>

@@ -1,30 +1,47 @@
-import { Link } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  ArrowRight,
+  ArrowUpRight,
   Check,
   Clock,
+  Download,
+  Filter,
   Inbox,
-  Package,
+  MoreHorizontal,
+  ShoppingBag,
+  SlidersHorizontal,
   Store,
   TrendingUp,
   Users,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { retailerStatusMeta, storeStatusMeta } from '@/lib/status';
+import { retailerStatusMeta } from '@/lib/status';
 import type { AdminRetailerView, Store as StoreT } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Count } from '@/components/ui/count';
+import { LineChart, type Series } from '@/components/ui/line-chart';
+import { Segmented } from '@/components/ui/segmented';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/cn';
 
 /**
- * Admin dashboard — built for the operator persona who lives in this all day.
- * Goals:
- *   1. Queues at a glance — how many things need my attention?
- *   2. Age signals — which queue has the oldest item? Act on the stalest first.
- *   3. One-click drill-in to triage.
+ * Admin overview — single-pane operator console. The dark KPI card carries the
+ * highest-attention metric (whichever queue currently demands action), the
+ * chart shows recent marketplace activity, the right rail surfaces top
+ * retailers, and the table lists latest applications with one-click triage
+ * affordances.
  */
 export default function AdminDashboard() {
   const session = useAuth((s) => s.session);
@@ -48,118 +65,460 @@ export default function AdminDashboard() {
   });
 
   const oldestRetailerAge = ageOfOldest(pendingRetailers.data, 'createdAt');
-  const oldestStoreAge = ageOfOldest(onboardingStores.data, 'createdAt' as keyof StoreT);
+  const firstName = admin?.email.split('@')[0] ?? 'there';
+
+  // Real time-series — bucket retailer createdAt timestamps over the last 7 months
+  // and split into Active vs Pending. (Store doesn't have createdAt, so we keep
+  // the chart honest by leaving it out.)
+  const series = useMemo(() => {
+    return buildActivitySeries(
+      activeRetailers.data ?? [],
+      pendingRetailers.data ?? [],
+    );
+  }, [pendingRetailers.data, activeRetailers.data]);
+
+  const pendingCount = pendingRetailers.data?.length;
+  const activeRetailerCount = activeRetailers.data?.length;
+  const activeStoreCount = activeStores.data?.length;
+
+  const topApplications = (pendingRetailers.data ?? []).slice(0, 6);
 
   return (
     <Page>
       <PageHeader
-        title={`Hey, ${admin?.email.split('@')[0] ?? 'there'}`}
-        description="Live state of the marketplace — review what's waiting and triage from one place."
+        title={`Welcome back, ${firstName}`}
+        description="Here's the live state of the marketplace — review what's waiting and triage from one place."
       />
 
-      {/* Queue stats — clickable, with age indicator on the oldest pending item */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-        <StatCard
+      {/* KPI strip — featured dark card on the left, secondary cards beside */}
+      <div className="grid gap-4 md:grid-cols-3 mb-6">
+        <FeaturedKpi
           icon={<Inbox className="size-4" />}
           label="Pending applications"
-          value={pendingRetailers.data?.length}
+          value={pendingCount}
           loading={pendingRetailers.isLoading}
+          deltaText={oldestRetailerAge ? `Oldest ${oldestRetailerAge}` : 'All clear'}
+          deltaTone={oldestRetailerAge ? 'danger' : 'success'}
           to="/admin/retailers"
-          tone="warn"
-          subtitle={oldestRetailerAge ? `Oldest ${oldestRetailerAge}` : 'All clear'}
-          primary={(pendingRetailers.data?.length ?? 0) > 0}
         />
-        <StatCard
-          icon={<Store className="size-4" />}
-          label="Onboarding storefronts"
-          value={onboardingStores.data?.length}
-          loading={onboardingStores.isLoading}
-          to="/admin/stores"
-          tone="info"
-          subtitle={oldestStoreAge ? `Oldest ${oldestStoreAge}` : 'All clear'}
-        />
-        <StatCard
+        <Kpi
           icon={<Users className="size-4" />}
           label="Active retailers"
-          value={activeRetailers.data?.length}
+          value={activeRetailerCount}
           loading={activeRetailers.isLoading}
+          delta={changePctish(activeRetailers.data?.length, pendingRetailers.data?.length)}
           to="/admin/retailers"
-          tone="success"
         />
-        <StatCard
-          icon={<TrendingUp className="size-4" />}
+        <Kpi
+          icon={<Store className="size-4" />}
           label="Active storefronts"
-          value={activeStores.data?.length}
+          value={activeStoreCount}
           loading={activeStores.isLoading}
+          delta={changePctish(activeStores.data?.length, onboardingStores.data?.length)}
           to="/admin/stores"
-          tone="success"
         />
       </div>
 
-      {/* Quick actions */}
-      <div className="mb-10">
-        <div className="kicker mb-3">Quick actions</div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <ActionCard
-            to="/admin/retailers"
-            title="Review applications"
-            count={pendingRetailers.data?.length ?? 0}
-            description="Approve or reject the retailers waiting at the door."
-            primary={(pendingRetailers.data?.length ?? 0) > 0}
-          />
-          <ActionCard
-            to="/admin/stores"
-            title="Approve storefronts"
-            count={onboardingStores.data?.length ?? 0}
-            description="Wave through onboarding storefronts so they can publish."
-          />
-          <ActionCard
-            to="/admin/promotions"
-            title="Run a promotion"
-            description="Create offers, coupons, vouchers across the marketplace."
-            icon={<Package className="size-4" />}
-          />
+      {/* Chart + top retailers */}
+      <div className="grid gap-4 lg:grid-cols-3 mb-6">
+        <ChartCard series={series} className="lg:col-span-2" />
+        <TopRetailersCard
+          retailers={(activeRetailers.data ?? []).slice(0, 4)}
+          loading={activeRetailers.isLoading}
+        />
+      </div>
+
+      {/* Latest applications */}
+      <LatestApplicationsCard
+        items={topApplications}
+        loading={pendingRetailers.isLoading}
+      />
+    </Page>
+  );
+}
+
+// ─── KPI cards ───
+
+function FeaturedKpi({
+  icon,
+  label,
+  value,
+  loading,
+  deltaText,
+  deltaTone,
+  to,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number | undefined;
+  loading: boolean;
+  deltaText?: string;
+  deltaTone: 'success' | 'danger';
+  to: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className="group relative overflow-hidden rounded-2xl bg-ink p-6 text-bg shadow-card transition-transform press"
+    >
+      <div className="absolute inset-0 opacity-[0.06] [background-image:radial-gradient(circle_at_20%_20%,white_1px,transparent_1px)] [background-size:20px_20px]" />
+      <div className="relative flex flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <span className="text-[12px] font-medium uppercase tracking-wider text-bg/60">
+            {label}
+          </span>
+          <span className="grid size-9 place-items-center rounded-full bg-bg/10 text-bg">
+            {icon}
+          </span>
+        </div>
+        <div className="leading-none">
+          {loading ? (
+            <Skeleton className="h-10 w-28 bg-bg/15" />
+          ) : (
+            <div className="font-mono text-[40px] font-semibold tracking-tight">
+              <Count value={value} />
+            </div>
+          )}
+        </div>
+        <div className="flex items-center justify-between text-[12px] text-bg/70">
+          <span className={cn(
+            'inline-flex items-center gap-1.5',
+            deltaTone === 'success' ? 'text-emerald-400' : 'text-rose-300',
+          )}>
+            <Clock className="size-3" />
+            {deltaText}
+          </span>
+          <ArrowUpRight className="size-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function Kpi({
+  icon,
+  label,
+  value,
+  loading,
+  delta,
+  to,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number | undefined;
+  loading: boolean;
+  delta?: { tone: 'success' | 'danger' | 'neutral'; text: string };
+  to: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className="group surface-card p-6 transition-shadow press hover:shadow-md"
+    >
+      <div className="flex items-center justify-between mb-5">
+        <span className="text-[12px] font-medium uppercase tracking-wider text-ink-3">
+          {label}
+        </span>
+        <span className="grid size-9 place-items-center rounded-full bg-bg-3 text-ink-2">
+          {icon}
+        </span>
+      </div>
+      {loading ? (
+        <Skeleton className="h-10 w-28" />
+      ) : (
+        <div className="font-mono text-[40px] font-semibold tracking-tight text-ink leading-none">
+          <Count value={value} />
+        </div>
+      )}
+      {delta && (
+        <div className="mt-3 flex items-center justify-between text-[12px]">
+          <span
+            className={cn(
+              delta.tone === 'success' ? 'text-success' :
+              delta.tone === 'danger' ? 'text-danger' :
+              'text-ink-3',
+            )}
+          >
+            {delta.text}
+          </span>
+          <ArrowUpRight className="size-4 text-ink-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+        </div>
+      )}
+    </Link>
+  );
+}
+
+// ─── Chart card ───
+
+function ChartCard({ series, className }: { series: { labels: string[]; data: Series[] }; className?: string }) {
+  const [view, setView] = useState<'all' | 'active' | 'pending'>('all');
+  const visible: Series[] = series.data.filter((s) => {
+    if (view === 'all') return true;
+    if (view === 'active') return s.label === 'Active';
+    return s.label === 'Pending';
+  });
+
+  return (
+    <section className={cn('surface-card p-6', className)}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+        <div>
+          <h2 className="text-[15px] font-semibold text-ink">Retailer signups</h2>
+          <p className="text-[12.5px] text-ink-3">New retailer applications over the last 7 months.</p>
+        </div>
+        <Segmented<'all' | 'active' | 'pending'>
+          options={[
+            { value: 'all', label: 'All' },
+            { value: 'active', label: 'Active' },
+            { value: 'pending', label: 'Pending' },
+          ]}
+          value={view}
+          onChange={setView}
+        />
+      </div>
+      <LineChart
+        labels={series.labels}
+        series={visible}
+        height={240}
+        formatY={(n) => Math.round(n).toString()}
+      />
+    </section>
+  );
+}
+
+// ─── Top retailers ───
+
+function TopRetailersCard({ retailers, loading }: { retailers: AdminRetailerView[]; loading: boolean }) {
+  return (
+    <section className="surface-card p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-[15px] font-semibold text-ink">Top retailers</h2>
+        <Link to="/admin/retailers" className="text-[12px] text-ink-3 hover:text-ink">View all →</Link>
+      </div>
+
+      {loading ? (
+        <div className="space-y-3">
+          {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-12" />)}
+        </div>
+      ) : retailers.length === 0 ? (
+        <EmptyHint icon={<TrendingUp className="size-4" />} text="No active retailers yet." />
+      ) : (
+        <ul className="space-y-3">
+          {retailers.map((r) => (
+            <li key={r.id} className="flex items-center gap-3">
+              <Avatar name={r.legalName} />
+              <div className="min-w-0 flex-1">
+                <div className="text-[13.5px] font-medium text-ink truncate">{r.legalName}</div>
+                <div className="text-[12px] text-ink-3 truncate">{r.email}</div>
+              </div>
+              <Badge tone="success" nodot>Active</Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// ─── Latest applications ───
+
+function LatestApplicationsCard({
+  items,
+  loading,
+}: {
+  items: AdminRetailerView[];
+  loading: boolean;
+}) {
+  const [columns, setColumns] = useState<{ company: boolean; email: boolean; createdAt: boolean; status: boolean }>({
+    company: true,
+    email: true,
+    createdAt: true,
+    status: true,
+  });
+
+  return (
+    <section className="surface-card overflow-hidden">
+      <div className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between border-b border-line">
+        <div>
+          <h2 className="text-[15px] font-semibold text-ink">Latest applications</h2>
+          <p className="text-[12.5px] text-ink-3">Retailers awaiting your review.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <ColumnsMenu columns={columns} setColumns={setColumns} />
+          <ToolbarButton icon={<Filter className="size-3.5" />}>Filter</ToolbarButton>
+          <ToolbarButton icon={<Download className="size-3.5" />} onClick={() => exportCsv(items)}>Export</ToolbarButton>
         </div>
       </div>
 
-      {/* Two recent-items lists */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <RecentList
-          title="Latest applications"
-          all="/admin/retailers"
-          loading={pendingRetailers.isLoading}
-          emptyText="No retailers waiting at the door."
-          items={(pendingRetailers.data ?? []).slice(0, 5).map((r) => {
-            const meta = retailerStatusMeta(r.status);
-            return {
-              id: r.id,
-              to: '/admin/retailers',
-              primary: r.legalName,
-              secondary: r.email,
-              meta: r.createdAt,
-              badge: { tone: meta.tone, label: meta.label, pulse: r.status === 'pending_approval' },
-            };
-          })}
-        />
-        <RecentList
-          title="Latest storefronts"
-          all="/admin/stores"
-          loading={onboardingStores.isLoading}
-          emptyText="No storefronts onboarding right now."
-          items={(onboardingStores.data ?? []).slice(0, 5).map((s) => {
-            const meta = storeStatusMeta(s.status);
-            return {
-              id: s.id,
-              to: '/admin/stores',
-              primary: s.legalName,
-              secondary: s.address,
-              meta: undefined,
-              badge: { tone: meta.tone, label: meta.label, pulse: s.status === 'onboarding' },
-            };
-          })}
-        />
-      </div>
-    </Page>
+      {loading ? (
+        <div className="p-6 space-y-2">
+          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-10" />)}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="p-12 text-center">
+          <div className="mx-auto grid size-12 place-items-center rounded-full bg-bg-3 mb-3">
+            <Check className="size-5 text-success" />
+          </div>
+          <p className="text-[13.5px] font-medium text-ink">All caught up</p>
+          <p className="text-[12.5px] text-ink-3 mt-1">No retailers waiting for review.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="text-left text-[11.5px] uppercase tracking-wider text-ink-3 border-b border-line">
+                <th className="py-3 px-6 font-medium">App. ID</th>
+                {columns.company && <th className="py-3 font-medium">Company</th>}
+                {columns.email && <th className="py-3 font-medium">Email</th>}
+                {columns.createdAt && <th className="py-3 font-medium">Submitted</th>}
+                {columns.status && <th className="py-3 font-medium">Status</th>}
+                <th className="py-3 px-6 font-medium text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {items.map((r) => {
+                const meta = retailerStatusMeta(r.status);
+                return (
+                  <tr key={r.id} className="text-[13px] hover:bg-bg-2 transition-colors">
+                    <td className="py-3.5 px-6 font-mono text-[12px] text-ink-2">#{r.id.slice(0, 8).toUpperCase()}</td>
+                    {columns.company && (
+                      <td className="py-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <Avatar name={r.legalName} size="sm" />
+                          <span className="font-medium text-ink truncate max-w-[200px]">{r.legalName}</span>
+                        </div>
+                      </td>
+                    )}
+                    {columns.email && (
+                      <td className="py-3.5 text-ink-2 truncate max-w-[220px]">{r.email}</td>
+                    )}
+                    {columns.createdAt && (
+                      <td className="py-3.5 text-ink-3 whitespace-nowrap">{formatDate(r.createdAt)}</td>
+                    )}
+                    {columns.status && (
+                      <td className="py-3.5">
+                        <Badge tone={meta.tone} pulse>{meta.label}</Badge>
+                      </td>
+                    )}
+                    <td className="py-3.5 px-6 text-right">
+                      <RowActions retailer={r} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RowActions({ retailer }: { retailer: AdminRetailerView }) {
+  const navigate = useNavigate();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Row actions"
+          className="grid size-8 place-items-center rounded-md text-ink-3 hover:bg-bg-3 hover:text-ink press"
+        >
+          <MoreHorizontal className="size-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[180px]">
+        <DropdownMenuLabel>{retailer.legalName.slice(0, 24)}</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => navigate('/admin/retailers')}>
+          <Inbox className="size-3.5 text-ink-3" />
+          <span>Review application</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => navigate('/admin/retailers')}>
+          <Check className="size-3.5 text-success" />
+          <span>Approve</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => navigator.clipboard.writeText(retailer.email)}>
+          <ShoppingBag className="size-3.5 text-ink-3" />
+          <span>Copy email</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ColumnsMenu<T extends Record<string, boolean>>({
+  columns,
+  setColumns,
+}: {
+  columns: T;
+  setColumns: (next: T) => void;
+}) {
+  const labels: Record<string, string> = {
+    company: 'Company',
+    email: 'Email',
+    createdAt: 'Submitted',
+    status: 'Status',
+  };
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" className={toolbarBtn}>
+          <SlidersHorizontal className="size-3.5" />
+          Customize
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[200px]">
+        <DropdownMenuLabel>Columns</DropdownMenuLabel>
+        {Object.keys(labels).map((key) => (
+          <DropdownMenuItem
+            key={key}
+            onSelect={(e) => {
+              e.preventDefault();
+              setColumns({ ...columns, [key]: !columns[key] } as T);
+            }}
+          >
+            <span
+              className={cn(
+                'grid size-4 place-items-center rounded border',
+                columns[key] ? 'bg-ink border-ink text-bg' : 'border-line-2',
+              )}
+            >
+              {columns[key] && <Check className="size-3" />}
+            </span>
+            <span>{labels[key]}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+const toolbarBtn =
+  'inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-bg px-3 text-[12.5px] font-medium text-ink-2 hover:bg-bg-3 hover:text-ink press';
+
+function ToolbarButton({
+  icon,
+  children,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <button type="button" onClick={onClick} className={toolbarBtn}>
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function EmptyHint({ icon, text }: { icon: React.ReactNode; text: string }) {
+  return (
+    <div className="flex items-center gap-2 text-[13px] text-ink-3 py-6 justify-center">
+      <span className="text-ink-4">{icon}</span>
+      {text}
+    </div>
   );
 }
 
@@ -184,169 +543,75 @@ function formatAge(ms: number): string {
   return `${d}d ago`;
 }
 
-// ─── components ───
-
-type Tone = 'warn' | 'info' | 'success' | 'neutral';
-
-function StatCard({
-  icon,
-  label,
-  value,
-  loading,
-  to,
-  tone,
-  subtitle,
-  primary,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number | undefined;
-  loading: boolean;
-  to: string;
-  tone: Tone;
-  subtitle?: string;
-  primary?: boolean;
-}) {
-  const dot =
-    tone === 'success' ? 'bg-success' :
-    tone === 'warn' ? 'bg-warning' :
-    tone === 'info' ? 'bg-info' : 'bg-ink-3';
-  return (
-    <Link
-      to={to}
-      className={cn(
-        'group block rounded-lg border bg-bg p-4 transition-all hover:border-line-2 hover:shadow-sm',
-        primary ? 'border-accent/40 accent-strip relative' : 'border-line',
-      )}
-    >
-      <div className="flex items-center justify-between mb-2">
-        <span className="grid size-7 place-items-center rounded-md bg-bg-3 text-ink-2">
-          {icon}
-        </span>
-        <ArrowRight className="size-3.5 text-ink-4 group-hover:text-ink group-hover:translate-x-0.5 transition-all" />
-      </div>
-      <div className="kicker text-ink-3 mb-1.5 flex items-center gap-1.5">
-        <span className={cn('size-1.5 rounded-full', dot)} />
-        {label}
-      </div>
-      {loading ? (
-        <Skeleton className="h-8 w-12" />
-      ) : (
-        <div className="flex items-baseline gap-2">
-          <span className="font-mono text-[28px] font-semibold tabular-nums text-ink leading-none">
-            {String(value ?? 0)}
-          </span>
-        </div>
-      )}
-      {subtitle && (
-        <div className="mt-1.5 flex items-center gap-1 text-[11.5px] text-ink-3">
-          <Clock className="size-3" />
-          {subtitle}
-        </div>
-      )}
-    </Link>
-  );
+function formatDate(input: string): string {
+  const d = new Date(input);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
+    ', ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
-function ActionCard({
-  to,
-  title,
-  description,
-  count,
-  icon,
-  primary,
-}: {
-  to: string;
-  title: string;
-  description: string;
-  count?: number;
-  icon?: React.ReactNode;
-  primary?: boolean;
-}) {
-  return (
-    <Link
-      to={to}
-      className={cn(
-        'group block rounded-lg border bg-bg p-4 transition-all hover:border-line-2 hover:shadow-sm',
-        primary ? 'border-accent/40 accent-strip relative' : 'border-line',
-      )}
-    >
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <h3 className="text-[14px] font-semibold text-ink flex items-center gap-2">
-          {icon && <span className="text-accent">{icon}</span>}
-          {title}
-        </h3>
-        <ArrowRight className="size-4 text-ink-4 group-hover:text-ink group-hover:translate-x-0.5 transition-all" />
-      </div>
-      <p className="text-[12.5px] text-ink-3 leading-relaxed">{description}</p>
-      {typeof count === 'number' && count > 0 && (
-        <div className="mt-3 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-warning-soft border border-warning/20 text-[11.5px] font-medium text-warning">
-          <span className="size-1.5 rounded-full bg-warning pulse-dot" />
-          {count} pending
-        </div>
-      )}
-    </Link>
-  );
+function changePctish(active: number | undefined, pending: number | undefined): { tone: 'success' | 'neutral'; text: string } {
+  if (active == null || pending == null) return { tone: 'neutral', text: '—' };
+  const total = active + pending;
+  if (total === 0) return { tone: 'neutral', text: 'No data yet' };
+  const pct = Math.round((active / total) * 100);
+  return { tone: 'success', text: `${pct}% active` };
 }
 
-function RecentList({
-  title,
-  all,
-  loading,
-  emptyText,
-  items,
-}: {
-  title: string;
-  all: string;
-  loading: boolean;
-  emptyText: string;
-  items: Array<{
-    id: string;
-    to: string;
-    primary: string;
-    secondary: string;
-    meta?: string | undefined;
-    badge: { tone: 'success' | 'info' | 'warning' | 'danger' | 'neutral'; label: string; pulse?: boolean };
-  }>;
-}) {
-  return (
-    <section className="rounded-lg border border-line bg-bg">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-line">
-        <h2 className="text-[14px] font-semibold text-ink">{title}</h2>
-        <Link to={all} className="text-[12px] text-ink-3 hover:text-accent">View all →</Link>
-      </div>
-      {loading ? (
-        <div className="p-4 space-y-2">
-          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-12" />)}
-        </div>
-      ) : items.length === 0 ? (
-        <div className="p-8 flex items-center justify-center gap-2 text-[13px] text-ink-3">
-          <Check className="size-4 text-success" />
-          {emptyText}
-        </div>
-      ) : (
-        <ul className="divide-y divide-line">
-          {items.map((it) => (
-            <li key={it.id}>
-              <Link to={it.to} className="block px-4 py-3 hover:bg-bg-2 transition-colors">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-[13.5px] font-medium text-ink truncate">{it.primary}</div>
-                    <div className="text-[12px] text-ink-3 truncate mt-0.5">{it.secondary}</div>
-                  </div>
-                  <Badge tone={it.badge.tone} pulse={it.badge.pulse}>{it.badge.label}</Badge>
-                </div>
-                {it.meta && (
-                  <div className="mt-1 text-[11px] text-ink-3 flex items-center gap-1">
-                    <Clock className="size-3" />
-                    {formatAge(Date.now() - new Date(it.meta).getTime())}
-                  </div>
-                )}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
+function buildActivitySeries(
+  active: { createdAt: string }[],
+  pending: { createdAt: string }[],
+): { labels: string[]; data: Series[] } {
+  const months = 7;
+  const now = new Date();
+  now.setDate(1);
+  const buckets: { key: string; label: string; active: number; pending: number }[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    buckets.push({
+      key: `${d.getFullYear()}-${d.getMonth()}`,
+      label: d.toLocaleDateString(undefined, { month: 'short' }),
+      active: 0,
+      pending: 0,
+    });
+  }
+  const idxByKey = new Map(buckets.map((b, i) => [b.key, i] as const));
+  const bump = (createdAt: string, field: 'active' | 'pending') => {
+    const d = new Date(createdAt);
+    if (Number.isNaN(d.getTime())) return;
+    const k = `${d.getFullYear()}-${d.getMonth()}`;
+    const i = idxByKey.get(k);
+    if (i != null) {
+      const bucket = buckets[i];
+      if (bucket) bucket[field] += 1;
+    }
+  };
+  active.forEach((r) => bump(r.createdAt, 'active'));
+  pending.forEach((r) => bump(r.createdAt, 'pending'));
+
+  return {
+    labels: buckets.map((b) => b.label),
+    data: [
+      { label: 'Active', color: 'var(--color-ink)', values: buckets.map((b) => b.active) },
+      { label: 'Pending', color: 'var(--color-ink-3)', values: buckets.map((b) => b.pending) },
+    ],
+  };
 }
+
+function exportCsv(items: AdminRetailerView[]) {
+  const rows = [
+    ['App ID', 'Company', 'Email', 'Status', 'Submitted'],
+    ...items.map((r) => [r.id, r.legalName, r.email, r.status, r.createdAt]),
+  ];
+  const csv = rows.map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `applications-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+

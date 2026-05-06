@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, Edit3, ImageOff, Plus, Save, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Check, Edit3, ImageOff, Plus, Save, X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { MediaGallery } from '@/components/ui/media-gallery';
 import { VariantImagePicker } from '@/components/ui/variant-image-picker';
@@ -35,9 +35,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+// Stock has its own home in the Inventory tab — this dialog handles the slow-
+// changing facts of a variant (price, SKU, images). If stock ever needs to ride
+// along again, add it back here AND remove the read-only chip in the variant row.
 const InventoryPatchSchema = z.object({
   pricePaise: z.coerce.number().int().positive(),
-  stock: z.coerce.number().int().nonnegative(),
   sku: z.string().trim().min(1).max(64).optional().or(z.literal('').transform(() => undefined)),
 });
 type InventoryPatchValues = z.infer<typeof InventoryPatchSchema>;
@@ -213,7 +215,19 @@ function VariantsTab({ listing, onChanged }: { listing: Listing; onChanged: () =
                   <Td className="text-right font-mono text-[14px] tabular-nums">
                     {formatPaise(v.pricePaise)}
                   </Td>
-                  <Td className="text-right font-mono text-[14px] tabular-nums">{v.stock}</Td>
+                  <Td className="text-right">
+                    {/* Stock is read-only here on purpose — Inventory owns it.
+                        Click jumps to the Inventory row pre-filtered by SKU (or
+                        product name when no SKU is set). */}
+                    <Link
+                      to={`/retailer/inventory?q=${encodeURIComponent(v.sku ?? listing.name)}`}
+                      className="group/stock inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[13.5px] tabular-nums text-ink-2 hover:bg-bg-3 hover:text-ink"
+                      title="Edit stock in Inventory"
+                    >
+                      {v.stock}
+                      <ArrowUpRight className="size-3 text-ink-4 transition-transform group-hover/stock:-translate-y-px group-hover/stock:translate-x-px" />
+                    </Link>
+                  </Td>
                   <Td className="text-right font-mono text-[13px] text-ink-3 tabular-nums">{v.reserved}</Td>
                   <Td className="text-right">
                     <Button
@@ -585,9 +599,9 @@ function EditInventoryDialog({
     formState: { errors, isSubmitting },
   } = useForm({
     resolver: zodResolver(InventoryPatchSchema),
-    defaultValues: { pricePaise: 0, stock: 0, sku: '' },
+    defaultValues: { pricePaise: 0, sku: '' },
     ...(target
-      ? { values: { pricePaise: target.pricePaise, stock: target.stock, sku: target.sku ?? '' } }
+      ? { values: { pricePaise: target.pricePaise, sku: target.sku ?? '' } }
       : {}),
   });
 
@@ -609,7 +623,6 @@ function EditInventoryDialog({
         method: 'PATCH',
         body: {
           pricePaise: v.pricePaise,
-          stock: v.stock,
           ...(v.sku ? { sku: v.sku } : {}),
           imageUrls,
         },
@@ -625,11 +638,9 @@ function EditInventoryDialog({
       toast.error(
         code === 'sku_taken'
           ? 'That SKU collides with another variant.'
-          : code === 'invalid_state'
-            ? (e instanceof ApiError && e.message) || 'Cannot lower stock below reserved'
-            : e instanceof Error
-              ? e.message
-              : 'Could not save',
+          : e instanceof Error
+            ? e.message
+            : 'Could not save',
       );
     },
   });
@@ -639,22 +650,23 @@ function EditInventoryDialog({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Edit {target?.attributesLabel}</DialogTitle>
-          <DialogDescription>Update price, stock, SKU, or images.</DialogDescription>
+          <DialogDescription>
+            Update price, SKU, or images. Stock lives on the{' '}
+            <Link to="/retailer/inventory" className="text-ink underline underline-offset-2">
+              Inventory
+            </Link>{' '}
+            tab.
+          </DialogDescription>
         </DialogHeader>
         {target && (
           <form onSubmit={handleSubmit((v) => save.mutate(v))} className="space-y-6" noValidate>
             <div>
-              <div className="kicker mb-2 text-ink-3">Pricing &amp; inventory</div>
-              <div className="grid gap-5 sm:grid-cols-3">
+              <div className="kicker mb-2 text-ink-3">Pricing &amp; identity</div>
+              <div className="grid gap-5 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="ePrice" required hint="paise">Price</Label>
                   <Input id="ePrice" mono type="number" min={1} {...register('pricePaise')} />
                   <FieldError>{errors.pricePaise?.message}</FieldError>
-                </div>
-                <div>
-                  <Label htmlFor="eStock" required>Stock</Label>
-                  <Input id="eStock" mono type="number" min={0} {...register('stock')} />
-                  <FieldError>{errors.stock?.message}</FieldError>
                 </div>
                 <div>
                   <Label htmlFor="eSku">SKU</Label>
@@ -672,7 +684,9 @@ function EditInventoryDialog({
                 </div>
               </div>
               <p className="mt-2 text-[11.5px] uppercase tracking-[0.14em] text-ink-3">
-                Currently reserved: <span className="text-ink font-mono normal-case">{target.reserved}</span>. New stock must be ≥ this.
+                Stock <span className="text-ink font-mono normal-case">{target.stock}</span>{' '}
+                · reserved <span className="text-ink font-mono normal-case">{target.reserved}</span>{' '}
+                · edit on the Inventory tab.
               </p>
             </div>
 

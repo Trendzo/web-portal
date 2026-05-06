@@ -2,6 +2,12 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { AdminProfile, RetailerProfile } from './types';
 
+/** localStorage key for the persisted auth slice. Exported so account-switch
+ *  and sign-out flows can write directly without round-tripping through the
+ *  React-visible store (see `prepareAccountChangeForReload`). */
+export const AUTH_STORAGE_KEY = 'closetx-dashboard.auth';
+const AUTH_STORAGE_VERSION = 2;
+
 /**
  * One signed-in identity (admin OR retailer). The store can hold many of these and
  * switch between them — the *active* one is what `session` points at.
@@ -36,6 +42,10 @@ type AuthStore = {
   /** Mirror of `accounts.find(activeId)` — kept in sync on every mutation so existing
    *  `useAuth(s => s.session)` selectors continue to work without further changes. */
   session: Session | null;
+  /** True once `persist` has finished rehydrating from localStorage. Gates auth-
+   *  dependent UI (e.g. <RoleGate>) so it doesn't redirect to login on the first
+   *  render of a fresh document, before the persisted session has arrived. */
+  hasHydrated: boolean;
 
   /** Add (or refresh, by id) an account and make it active. */
   signIn: (s: Session) => void;
@@ -47,6 +57,8 @@ type AuthStore = {
   switchTo: (id: AccountId) => void;
   /** Patch fields on the currently-active retailer profile (e.g. after creating a store). */
   patchRetailer: (patch: Partial<RetailerProfile>) => void;
+  /** Internal: flipped to `true` once `persist` finishes rehydrating from localStorage. */
+  setHasHydrated: (v: boolean) => void;
 };
 
 function setActive(accounts: Session[], id: AccountId | null) {
@@ -60,6 +72,7 @@ export const useAuth = create<AuthStore>()(
       accounts: [],
       activeId: null,
       session: null,
+      hasHydrated: false,
 
       signIn: (s) => {
         const id = accountIdOf(s);
@@ -86,7 +99,8 @@ export const useAuth = create<AuthStore>()(
         });
       },
 
-      signOutAll: () => set({ accounts: [], activeId: null, session: null }),
+      signOutAll: () =>
+        set({ accounts: [], activeId: null, session: null }),
 
       patchRetailer: (patch) => {
         const cur = get().session;
@@ -96,11 +110,23 @@ export const useAuth = create<AuthStore>()(
         const accounts = get().accounts.map((a) => (accountIdOf(a) === id ? updated : a));
         set({ accounts, ...setActive(accounts, id) });
       },
+
+      setHasHydrated: (v) => set({ hasHydrated: v }),
     }),
     {
-      name: 'closetx-dashboard.auth',
-      version: 2,
+      name: AUTH_STORAGE_KEY,
+      version: AUTH_STORAGE_VERSION,
       storage: createJSONStorage(() => localStorage),
+      // `hasHydrated` is a runtime signal, not data — never let an old persisted
+      // value of `false` leak back in and clobber the post-rehydration `true`.
+      partialize: (state) => ({
+        accounts: state.accounts,
+        activeId: state.activeId,
+        session: state.session,
+      }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
       // v1 schema was `{ session }`. Promote it into the v2 multi-account shape so
       // anyone who signed in before the upgrade keeps their session.
       migrate: (persisted, fromVersion) => {
@@ -125,4 +151,42 @@ export const useAuth = create<AuthStore>()(
 /** Convenience: read the current bearer token (or null) without subscribing. */
 export function getToken(): string | null {
   return useAuth.getState().session?.token ?? null;
+}
+
+/**
+ * Write the desired post-reload auth state straight to localStorage WITHOUT
+ * touching the in-memory React store. Use this immediately before
+ * `window.location.assign(...)` in account-switch and sign-out flows.
+ *
+ * Why this exists: calling `useAuth.setState(...)` (e.g. via `switchTo` or
+ * `signOut`) mutates the store synchronously, so React re-renders the
+ * currently-mounted RoleGate with the new session. If the new session is the
+ * wrong `kind` for the current route — which is exactly the case mid-switch —
+ * the gate fires `<Navigate to="/admin/login" />` before the browser has had
+ * a chance to process `window.location.assign`. The login page paints for one
+ * frame, producing a visible flash. Writing to storage directly bypasses the
+ * React render path entirely; the next document picks up the right session
+ * during its own hydration.
+ */
+export function prepareAccountChangeForReload(next: {
+  accounts: Session[];
+  activeId: AccountId | null;
+}): void {
+  const session = next.activeId
+    ? next.accounts.find((a) => accountIdOf(a) === next.activeId) ?? null
+    : null;
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    const wrapper = raw ? JSON.parse(raw) : { state: {}, version: AUTH_STORAGE_VERSION };
+    wrapper.state = {
+      ...(wrapper.state ?? {}),
+      accounts: next.accounts,
+      activeId: next.activeId,
+      session,
+    };
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(wrapper));
+  } catch {
+    // Storage unavailable — caller falls back to the in-memory path. The flash
+    // is preferable to silently dropping the switch.
+  }
 }

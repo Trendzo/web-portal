@@ -4,6 +4,7 @@ import {
   accountHomeOf,
   accountIdOf,
   accountLabelOf,
+  prepareAccountChangeForReload,
   useAuth,
   type Session,
 } from '@/lib/auth';
@@ -27,16 +28,22 @@ function useAccountActions() {
   const navigate = useNavigate();
   const accounts = useAuth((s) => s.accounts);
   const session = useAuth((s) => s.session);
-  const switchTo = useAuth((s) => s.switchTo);
-  const signOut = useAuth((s) => s.signOut);
-  const signOutAll = useAuth((s) => s.signOutAll);
+
+  // Switch / sign-out flows write the desired post-reload state directly to
+  // storage and then trigger a full document load — they never call the
+  // in-memory mutators (`switchTo`, `signOut`, `signOutAll`). Mutating the
+  // React-visible store synchronously would re-render the currently-mounted
+  // RoleGate with a new (often wrong-kind) session and bounce it to the
+  // login page in the same task that issues `window.location.assign`,
+  // producing a one-frame login flash before the browser unloads the
+  // document. See `prepareAccountChangeForReload` in lib/auth.ts.
 
   const switchToAccount = (s: Session) => {
     if (session && accountIdOf(session) === accountIdOf(s)) return;
-    switchTo(accountIdOf(s));
-    // Full document load — auth store has just changed and an in-memory route swap
-    // causes a race where the new route's <RoleGate> reads the OLD session for one
-    // render and redirects to login.
+    prepareAccountChangeForReload({
+      accounts,
+      activeId: accountIdOf(s),
+    });
     window.location.assign(accountHomeOf(s));
   };
 
@@ -45,16 +52,18 @@ function useAccountActions() {
   };
 
   const signOutActive = () => {
-    const remaining = accounts.filter(
-      (a) => session && accountIdOf(a) !== accountIdOf(session),
-    );
-    signOut();
+    if (!session) return;
+    const remaining = accounts.filter((a) => accountIdOf(a) !== accountIdOf(session));
     const next = remaining[0];
+    prepareAccountChangeForReload({
+      accounts: remaining,
+      activeId: next ? accountIdOf(next) : null,
+    });
     window.location.assign(next ? accountHomeOf(next) : '/');
   };
 
   const signOutEveryone = () => {
-    signOutAll();
+    prepareAccountChangeForReload({ accounts: [], activeId: null });
     window.location.assign('/');
   };
 
@@ -82,18 +91,18 @@ export function AccountMenu({ className }: { className?: string }) {
         <button
           type="button"
           className={cn(
-            'group flex items-center gap-2 rounded-md border border-transparent ' +
-              'px-1.5 py-1 hover:bg-bg-3 hover:border-line transition-colors ' +
+            'group flex items-center gap-2.5 rounded-full border border-line ' +
+              'pl-1 pr-3 py-1 hover:bg-bg-3 transition-colors press ' +
               'focus-visible:outline-none focus-visible:border-line-strong',
             className,
           )}
         >
           <KindBadge kind={session.kind} />
           <span className="hidden text-left leading-tight sm:block min-w-0">
-            <span className="block max-w-[160px] truncate text-[12.5px] font-medium text-ink">
+            <span className="block max-w-[160px] truncate text-[13px] font-semibold text-ink">
               {activeLabel.primary}
             </span>
-            <span className="block max-w-[160px] truncate text-[10.5px] text-ink-3">
+            <span className="block max-w-[160px] truncate text-[11px] text-ink-3">
               {activeLabel.secondary}
             </span>
           </span>

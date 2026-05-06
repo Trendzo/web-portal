@@ -1,10 +1,16 @@
 import type {
+  ActorType,
   ClubbingDefault,
   CollectionKind,
   CollectionStatus,
+  DeliveryMethod,
   DiscountType,
   ListingStatus,
   Mechanism,
+  OrderGroupStatus,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
   PromotionConfig,
   PromotionStatus,
   RetailerStatus,
@@ -184,5 +190,203 @@ export function formatDiscount(discountType: DiscountType, config: PromotionConf
     }
     case 'free_shipping':
       return 'Free shipping';
+  }
+}
+
+// ─── Orders ───
+
+export type OrderStatusMeta = {
+  label: string;
+  /** One of the centralised tones for the Badge component. */
+  tone: Tone;
+  /** Short kicker/eyebrow for status hero blocks (uppercase tracked). */
+  kicker: string;
+  /** When true, Badge should show the pulse-dot to flag "needs eyes here". */
+  pulse: boolean;
+  /** Bucket the status into one of three high-level UX buckets. */
+  bucket: 'open' | 'needs-action' | 'in-transit' | 'done' | 'cancelled' | 'failed';
+};
+
+export function orderStatusMeta(s: OrderStatus): OrderStatusMeta {
+  switch (s) {
+    case 'pending':
+      return { label: 'Awaiting payment', tone: 'warning', kicker: 'Pending', pulse: true, bucket: 'open' };
+    case 'confirmed':
+      return { label: 'Confirmed', tone: 'info', kicker: 'Confirmed', pulse: false, bucket: 'open' };
+    case 'routing':
+      return { label: 'Awaiting acceptance', tone: 'warning', kicker: 'Routing', pulse: true, bucket: 'needs-action' };
+    case 'accepted':
+      return { label: 'Accepted', tone: 'info', kicker: 'Accepted', pulse: true, bucket: 'needs-action' };
+    case 'packed':
+      return { label: 'Packed — ready for pickup', tone: 'info', kicker: 'Packed', pulse: true, bucket: 'needs-action' };
+    case 'picked_up':
+      return { label: 'Picked up by agent', tone: 'info', kicker: 'Picked up', pulse: false, bucket: 'in-transit' };
+    case 'out_for_delivery':
+      return { label: 'Out for delivery', tone: 'info', kicker: 'On the way', pulse: false, bucket: 'in-transit' };
+    case 'at_door':
+      return { label: 'At customer door', tone: 'info', kicker: 'At door', pulse: true, bucket: 'in-transit' };
+    case 'undelivered':
+      return { label: 'Delivery failed', tone: 'warning', kicker: 'Undelivered', pulse: true, bucket: 'needs-action' };
+    case 'returning_to_store':
+      return { label: 'Returning to store', tone: 'warning', kicker: 'Returning', pulse: false, bucket: 'in-transit' };
+    case 'returned_to_store':
+      return { label: 'Awaiting verification', tone: 'warning', kicker: 'Verify', pulse: true, bucket: 'needs-action' };
+    case 'delivered':
+      return { label: 'Delivered', tone: 'success', kicker: 'Delivered', pulse: false, bucket: 'done' };
+    case 'closed':
+      return { label: 'Closed', tone: 'neutral', kicker: 'Closed', pulse: false, bucket: 'done' };
+    case 'cancelled':
+      return { label: 'Cancelled', tone: 'danger', kicker: 'Cancelled', pulse: false, bucket: 'cancelled' };
+    case 'payment_failed':
+      return { label: 'Payment failed', tone: 'danger', kicker: 'Payment failed', pulse: true, bucket: 'failed' };
+  }
+}
+
+export function orderGroupStatusMeta(s: OrderGroupStatus): { label: string; tone: Tone } {
+  switch (s) {
+    case 'in_flight':
+      return { label: 'In flight', tone: 'info' };
+    case 'partially_delivered':
+      return { label: 'Partially delivered', tone: 'warning' };
+    case 'all_delivered':
+      return { label: 'All delivered', tone: 'success' };
+    case 'partially_cancelled':
+      return { label: 'Partially cancelled', tone: 'warning' };
+    case 'all_cancelled':
+      return { label: 'All cancelled', tone: 'danger' };
+  }
+}
+
+export function paymentStatusMeta(s: PaymentStatus): { label: string; tone: Tone } {
+  switch (s) {
+    case 'pending':
+      return { label: 'Pending', tone: 'warning' };
+    case 'succeeded':
+      return { label: 'Succeeded', tone: 'success' };
+    case 'failed':
+      return { label: 'Failed', tone: 'danger' };
+    case 'superseded':
+      return { label: 'Superseded', tone: 'neutral' };
+  }
+}
+
+export function deliveryMethodLabel(m: DeliveryMethod): string {
+  switch (m) {
+    case 'express':
+      return 'Express';
+    case 'standard':
+      return 'Standard';
+    case 'pickup':
+      return 'Store pickup';
+    case 'try_and_buy':
+      return 'Try & buy';
+  }
+}
+
+export function paymentMethodLabel(m: PaymentMethod): string {
+  switch (m) {
+    case 'upi':
+      return 'UPI';
+    case 'card':
+      return 'Card';
+    case 'cod':
+      return 'Cash on delivery';
+    case 'wallet':
+      return 'Wallet';
+    case 'gift_card':
+      return 'Gift card';
+  }
+}
+
+export function actorLabel(a: ActorType): string {
+  switch (a) {
+    case 'consumer':
+      return 'Customer';
+    case 'retailer':
+      return 'Store';
+    case 'admin':
+      return 'Admin';
+    case 'delivery_agent':
+      return 'Agent';
+    case 'system':
+      return 'System';
+  }
+}
+
+/** Human-readable age — "5m ago", "2h ago", "3d ago". */
+export function formatAge(input: string | Date | number): string {
+  const ts = input instanceof Date ? input.getTime() : new Date(input).getTime();
+  const ms = Date.now() - ts;
+  if (ms < 60_000) return 'just now';
+  const m = Math.floor(ms / 60_000);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+// ─── Returns / Refunds / Held ───
+
+export function returnDecisionMeta(d: 'pending' | 'accepted' | 'rejected'): { label: string; tone: Tone } {
+  switch (d) {
+    case 'pending':
+      return { label: 'Awaiting verification', tone: 'warning' };
+    case 'accepted':
+      return { label: 'Accepted', tone: 'success' };
+    case 'rejected':
+      return { label: 'Rejected', tone: 'danger' };
+  }
+}
+
+export function refundStatusMeta(s: 'pending' | 'processing' | 'succeeded' | 'partially_disbursed' | 'failed'): { label: string; tone: Tone } {
+  switch (s) {
+    case 'pending':
+      return { label: 'Pending', tone: 'warning' };
+    case 'processing':
+      return { label: 'Processing', tone: 'info' };
+    case 'succeeded':
+      return { label: 'Succeeded', tone: 'success' };
+    case 'partially_disbursed':
+      return { label: 'Partial', tone: 'warning' };
+    case 'failed':
+      return { label: 'Failed', tone: 'danger' };
+  }
+}
+
+export function refundDisbursementStatusMeta(s: 'pending' | 'succeeded' | 'failed'): { label: string; tone: Tone } {
+  switch (s) {
+    case 'pending':
+      return { label: 'Pending', tone: 'warning' };
+    case 'succeeded':
+      return { label: 'Succeeded', tone: 'success' };
+    case 'failed':
+      return { label: 'Failed', tone: 'danger' };
+  }
+}
+
+export function heldItemStatusMeta(s: 'holding' | 'expired' | 'resolved'): { label: string; tone: Tone } {
+  switch (s) {
+    case 'holding':
+      return { label: 'Holding', tone: 'warning' };
+    case 'expired':
+      return { label: 'Window expired', tone: 'neutral' };
+    case 'resolved':
+      return { label: 'Resolved', tone: 'success' };
+  }
+}
+
+export function heldItemDispositionLabel(d: 'returned_to_consumer' | 'redelivered' | 'forfeited_to_store' | 'restocked' | 'written_off'): string {
+  switch (d) {
+    case 'returned_to_consumer':
+      return 'Returned to consumer';
+    case 'redelivered':
+      return 'Redelivered';
+    case 'forfeited_to_store':
+      return 'Forfeited to store';
+    case 'restocked':
+      return 'Restocked';
+    case 'written_off':
+      return 'Written off';
   }
 }

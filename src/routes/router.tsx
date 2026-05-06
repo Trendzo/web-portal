@@ -16,6 +16,7 @@ import RetailerDashboard from './retailer/dashboard';
 import RetailerStorePage from './retailer/store';
 import RetailerListings from './retailer/listings';
 import RetailerListingDetail from './retailer/listing-detail';
+import RetailerInventory from './retailer/inventory';
 import RetailerBrands from './retailer/brands';
 import AdminPromotions from './admin/promotions';
 import AdminPromotionNew from './admin/promotion-new';
@@ -28,6 +29,14 @@ import AdminPromotionPreview from './admin/promotion-preview';
 import RetailerPromotions from './retailer/promotions';
 import RetailerPromotionNew from './retailer/promotion-new';
 import RetailerPromotionDetail from './retailer/promotion-detail';
+import AdminOrdersList from './admin/orders/list';
+import AdminPlaceTestOrder from './admin/orders/place';
+import AdminOrderDetail from './admin/orders/detail';
+import RetailerOrdersList from './retailer/orders/list';
+import RetailerOrderDetail from './retailer/orders/detail';
+import AdminRefunds from './admin/refunds';
+import AdminHeldItems from './admin/held-items';
+import RetailerHeldItems from './retailer/held-items';
 
 export const router = createBrowserRouter([
   { path: '/', element: <Landing /> },
@@ -54,6 +63,11 @@ export const router = createBrowserRouter([
       { path: 'consumers', element: <AdminConsumers /> },
       { path: 'consumers/:id', element: <AdminConsumerDetail /> },
       { path: 'promotion-preview', element: <AdminPromotionPreview /> },
+      { path: 'orders', element: <AdminOrdersList /> },
+      { path: 'orders/new', element: <AdminPlaceTestOrder /> },
+      { path: 'orders/:id', element: <AdminOrderDetail /> },
+      { path: 'refunds', element: <AdminRefunds /> },
+      { path: 'held-items', element: <AdminHeldItems /> },
     ],
   },
 
@@ -69,10 +83,14 @@ export const router = createBrowserRouter([
       { path: 'store', element: <RetailerStorePage /> },
       { path: 'listings', element: <RetailerListings /> },
       { path: 'listings/:id', element: <RetailerListingDetail /> },
+      { path: 'inventory', element: <RetailerInventory /> },
       { path: 'brands', element: <RetailerBrands /> },
       { path: 'promotions', element: <RetailerPromotions /> },
       { path: 'promotions/new', element: <RetailerPromotionNew /> },
       { path: 'promotions/:id', element: <RetailerPromotionDetail /> },
+      { path: 'orders', element: <RetailerOrdersList /> },
+      { path: 'orders/:id', element: <RetailerOrderDetail /> },
+      { path: 'held-items', element: <RetailerHeldItems /> },
     ],
   },
 

@@ -1,78 +1,77 @@
 @import "tailwindcss";
 
-/* Workstation — operator console aesthetic. White-on-ink monochrome with a single
-   vermillion accent inspired by Indian textile dyes. Dark mode is a first-class citizen
-   for ops staff who live in this tool for hours. */
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap");
-@import url("https://api.fontshare.com/v2/css?f[]=general-sans@200,300,400,500,600,700&display=swap");
+/* ClosetX dashboard — refined monochrome console.
+   Whites, blacks, generous radii, soft shadows. Status colors (success/danger/warning)
+   are reserved for pill states and percentage deltas; the rest of the surface stays neutral.
+   Inter and JetBrains Mono are loaded via index.html (avoids Tailwind reordering @import). */
 
 @theme {
-  /* Surfaces */
+  /* Surfaces — soft cool-white shell with off-white panels */
   --color-bg: #ffffff;
   --color-bg-2: #fafafa;
-  --color-bg-3: #f5f5f4;
-  --color-bg-4: #e7e5e4;
+  --color-bg-3: #f5f5f5;
+  --color-bg-4: #ebebeb;
+  --color-shell: #f6f6f7;
 
   /* Text */
   --color-ink: #0a0a0a;
   --color-ink-2: #404040;
-  --color-ink-3: #737373;
-  --color-ink-4: #a3a3a3;
-  --color-ink-disabled: #d4d4d4;
+  --color-ink-3: #6b7280;
+  --color-ink-4: #9ca3af;
+  --color-ink-disabled: #d4d4d8;
 
   /* Borders */
-  --color-line: #e7e5e4;
-  --color-line-2: #d6d3d1;
-  --color-line-strong: #a8a29e;
+  --color-line: #ececec;
+  --color-line-2: #dcdcdc;
+  --color-line-strong: #b0b0b0;
 
-  /* Signature accent — vermillion. Used sparingly for primary CTAs, active nav,
-     focus rings, and anchor counts. Indian textile-dye warmth, not aggressive red. */
-  --color-accent: #d6432b;
+  /* Active / primary — ink. The single dark surface in the layout (active sidebar
+     item, featured KPI, primary button) reads as "the thing that matters". */
+  --color-accent: #0a0a0a;
   --color-accent-fg: #ffffff;
-  --color-accent-soft: #fdf2ef;
-  --color-accent-2: #b53620; /* hover */
-  --color-accent-strip: #d6432b;
+  --color-accent-soft: #f3f3f3;
+  --color-accent-2: #1f1f1f;
+  --color-accent-strip: transparent;
 
-  /* Status — muted, not neon */
-  --color-success: #15803d;
-  --color-success-soft: #f0fdf4;
-  --color-success-strong: #14532d;
-  --color-warning: #b45309;
+  /* Status — calm not neon */
+  --color-success: #10b981;
+  --color-success-soft: #ecfdf5;
+  --color-success-strong: #047857;
+  --color-warning: #d97706;
   --color-warning-soft: #fffbeb;
-  --color-danger: #b91c1c;
+  --color-danger: #ef4444;
   --color-danger-soft: #fef2f2;
-  --color-info: #0369a1;
-  --color-info-soft: #f0f9ff;
+  --color-info: #2563eb;
+  --color-info-soft: #eff6ff;
 
-  /* Type */
+  /* Type — Inter for everything, JetBrains Mono for numbers */
   --font-sans:
-    "General Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono:
     "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
 
-  /* Radii — modest, functional */
-  --radius-sm: 4px;
-  --radius: 6px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
-  --radius-xl: 12px;
-  --radius-2xl: 16px;
+  /* Radii — softer, more rounded than the previous workstation tokens */
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-2xl: 22px;
 
-  /* Shadows */
-  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.04);
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.06), 0 1px 1px 0 rgb(0 0 0 / 0.04);
-  --shadow-md: 0 4px 8px -2px rgb(0 0 0 / 0.06), 0 2px 4px -2px rgb(0 0 0 / 0.04);
-  --shadow-lg: 0 10px 20px -6px rgb(0 0 0 / 0.10), 0 4px 8px -4px rgb(0 0 0 / 0.06);
+  /* Shadows — diffuse, low-key */
+  --shadow-xs: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+  --shadow-sm: 0 1px 3px 0 rgb(15 23 42 / 0.06), 0 1px 2px 0 rgb(15 23 42 / 0.04);
+  --shadow-md: 0 4px 12px -2px rgb(15 23 42 / 0.08), 0 2px 4px -2px rgb(15 23 42 / 0.04);
+  --shadow-lg: 0 16px 32px -8px rgb(15 23 42 / 0.12), 0 4px 8px -4px rgb(15 23 42 / 0.06);
+  --shadow-card: 0 1px 0 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.04);
 
-  /* Back-compat aliases — old "Atelier" tokens map onto the new Workstation palette.
-     Lets pages still using `bg-paper`, `border-rule`, etc. render correctly under the
-     new system. Any future page should use the canonical names (bg-bg / border-line). */
+  /* Back-compat aliases — older pages still reach for these. */
   --color-paper: #ffffff;
   --color-paper-2: #fafafa;
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
-  --color-rule: #e7e5e4;
-  --color-rule-strong: #d6d3d1;
+  --color-rule: #ececec;
+  --color-rule-strong: #dcdcdc;
 }
 
 /* Dark mode — class-toggled via `html.dark`. */
@@ -80,63 +79,71 @@
 
 html.dark {
   --color-bg: #0a0a0a;
-  --color-bg-2: #171717;
-  --color-bg-3: #262626;
-  --color-bg-4: #404040;
+  --color-bg-2: #131313;
+  --color-bg-3: #1c1c1c;
+  --color-bg-4: #2a2a2a;
+  --color-shell: #060606;
 
   --color-ink: #fafafa;
-  --color-ink-2: #d4d4d4;
-  --color-ink-3: #a3a3a3;
-  --color-ink-4: #737373;
-  --color-ink-disabled: #525252;
+  --color-ink-2: #d4d4d8;
+  --color-ink-3: #9ca3af;
+  --color-ink-4: #6b7280;
+  --color-ink-disabled: #3f3f46;
 
-  --color-line: #262626;
-  --color-line-2: #404040;
-  --color-line-strong: #525252;
+  --color-line: #232323;
+  --color-line-2: #2f2f2f;
+  --color-line-strong: #4a4a4a;
 
-  /* Vermillion stays hot on dark — drop saturation slightly so it doesn't burn */
-  --color-accent: #ef4836;
+  /* Inverted active in dark — white pill with ink text reads cleanly on a black shell. */
+  --color-accent: #ffffff;
   --color-accent-fg: #0a0a0a;
-  --color-accent-soft: #2a1815;
-  --color-accent-2: #f97316;
-  --color-accent-strip: #ef4836;
+  --color-accent-soft: #1c1c1c;
+  --color-accent-2: #e5e5e5;
+  --color-accent-strip: transparent;
 
-  --color-success: #4ade80;
-  --color-success-soft: #052e16;
-  --color-success-strong: #86efac;
+  --color-success: #34d399;
+  --color-success-soft: #052e1f;
+  --color-success-strong: #6ee7b7;
   --color-warning: #fbbf24;
-  --color-warning-soft: #451a03;
+  --color-warning-soft: #2a1d05;
   --color-danger: #f87171;
-  --color-danger-soft: #450a0a;
-  --color-info: #38bdf8;
+  --color-danger-soft: #2a0a0a;
+  --color-info: #60a5fa;
   --color-info-soft: #0c1e2e;
 
   --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.5);
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.6), 0 1px 1px 0 rgb(0 0 0 / 0.4);
-  --shadow-md: 0 4px 8px -2px rgb(0 0 0 / 0.6), 0 2px 4px -2px rgb(0 0 0 / 0.4);
-  --shadow-lg: 0 10px 20px -6px rgb(0 0 0 / 0.7), 0 4px 8px -4px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 16px 32px -8px rgb(0 0 0 / 0.7), 0 4px 8px -4px rgb(0 0 0 / 0.4);
+  --shadow-card: 0 1px 0 0 rgb(255 255 255 / 0.02), 0 1px 3px 0 rgb(0 0 0 / 0.5);
 
-  /* Back-compat alias overrides for dark mode */
   --color-paper: #0a0a0a;
-  --color-paper-2: #171717;
+  --color-paper-2: #131313;
   --color-surface: #0a0a0a;
-  --color-surface-raised: #171717;
-  --color-rule: #262626;
-  --color-rule-strong: #404040;
+  --color-surface-raised: #131313;
+  --color-rule: #232323;
+  --color-rule-strong: #2f2f2f;
 }
 
-* {
-  border-color: var(--color-line);
+/* Default border color reset, scoped to @layer base so any Tailwind border-color
+   utility (e.g. `border-[#2a2a2a]`, `border-bg/10`) still wins over it. Without
+   the layer, this rule sits in the unnamed "anonymous" layer and overrides
+   every utility — making explicit border colors silently render as
+   `--color-line`. */
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
 }
 
 html, body, #root {
   background-color: var(--color-bg);
   color: var(--color-ink);
   font-family: var(--font-sans);
-  font-feature-settings: "ss03", "cv03", "cv04";
+  font-feature-settings: "cv11", "ss01", "ss03";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.005em;
 }
 
 .font-mono {
@@ -144,37 +151,31 @@ html, body, #root {
   font-variant-numeric: tabular-nums;
 }
 
-/* Tight focus ring — vermillion outline at 2px offset */
+/* Tabular numerals globally — keeps stat counters from jittering as digits change. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Focus ring — neutral ink outline, soft offset */
 :where(button, a, input, select, textarea, [role="button"], [tabindex]):focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-ink);
   outline-offset: 2px;
   border-radius: var(--radius);
 }
 
-/* Standard kicker label — small caps tracked, not editorial */
+/* Standard kicker — small caps tracked */
 .kicker {
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-weight: 500;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--color-ink-3);
 }
 
-/* Vermillion top-strip on the primary action card per page */
-.accent-strip {
-  position: relative;
-}
-.accent-strip::before {
-  content: "";
-  position: absolute;
-  top: -1px;
-  left: -1px;
-  right: -1px;
-  height: 3px;
-  background: var(--color-accent-strip);
-  border-top-left-radius: inherit;
-  border-top-right-radius: inherit;
-}
+/* Accent strip is intentionally inert in this design — kept so older pages still
+   compile, but it renders nothing visible. */
+.accent-strip { position: relative; }
+.accent-strip::before { content: none; }
 
 /* Pulse-dot for "pending" status badges */
 @keyframes pulse-dot {
@@ -187,39 +188,63 @@ html, body, #root {
 
 /* Page reveal — gentle fade-in stagger */
 @keyframes lift {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 [data-stagger] > * {
-  animation: lift 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: lift 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 [data-stagger] > *:nth-child(1) { animation-delay: 0ms; }
-[data-stagger] > *:nth-child(2) { animation-delay: 50ms; }
-[data-stagger] > *:nth-child(3) { animation-delay: 100ms; }
-[data-stagger] > *:nth-child(4) { animation-delay: 150ms; }
-[data-stagger] > *:nth-child(5) { animation-delay: 200ms; }
-[data-stagger] > *:nth-child(n+6) { animation-delay: 250ms; }
+[data-stagger] > *:nth-child(2) { animation-delay: 60ms; }
+[data-stagger] > *:nth-child(3) { animation-delay: 120ms; }
+[data-stagger] > *:nth-child(4) { animation-delay: 180ms; }
+[data-stagger] > *:nth-child(5) { animation-delay: 240ms; }
+[data-stagger] > *:nth-child(n+6) { animation-delay: 300ms; }
 
-/* Press feedback — small downward translate on active */
+/* Sweep-in for the chart path */
+@keyframes draw-line {
+  from { stroke-dashoffset: 1200; }
+  to   { stroke-dashoffset: 0; }
+}
+.draw-line { stroke-dasharray: 1200; animation: draw-line 1100ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+/* Press feedback */
 .press {
-  transition: transform 80ms ease, background-color 120ms ease, border-color 120ms ease;
+  transition: transform 80ms ease, background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
 .press:active { transform: translateY(1px); }
 
-/* Selection — subtle accent */
+/* Selection */
 ::selection {
-  background: var(--color-accent);
-  color: var(--color-accent-fg);
+  background: var(--color-ink);
+  color: var(--color-bg);
 }
 
-/* Scrollbars — thin neutral */
+/* Scrollbars — slim, neutral, more visible on hover so wheel-scroll feels alive
+   inside dropdowns and overflow areas. Firefox uses `scrollbar-width`/`color`. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: var(--color-line-2) transparent;
+}
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-line-2);
-  border-radius: 4px;
-  border: 2px solid var(--color-bg);
+  background: transparent;
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 160ms ease;
 }
-::-webkit-scrollbar-thumb:hover { background: var(--color-line-strong); }
+*:hover::-webkit-scrollbar-thumb {
+  background-color: var(--color-line-2);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-line-strong) !important;
+  background-clip: padding-box;
+}
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* Keyboard hint chip */
@@ -239,4 +264,12 @@ html, body, #root {
   border-bottom-width: 2px;
   border-radius: 4px;
   line-height: 1;
+}
+
+/* Card surface utility — used by dashboard panels to keep the same softness everywhere. */
+.surface-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
 }

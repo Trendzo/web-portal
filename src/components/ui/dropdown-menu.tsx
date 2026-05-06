@@ -16,8 +16,8 @@ export const DropdownMenuContent = forwardRef<
         sideOffset={sideOffset}
         align={align}
         className={cn(
-          'z-50 min-w-[260px] overflow-hidden rounded-lg ' +
-            'border border-line bg-bg shadow-md p-1 text-ink',
+          'z-50 min-w-[220px] max-h-[60vh] overflow-y-auto rounded-xl ' +
+            'border border-line bg-bg shadow-md p-1.5 text-ink',
           className,
         )}
         {...rest}

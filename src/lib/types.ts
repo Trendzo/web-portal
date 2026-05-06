@@ -100,6 +100,28 @@ export type Listing = {
   variants?: Variant[];
 };
 
+/** One row of the retailer's flat inventory roster — variant + the bits of its
+ *  parent listing the operator needs to scan and act on. */
+export type InventoryRow = {
+  id: string;
+  listingId: string;
+  listingName: string;
+  listingStatus: ListingStatus;
+  brandName: string | null;
+  sku: string | null;
+  attributesLabel: string;
+  pricePaise: number;
+  stock: number;
+  reserved: number;
+};
+
+/** Shape returned by `POST /retailer/inventory/import`. */
+export type InventoryImportResult = {
+  applied: number;
+  skipped: number;
+  errors: { row: number; sku: string; reason: string }[];
+};
+
 export type AdminRetailerView = RetailerProfile & {
   subRole: RetailerSubRole;
   createdAt: string;
@@ -337,6 +359,212 @@ export type ConsumerSummary = {
   signupAt: string;
 };
 
+// ─────────────────────── Orders ───────────────────────
+
+export type OrderStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'routing'
+  | 'accepted'
+  | 'packed'
+  | 'picked_up'
+  | 'out_for_delivery'
+  | 'at_door'
+  | 'undelivered'
+  | 'returning_to_store'
+  | 'returned_to_store'
+  | 'delivered'
+  | 'cancelled'
+  | 'payment_failed'
+  | 'closed';
+
+export type OrderGroupStatus =
+  | 'in_flight'
+  | 'partially_delivered'
+  | 'all_delivered'
+  | 'partially_cancelled'
+  | 'all_cancelled';
+
+export type PaymentStatus = 'pending' | 'succeeded' | 'failed' | 'superseded';
+export type DeliveryAttemptOutcome = 'delivered' | 'undelivered' | 'returning_to_store';
+export type ActorType = 'consumer' | 'retailer' | 'admin' | 'delivery_agent' | 'system';
+
+export type OrderItemOutcome =
+  | 'pending_delivery'
+  | 'delivered_kept'
+  | 'at_door_kept'
+  | 'at_door_returned'
+  | 'at_door_refused'
+  | 'at_store_pending_verification'
+  | 'store_accepted_return'
+  | 'store_rejected_held'
+  | 'held_collected_at_counter'
+  | 'held_redelivered'
+  | 'held_abandoned'
+  | 'held_window_expired'
+  | 'dispute_open'
+  | 'dispute_resolved_refund'
+  | 'dispute_resolved_fresh_delivery'
+  | 'dispute_resolved_pickup'
+  | 'dispute_resolved_no_refund'
+  | 'cancelled';
+
+export type OrderListRow = {
+  id: string;
+  groupId?: string;
+  status: OrderStatus;
+  storeId?: string;
+  storeName?: string;
+  consumerId?: string;
+  consumerName: string;
+  consumerPhone?: string;
+  deliveryMethod: DeliveryMethod;
+  paymentMethod: PaymentMethod;
+  itemCount: number;
+  grandTotalPaise: number;
+  placedAt: string;
+  acceptedAt: string | null;
+  deliveredAt: string | null;
+};
+
+export type OrderItem = {
+  id: string;
+  orderId: string;
+  listingId: string;
+  variantId: string;
+  listingNameSnap: string;
+  brandSnap: string;
+  categorySnap: string;
+  hsnSnap: string | null;
+  galleryImageSnap: string | null;
+  attributesLabelSnap: string;
+  qty: number;
+  unitPricePaise: number;
+  lineSubtotalPaise: number;
+  retailerPromoAllocPaise: number;
+  platformPromoAllocPaise: number;
+  couponAllocPaise: number;
+  pointsAllocPaise: number;
+  gstRateBp: number;
+  gstAllocPaise: number;
+  netLinePaise: number;
+  outcome: OrderItemOutcome;
+};
+
+export type OrderTransition = {
+  id: string;
+  orderId: string;
+  fromStatus: OrderStatus | null;
+  toStatus: OrderStatus;
+  actorType: ActorType;
+  actorId: string;
+  reason: string | null;
+  metadata: Record<string, unknown> | null;
+  at: string;
+};
+
+export type Payment = {
+  id: string;
+  orderId: string;
+  method: PaymentMethod;
+  amountPaise: number;
+  status: PaymentStatus;
+  gatewayRef: string | null;
+  previousPaymentId: string | null;
+  initiatedAt: string;
+  settledAt: string | null;
+};
+
+export type DeliveryAttempt = {
+  id: string;
+  orderId: string;
+  deliveryAgentId: string | null;
+  attemptNumber: number;
+  outcome: DeliveryAttemptOutcome;
+  notes: string | null;
+  proofPhotos: string[];
+  attemptedAt: string;
+};
+
+export type AvailableTransition = {
+  from: OrderStatus;
+  to: OrderStatus;
+  actors: ActorType[];
+};
+
+export type OrderDetail = {
+  id: string;
+  groupId: string;
+  status: OrderStatus;
+  storeId: string;
+  consumerId: string;
+  addressId: string | null;
+  deliveryMethod: DeliveryMethod;
+  paymentMethod: PaymentMethod;
+  paymentMethodLabel: string;
+
+  consumerNameSnap: string;
+  consumerEmailSnap: string;
+  consumerPhoneSnap: string;
+  addressLine1Snap: string | null;
+  addressLine2Snap: string | null;
+  addressCitySnap: string | null;
+  addressPincodeSnap: string | null;
+  addressStateCodeSnap: string | null;
+
+  storeNameSnap: string;
+  storeAddressSnap: string;
+  storeGstinSnap: string;
+  storeStateCodeSnap: string;
+
+  itemsSubtotalPaise: number;
+  retailerPromoPaise: number;
+  platformPromoPaise: number;
+  couponPaise: number;
+  pointsRedeemedPaise: number;
+  walletAppliedPaise: number;
+  taxPaise: number;
+  taxSplitKind: 'intra_state' | 'inter_state';
+  cgstPaise: number;
+  sgstPaise: number;
+  igstPaise: number;
+  deliveryFeePaise: number;
+  handlingFeePaise: number;
+  convenienceFeePaise: number;
+  grandTotalPaise: number;
+  platformFeeBpSnap: number;
+
+  placedAt: string;
+  acceptedAt: string | null;
+  deliveredAt: string | null;
+  closedAt: string | null;
+  piiScrubbedAt: string | null;
+  idempotencyKey: string;
+
+  group: { id: string; status: OrderGroupStatus; placedAt: string };
+  items: OrderItem[];
+  payments: Payment[];
+  transitions: OrderTransition[];
+  deliveryAttempts: DeliveryAttempt[];
+  availableTransitions: AvailableTransition[];
+  returns?: Return[];
+  refunds?: Refund[];
+  heldItems?: HeldItem[];
+};
+
+export type PlaceOrderResult = {
+  orderId: string;
+  groupId: string;
+  status: OrderStatus;
+  pricing: PricingBreakdown;
+  alreadyExisted: boolean;
+};
+
+export type TestConsumerCreated = {
+  consumer: { id: string; email: string; phone: string; name: string };
+  addressId: string;
+};
+
 export type PricingBreakdown = {
   lineSubtotalPaise: number;
   appliedPromotions: Array<{
@@ -365,4 +593,94 @@ export type PricingBreakdown = {
   totalPaise: number;
   loyaltyEarnedPoints: number;
   loyaltyRedeemedPoints: number;
+};
+
+// ─────────────────────── Returns / Refunds / Held ───────────────────────
+
+export type ReturnKind = 'door_return' | 'standard_return';
+export type AgentDisposition = 'kept' | 'returned' | 'refused';
+export type StoreReturnDecision = 'pending' | 'accepted' | 'rejected';
+
+export type Return = {
+  id: string;
+  orderItemId: string;
+  kind: ReturnKind;
+  openedAt: string;
+  reasonText: string | null;
+  photos: string[];
+  agentDisposition: AgentDisposition | null;
+  storeDecision: StoreReturnDecision;
+  storeDecidedAt: string | null;
+  verificationWindowExpiresAt: string | null;
+};
+
+export type ReturnWithItem = Return & {
+  orderItem: OrderItem & { order: OrderDetail };
+};
+
+export type RefundStatus =
+  | 'pending'
+  | 'processing'
+  | 'succeeded'
+  | 'partially_disbursed'
+  | 'failed';
+
+export type RefundDisbursementStatus = 'pending' | 'succeeded' | 'failed';
+export type RefundDestination = 'original_tender' | 'wallet';
+
+export type RefundLine = {
+  id: string;
+  refundId: string;
+  orderItemId: string;
+  refundedAmountPaise: number;
+  couponClawbackPaise: number;
+  pointsClawbackPaise: number;
+  taxRefundPaise: number;
+};
+
+export type RefundDisbursement = {
+  id: string;
+  refundId: string;
+  destination: RefundDestination;
+  sourcePaymentId: string | null;
+  amountPaise: number;
+  status: RefundDisbursementStatus;
+  gatewayRef: string | null;
+  previousDisbursementId: string | null;
+  initiatedAt: string;
+  settledAt: string | null;
+};
+
+export type Refund = {
+  id: string;
+  orderId: string;
+  totalRefundPaise: number;
+  status: RefundStatus;
+  reason: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  lines: RefundLine[];
+  disbursements: RefundDisbursement[];
+};
+
+export type HeldItemStatus = 'holding' | 'expired' | 'resolved';
+export type HeldItemDisposition =
+  | 'returned_to_consumer'
+  | 'redelivered'
+  | 'forfeited_to_store'
+  | 'restocked'
+  | 'written_off';
+
+export type HeldItem = {
+  id: string;
+  returnId: string;
+  storeId: string;
+  consumerId: string;
+  status: HeldItemStatus;
+  disposition: HeldItemDisposition | null;
+  holdingWindowExpiresAt: string;
+  extendedByAdminId: string | null;
+  extensionReason: string | null;
+  resolvedAt: string | null;
+  return?: ReturnWithItem;
 };
