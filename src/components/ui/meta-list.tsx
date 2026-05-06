@@ -8,7 +8,10 @@ type Item = {
   hint?: string;
 };
 
-/** Hairline-separated key/value list — kicker labels above mono-friendly values. */
+/**
+ * Definition list for key/value details. Hairline-separated rows by default;
+ * pass `cols` for a grid layout.
+ */
 export function MetaList({
   items,
   className,
@@ -20,19 +23,19 @@ export function MetaList({
 }) {
   const grid = cols === 1 ? '' : cols === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3';
   return (
-    <dl className={cn('grid grid-cols-1 gap-x-8 gap-y-5', grid, className)}>
+    <dl className={cn('grid grid-cols-1 gap-x-8 gap-y-4', grid, className)}>
       {items.map((it) => (
-        <div key={it.label} className="border-t border-rule pt-3 first:border-t-0 first:pt-0 sm:border-t sm:pt-3 sm:first:border-t">
-          <dt className="kicker mb-1 text-ink-3">{it.label}</dt>
+        <div key={it.label} className="space-y-1">
+          <dt className="kicker">{it.label}</dt>
           <dd
             className={cn(
-              'text-[15px] text-ink leading-snug break-words',
-              it.mono && 'font-mono text-[13.5px]',
+              'text-[14px] text-ink leading-snug break-words',
+              it.mono && 'font-mono text-[13px]',
             )}
           >
             {it.value}
           </dd>
-          {it.hint && <p className="mt-0.5 text-[12px] text-ink-3">{it.hint}</p>}
+          {it.hint && <p className="text-[11.5px] text-ink-3">{it.hint}</p>}
         </div>
       ))}
     </dl>

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
 type EmptyProps = {
+  icon?: ReactNode;
   kicker?: string;
   title: string;
   description?: ReactNode;
@@ -9,23 +10,26 @@ type EmptyProps = {
   className?: string;
 };
 
-/** Empty state — like a blank gallery wall, with a kicker / title / optional CTA. */
-export function Empty({ kicker = 'Nothing to show', title, description, action, className }: EmptyProps) {
+export function Empty({ icon, kicker, title, description, action, className }: EmptyProps) {
   return (
     <div
       className={cn(
-        'flex flex-col items-center justify-center text-center',
-        'border border-dashed border-rule-strong bg-surface/40',
-        'px-6 py-20 rounded-xs',
+        'flex flex-col items-center justify-center rounded-lg border border-dashed border-line-2 ' +
+          'bg-bg-2/40 px-6 py-14 text-center',
         className,
       )}
     >
-      <div className="kicker mb-4">— {kicker} —</div>
-      <h3 className="font-display italic text-[36px] leading-[0.95] max-w-md text-ink">{title}</h3>
-      {description && (
-        <p className="mt-3 max-w-md text-sm text-ink-2 leading-relaxed">{description}</p>
+      {icon && (
+        <div className="mb-4 flex size-10 items-center justify-center rounded-full bg-bg-3 text-ink-3">
+          {icon}
+        </div>
       )}
-      {action && <div className="mt-6">{action}</div>}
+      {kicker && <div className="kicker mb-1.5">{kicker}</div>}
+      <h3 className="text-[16px] font-semibold text-ink">{title}</h3>
+      {description && (
+        <p className="mt-1.5 max-w-sm text-[13px] text-ink-3 leading-relaxed">{description}</p>
+      )}
+      {action && <div className="mt-5">{action}</div>}
     </div>
   );
 }

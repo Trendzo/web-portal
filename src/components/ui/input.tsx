@@ -1,10 +1,12 @@
 import { forwardRef, type InputHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { cn } from '@/lib/cn';
 
-/**
- * Underline-style fields — single hairline at the bottom that thickens on focus, no
- * full-bordered box. Mono modifier flips the typeface for SKUs / GSTINs / IDs.
- */
+const baseField =
+  'w-full rounded-md border border-line-2 bg-bg px-3 py-2 text-[14px] text-ink ' +
+  'placeholder:text-ink-4 placeholder:font-normal ' +
+  'focus:outline-none focus:border-ink focus:ring-2 focus:ring-accent/20 ' +
+  'transition-colors disabled:cursor-not-allowed disabled:opacity-60 ' +
+  'disabled:bg-bg-2';
 
 export const Input = forwardRef<
   HTMLInputElement,
@@ -13,7 +15,7 @@ export const Input = forwardRef<
   return (
     <input
       ref={ref}
-      className={cn('field-underline text-[15px] leading-snug', mono && 'font-mono text-sm', className)}
+      className={cn(baseField, 'h-9', mono && 'font-mono text-[13px]', className)}
       {...rest}
     />
   );
@@ -25,7 +27,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
       <textarea
         ref={ref}
         rows={rows}
-        className={cn('field-underline text-[15px] leading-snug resize-y', className)}
+        className={cn(baseField, 'resize-y leading-relaxed', className)}
         {...rest}
       />
     );

@@ -2,8 +2,8 @@ import type { HTMLAttributes } from 'react';
 import { cn } from '@/lib/cn';
 
 /**
- * The brand wordmark — Fraunces italic Closet, then a thin separator, then a roman X.
- * Used in the masthead. Optional `kicker` underneath (e.g. "Admin", "Retailer").
+ * Brand wordmark. ClosetX, with the X picked out in vermillion as the visual hook.
+ * No italic, no editorial flourish — just a tight wordmark.
  */
 type MarkProps = HTMLAttributes<HTMLDivElement> & {
   kicker?: string;
@@ -11,21 +11,21 @@ type MarkProps = HTMLAttributes<HTMLDivElement> & {
 };
 
 const sizeClass: Record<NonNullable<MarkProps['size']>, string> = {
-  sm: 'text-[22px]',
-  md: 'text-[28px]',
-  lg: 'text-[36px]',
+  sm: 'text-[18px]',
+  md: 'text-[20px]',
+  lg: 'text-[28px]',
 };
 
 export function Mark({ kicker, size = 'md', className, ...rest }: MarkProps) {
   return (
     <div className={cn('flex flex-col leading-none', className)} {...rest}>
-      <div className={cn('flex items-baseline font-display', sizeClass[size])}>
-        <span className="italic font-medium tracking-[-0.02em]">Closet</span>
-        <span aria-hidden className="mx-1 text-ink-3 font-light italic">/</span>
-        <span className="font-medium not-italic tracking-[0.02em]">X</span>
+      <div className={cn('font-semibold tracking-tight text-ink', sizeClass[size])}>
+        Closet<span className="text-accent">X</span>
       </div>
       {kicker && (
-        <div className="mt-1 kicker text-ink-3">{kicker}</div>
+        <div className="mt-1 text-[10.5px] uppercase tracking-[0.12em] text-ink-3 font-medium">
+          {kicker}
+        </div>
       )}
     </div>
   );

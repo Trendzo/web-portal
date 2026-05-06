@@ -13,33 +13,31 @@ const Overlay = forwardRef<
   return (
     <DialogPrimitive.Overlay
       ref={ref}
-      className={cn('fixed inset-0 z-50 bg-ink/45 backdrop-blur-[1px]', className)}
+      className={cn('fixed inset-0 z-50 bg-ink/50 backdrop-blur-sm', className)}
       {...rest}
     />
   );
 });
 
 type Side = 'top' | 'right' | 'left' | 'bottom';
-
 const sideStyles: Record<Side, string> = {
-  top: 'inset-x-0 top-0 border-b border-ink',
-  bottom: 'inset-x-0 bottom-0 border-t border-ink',
-  left: 'inset-y-0 left-0 w-80 border-r border-ink',
-  right: 'inset-y-0 right-0 w-80 border-l border-ink',
+  top: 'inset-x-0 top-0 border-b border-line',
+  bottom: 'inset-x-0 bottom-0 border-t border-line',
+  left: 'inset-y-0 left-0 w-80 max-w-[85vw] border-r border-line',
+  right: 'inset-y-0 right-0 w-80 max-w-[85vw] border-l border-line',
 };
 
 export const SheetContent = forwardRef<
   ElementRef<typeof DialogPrimitive.Content>,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { side?: Side }
->(function SheetContent({ className, side = 'top', children, ...rest }, ref) {
+>(function SheetContent({ className, side = 'left', children, ...rest }, ref) {
   return (
     <DialogPrimitive.Portal>
       <Overlay />
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          'fixed z-50 bg-paper text-ink shadow-[0_8px_30px_-12px_rgba(26,20,16,0.35)]',
-          'focus-visible:outline-none flex flex-col',
+          'fixed z-50 bg-bg text-ink shadow-lg flex flex-col focus-visible:outline-none',
           sideStyles[side],
           className,
         )}
@@ -52,5 +50,5 @@ export const SheetContent = forwardRef<
 });
 
 export function SheetHeader({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('px-5 py-4 border-b border-rule', className)} {...rest} />;
+  return <div className={cn('px-5 py-4 border-b border-line', className)} {...rest} />;
 }

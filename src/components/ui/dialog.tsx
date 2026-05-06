@@ -15,7 +15,7 @@ const Overlay = forwardRef<
     <DialogPrimitive.Overlay
       ref={ref}
       className={cn(
-        'fixed inset-0 z-50 bg-ink/45 backdrop-blur-[1px]',
+        'fixed inset-0 z-50 bg-ink/50 backdrop-blur-sm',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         className,
       )}
@@ -34,18 +34,20 @@ export const DialogContent = forwardRef<
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          'fixed left-1/2 top-1/2 z-50 flex w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col',
-          'max-h-[calc(100vh-2rem)]',
-          'bg-surface border border-ink shadow-[8px_10px_0_-2px_rgba(26,20,16,0.18)]',
-          'rounded-xs focus-visible:outline-none',
+          'fixed left-1/2 top-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-lg ' +
+            '-translate-x-1/2 -translate-y-1/2 flex-col max-h-[calc(100vh-2rem)] ' +
+            'bg-bg border border-line rounded-xl shadow-lg ' +
+            'focus-visible:outline-none',
           className,
         )}
         {...rest}
       >
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-7">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
+          {children}
+        </div>
         <DialogPrimitive.Close
           aria-label="Close"
-          className="absolute right-3 top-3 p-1.5 text-ink-3 hover:text-ink hover:bg-paper-2 rounded-xs"
+          className="absolute right-3 top-3 p-1.5 text-ink-3 hover:text-ink hover:bg-bg-3 rounded-md transition-colors"
         >
           <X className="size-4" />
         </DialogPrimitive.Close>
@@ -55,12 +57,7 @@ export const DialogContent = forwardRef<
 });
 
 export function DialogHeader({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cn('mb-5 pb-4 border-b border-rule space-y-1.5', className)}
-      {...rest}
-    />
-  );
+  return <div className={cn('mb-5 space-y-1.5', className)} {...rest} />;
 }
 
 export const DialogTitle = forwardRef<
@@ -70,7 +67,7 @@ export const DialogTitle = forwardRef<
   return (
     <DialogPrimitive.Title
       ref={ref}
-      className={cn('font-display italic text-[26px] leading-tight tracking-tight', className)}
+      className={cn('text-[17px] font-semibold text-ink leading-snug', className)}
       {...rest}
     />
   );
@@ -83,7 +80,7 @@ export const DialogDescription = forwardRef<
   return (
     <DialogPrimitive.Description
       ref={ref}
-      className={cn('text-[13.5px] text-ink-2 leading-relaxed', className)}
+      className={cn('text-[13px] text-ink-3 leading-relaxed', className)}
       {...rest}
     />
   );
@@ -92,7 +89,7 @@ export const DialogDescription = forwardRef<
 export function DialogFooter({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('mt-7 pt-4 border-t border-rule flex items-center justify-end gap-2', className)}
+      className={cn('mt-6 flex items-center justify-end gap-2', className)}
       {...rest}
     />
   );

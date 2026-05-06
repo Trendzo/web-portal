@@ -4,33 +4,62 @@ import { cn } from '@/lib/cn';
 import type { Tone } from '@/lib/status';
 
 /**
- * Stamp badge — square, hairline-bordered, slightly rotated like an ink stamp.
- * Use the `flat` tone for a simple meta tag (no rotation, less visual weight).
+ * Status pill — circular dot prefix + label. The `pulse` modifier animates the dot
+ * to attract eyes to "pending" / "needs action" states.
  */
-const stamp = cva('stamp', {
-  variants: {
-    tone: {
-      neutral: 'text-ink-2 bg-paper-2 border-rule-strong',
-      info: 'text-info bg-info-soft border-info/30',
-      success: 'text-success bg-success-soft border-success/30',
-      warning: 'text-warning bg-warning-soft border-warning/30',
-      danger: 'text-danger bg-danger-soft border-danger/30',
-    } satisfies Record<Tone, string>,
-    flat: {
-      true: '!transform-none !border-rule !bg-transparent text-ink-2 !tracking-[0.12em] !text-[10px]',
-      false: '',
+const badge = cva(
+  'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 ' +
+    'text-[11px] font-medium leading-none whitespace-nowrap',
+  {
+    variants: {
+      tone: {
+        neutral: 'border-line-2 bg-bg-2 text-ink-2',
+        info: 'border-info/20 bg-info-soft text-info',
+        success: 'border-success/20 bg-success-soft text-success',
+        warning: 'border-warning/20 bg-warning-soft text-warning',
+        danger: 'border-danger/20 bg-danger-soft text-danger',
+      } satisfies Record<Tone, string>,
+      flat: {
+        true: 'border-line bg-transparent text-ink-3',
+        false: '',
+      },
     },
-    tilt: {
-      l: 'tilt-l',
-      r: 'tilt-r',
-      none: '!transform-none',
-    },
+    defaultVariants: { tone: 'neutral', flat: false },
   },
-  defaultVariants: { tone: 'neutral', tilt: 'none' },
-});
+);
 
-export type BadgeProps = HTMLAttributes<HTMLSpanElement> & VariantProps<typeof stamp>;
+const dotColor: Record<Tone, string> = {
+  neutral: 'bg-ink-3',
+  info: 'bg-info',
+  success: 'bg-success',
+  warning: 'bg-warning',
+  danger: 'bg-danger',
+};
 
-export function Badge({ className, tone, flat, tilt, ...rest }: BadgeProps) {
-  return <span className={cn(stamp({ tone, flat, tilt }), className)} {...rest} />;
+export type BadgeProps = HTMLAttributes<HTMLSpanElement> &
+  VariantProps<typeof badge> & {
+    pulse?: boolean | undefined;
+    /** Hide the leading dot (e.g. for compact contexts). */
+    nodot?: boolean | undefined;
+    /** Deprecated — kept so existing callsites compile. */
+    tilt?: 'l' | 'r' | 'none' | undefined;
+  };
+
+export function Badge({ className, tone, flat, pulse, nodot, tilt: _tilt, children, ...rest }: BadgeProps) {
+  const t = tone ?? 'neutral';
+  return (
+    <span className={cn(badge({ tone: t, flat }), className)} {...rest}>
+      {!nodot && (
+        <span
+          className={cn(
+            'inline-block size-1.5 rounded-full shrink-0',
+            dotColor[t],
+            pulse && 'pulse-dot',
+          )}
+          aria-hidden
+        />
+      )}
+      {children}
+    </span>
+  );
 }

@@ -1,10 +1,10 @@
 import { Link, Navigate } from 'react-router-dom';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowRight, ShieldCheck, Store } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { Mark } from '@/components/ui/mark';
 
 /**
- * Landing — pick a role and sign in. Bold typography, plain words.
+ * Landing — clean role chooser. Two clear paths: admin sign in, retailer sign up/in.
  */
 export default function Landing() {
   const session = useAuth((s) => s.session);
@@ -12,69 +12,50 @@ export default function Landing() {
   if (session?.kind === 'retailer') return <Navigate to="/retailer/dashboard" replace />;
 
   return (
-    <div className="flex min-h-full flex-col bg-paper">
-      <header className="border-b border-rule px-5 sm:px-10 py-6">
-        <div className="mx-auto flex max-w-[1360px] items-center justify-between">
+    <div className="flex min-h-full flex-col bg-bg">
+      <header className="border-b border-line bg-bg">
+        <div className="mx-auto flex max-w-[1400px] items-center justify-between px-5 py-4 sm:px-8">
           <Mark size="md" />
-          <div className="hidden text-right text-[10.5px] uppercase tracking-[0.2em] text-ink-3 md:block">
-            <div>Admin and retailer dashboards</div>
-            <div className="text-ink">for ClosetX</div>
+          <div className="hidden text-right text-[12px] text-ink-3 md:block">
+            ClosetX dashboard · India
           </div>
         </div>
       </header>
 
-      <main
-        className="flex-1 mx-auto w-full max-w-[1360px] px-5 sm:px-10 py-14 sm:py-24"
-        data-stagger
-      >
-        <div className="grid gap-16 lg:grid-cols-12 lg:gap-20">
-          <section className="lg:col-span-7">
-            <div className="kicker mb-6 text-ink-3">ClosetX Dashboards</div>
-            <h1 className="editorial text-[64px] sm:text-[96px] lg:text-[120px] text-ink">
-              Sign in <em className="not-italic">to your</em>
-              <br />
-              <span className="italic">workspace.</span>
-            </h1>
-            <p className="mt-10 max-w-xl text-[16px] leading-relaxed text-ink-2">
-              ClosetX is a quick-commerce marketplace for clothing in India. This is the
-              back office — admins approve retailers and storefronts; retailers list their
-              products and manage inventory. Pick your role on the right.
-            </p>
-          </section>
+      <main className="flex-1 mx-auto w-full max-w-[1100px] px-5 sm:px-8 py-12 sm:py-20">
+        <div className="text-center mb-10 sm:mb-14">
+          <h1 className="text-[28px] sm:text-[36px] font-semibold tracking-tight text-ink mb-3">
+            Pick how you want to sign in
+          </h1>
+          <p className="text-[14px] sm:text-[15px] text-ink-3 max-w-xl mx-auto leading-relaxed">
+            ClosetX runs marketplace operations and a self-serve store manager from
+            one place. Each role has its own area; you can switch between accounts later.
+          </p>
+        </div>
 
-          <aside className="lg:col-span-5 space-y-6">
-            <RoleCard
-              ord="01"
-              title="Admin Ops"
-              kicker="Marketplace operator"
-              description="Approve retailers and storefronts, manage the marketplace."
-              href="/admin/login"
-            />
-            <RoleCard
-              ord="02"
-              title="Retailer Ops"
-              kicker="Store owner"
-              description="List products, manage stock, track your store status."
-              href="/retailer/login"
-              cta={
-                <Link
-                  to="/retailer/signup"
-                  className="mt-3 inline-block font-semibold underline decoration-ink decoration-1 underline-offset-[5px] text-[12px] uppercase tracking-[0.16em] text-ink hover:decoration-2"
-                >
-                  · Or create an account →
-                </Link>
-              }
-            />
-          </aside>
+        <div className="grid gap-4 sm:grid-cols-2 max-w-3xl mx-auto">
+          <RoleCard
+            icon={<ShieldCheck className="size-5" />}
+            kicker="01 · Operations"
+            title="Admin"
+            description="Approve retailers and storefronts, run promotions, manage the marketplace."
+            href="/admin/login"
+          />
+          <RoleCard
+            icon={<Store className="size-5" />}
+            kicker="02 · Store owner"
+            title="Retailer"
+            description="List products, manage inventory, track your store's status. Sign in or create an account."
+            href="/retailer/login"
+            secondary={{ label: 'Don\'t have an account? Sign up', href: '/retailer/signup' }}
+          />
         </div>
       </main>
 
-      <footer className="border-t border-rule px-5 sm:px-10 py-6">
-        <div className="mx-auto flex max-w-[1360px] items-center justify-between text-[10.5px] uppercase tracking-[0.2em] text-ink-3">
-          <span>Closet/X · 2026</span>
-          <span className="font-mono text-[10px] normal-case tracking-normal text-ink-4">
-            quick-commerce, India
-          </span>
+      <footer className="border-t border-line bg-bg-2/50">
+        <div className="mx-auto flex max-w-[1400px] items-center justify-between px-5 sm:px-8 py-4 text-[11.5px] text-ink-3">
+          <span>Closet<span className="text-accent">X</span> · 2026</span>
+          <span>Quick-commerce marketplace · India</span>
         </div>
       </footer>
     </div>
@@ -82,42 +63,46 @@ export default function Landing() {
 }
 
 function RoleCard({
-  ord,
-  title,
+  icon,
   kicker,
+  title,
   description,
   href,
-  cta,
+  secondary,
 }: {
-  ord: string;
-  title: string;
+  icon: React.ReactNode;
   kicker: string;
+  title: string;
   description: string;
   href: string;
-  cta?: React.ReactNode;
+  secondary?: { label: string; href: string };
 }) {
   return (
-    <div className="relative">
-      {/* Offset ink plate sits behind the card. As the card lifts up-left on hover,
-          the plate is revealed — like the card peeling off the page. */}
-      <div aria-hidden className="absolute inset-0 translate-x-1.5 translate-y-1.5 bg-ink/85" />
+    <div className="rounded-xl border border-line bg-bg shadow-xs hover:shadow-md hover:border-line-2 transition-all duration-200 group">
       <Link
         to={href}
-        className="group relative block border border-ink bg-surface p-6 sm:p-8 transition-transform duration-200 ease-out hover:-translate-x-[5px] hover:-translate-y-[5px] hover:bg-paper"
+        className="block p-6 sm:p-7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
       >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="kicker mb-1 text-ink-3">{kicker}</div>
-            <div className="font-mono text-[12px] tracking-wider text-ink-3">No. {ord}</div>
-          </div>
-          <ArrowUpRight className="size-5 text-ink-3 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-ink" />
+        <div className="flex items-start justify-between mb-5">
+          <span className="grid size-10 place-items-center rounded-lg bg-bg-3 text-ink-2 group-hover:bg-accent group-hover:text-accent-fg transition-colors">
+            {icon}
+          </span>
+          <ArrowRight className="size-4 text-ink-4 group-hover:text-ink group-hover:translate-x-1 transition-all" />
         </div>
-        <h2 className="mt-6 font-display italic text-[44px] sm:text-[56px] leading-[0.95] text-ink">
-          {title}
-        </h2>
-        <p className="mt-4 text-[14px] text-ink-2 leading-relaxed">{description}</p>
-        {cta}
+        <div className="kicker mb-1.5">{kicker}</div>
+        <h2 className="text-[20px] font-semibold text-ink mb-2">{title}</h2>
+        <p className="text-[13.5px] text-ink-3 leading-relaxed">{description}</p>
       </Link>
+      {secondary && (
+        <div className="border-t border-line px-6 sm:px-7 py-3">
+          <Link
+            to={secondary.href}
+            className="text-[12.5px] font-medium text-accent hover:underline underline-offset-2"
+          >
+            {secondary.label} →
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

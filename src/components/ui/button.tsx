@@ -5,39 +5,47 @@ import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
 /**
- * Atelier button. Sharp corners, ink-on-paper. Primary actions use small caps tracking;
- * everyday actions stay sentence-case for readability.
+ * Workstation button — clean modern fills, clear hierarchy.
+ *  - `accent`: vermillion CTA, the highest-emphasis primary action
+ *  - `solid`:  ink solid for less-prominent primary
+ *  - `outline`: bordered secondary
+ *  - `ghost`:  transparent toolbar button
+ *  - `danger`: destructive
+ *  - `link`:   inline text link
  */
 const button = cva(
-  'inline-flex items-center justify-center gap-2 rounded-xs font-medium whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50 select-none press',
+  'inline-flex items-center justify-center gap-1.5 rounded-md font-medium ' +
+    'whitespace-nowrap transition-colors press select-none ' +
+    'disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {
-        // Filled ink — the workhorse primary
-        ink: 'bg-ink text-paper hover:bg-ink/90 active:bg-ink/95',
-        // Khadi indigo accent — sparing, for the most consequential CTA on the page
-        accent: 'bg-accent text-accent-fg hover:brightness-110 active:brightness-95',
-        // Hairline outline — secondary
-        outline: 'border border-ink text-ink bg-transparent hover:bg-ink hover:text-paper',
-        // Ghost — minimal toolbar buttons
-        ghost: 'text-ink hover:bg-paper-2',
-        // Danger — madder red
-        danger: 'bg-danger text-paper hover:brightness-110',
-        // Underlined link
-        link: 'text-ink underline-offset-4 hover:underline px-0 h-auto',
+        accent:
+          'bg-accent text-accent-fg hover:bg-accent-2 shadow-xs',
+        solid:
+          'bg-ink text-bg hover:bg-ink-2 shadow-xs',
+        // Alias for `solid` — kept for source-compatibility with the old API.
+        ink:
+          'bg-ink text-bg hover:bg-ink-2 shadow-xs',
+        outline:
+          'border border-line-2 bg-bg text-ink hover:bg-bg-2 hover:border-line-strong shadow-xs',
+        ghost:
+          'text-ink-2 hover:bg-bg-3 hover:text-ink',
+        danger:
+          'bg-danger text-white hover:brightness-110 shadow-xs',
+        link:
+          'text-accent underline-offset-4 hover:underline px-0 h-auto',
       },
       size: {
-        sm: 'h-8 px-3 text-[12.5px]',
-        md: 'h-10 px-4 text-sm',
-        lg: 'h-12 px-6 text-[15px]',
-        icon: 'h-10 w-10',
-      },
-      caps: {
-        true: 'uppercase tracking-[0.14em] text-[11.5px]! font-semibold',
-        false: '',
+        xs: 'h-7 px-2.5 text-[12px]',
+        sm: 'h-8 px-3 text-[13px]',
+        md: 'h-9 px-3.5 text-[13.5px]',
+        lg: 'h-11 px-5 text-[14.5px]',
+        icon: 'h-9 w-9',
+        'icon-sm': 'h-8 w-8',
       },
     },
-    defaultVariants: { variant: 'ink', size: 'md', caps: false },
+    defaultVariants: { variant: 'solid', size: 'md' },
   },
 );
 
@@ -47,6 +55,8 @@ export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> &
     loading?: boolean;
     iconLeft?: ReactNode;
     iconRight?: ReactNode;
+    /** Deprecated — kept for source-compatibility with the old button API. */
+    caps?: boolean;
   };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
@@ -54,29 +64,26 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     className,
     variant,
     size,
-    caps,
     asChild,
     loading,
     iconLeft,
     iconRight,
     children,
     disabled,
+    caps: _caps,
     ...rest
   },
   ref,
 ) {
   const Comp = asChild ? Slot : 'button';
-  // `Slottable` lets Slot identify which child is the merge target when icons are
-  // rendered alongside the slotted content. Without it, Slot sees multiple children
-  // and React.Children.only throws.
   return (
     <Comp
       ref={ref}
-      className={cn(button({ variant, size, caps }), className)}
+      className={cn(button({ variant, size }), className)}
       disabled={disabled || loading}
       {...rest}
     >
-      {loading ? <Loader2 className="size-4 animate-spin" /> : iconLeft}
+      {loading ? <Loader2 className="size-3.5 animate-spin" /> : iconLeft}
       <Slottable>{children}</Slottable>
       {iconRight}
     </Comp>

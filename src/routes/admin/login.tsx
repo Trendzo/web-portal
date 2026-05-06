@@ -9,7 +9,6 @@ import type { AdminProfile } from '@/lib/types';
 import { AuthShell } from '@/components/forms/AuthShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { PasswordInput } from '@/components/ui/password-input';
 import { FieldError, Label } from '@/components/ui/label';
 
 const Schema = z.object({
@@ -28,8 +27,7 @@ export default function AdminLogin() {
     formState: { errors, isSubmitting },
   } = useForm({
     resolver: zodResolver(Schema),
-    // Prefilled with the seeded super-admin credentials for one-click dev sign-in.
-    // Match `ADMIN_SEED_EMAIL` / `ADMIN_SEED_PASSWORD` in backend/.env.
+    // Prefilled with seeded creds for one-click dev sign-in.
     defaultValues: { email: 'admin@closetx.local', password: 'admin1234' },
   });
 
@@ -43,40 +41,38 @@ export default function AdminLogin() {
       toast.success(`Signed in as ${admin.email}`);
       navigate('/admin/dashboard', { replace: true });
     } catch (e) {
-      const msg =
+      toast.error(
         e instanceof ApiError && e.code === 'invalid_credentials'
-          ? 'Those credentials don\'t match. Try again.'
-          : e instanceof Error
-            ? e.message
-            : 'Something went wrong.';
-      toast.error(msg);
+          ? 'Incorrect email or password.'
+          : e instanceof Error ? e.message : 'Something went wrong.',
+      );
     }
   }
 
   return (
     <AuthShell
       kicker="Admin"
-      title={<>Sign in to <em>admin</em></>}
-      blurb={<>Approve retailers and storefronts, manage the marketplace.</>}
+      title="Sign in to admin"
+      blurb="Approve retailers and storefronts, manage promotions and the marketplace."
+      highlights={[
+        'Review the queue of pending retailer applications.',
+        'Approve or reject storefronts before they go live.',
+        'Issue platform-wide promotions, vouchers, and tune loyalty rules.',
+        'Look up consumer wallets and adjust balances when needed.',
+      ]}
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6" noValidate>
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
         <div>
           <Label htmlFor="email" required>Email</Label>
-          <Input
-            id="email"
-            type="email"
-            autoComplete="email"
-            placeholder="e.g. you@company.com"
-            {...register('email')}
-          />
+          <Input id="email" type="email" autoComplete="email" placeholder="you@company.com" {...register('email')} />
           <FieldError>{errors.email?.message}</FieldError>
         </div>
         <div>
           <Label htmlFor="password" required hint="At least 4 characters">Password</Label>
-          <PasswordInput id="password" autoComplete="current-password" {...register('password')} />
+          <Input id="password" type="password" autoComplete="current-password" {...register('password')} />
           <FieldError>{errors.password?.message}</FieldError>
         </div>
-        <Button type="submit" variant="ink" size="lg" caps className="w-full" loading={isSubmitting}>
+        <Button type="submit" variant="accent" size="lg" className="w-full" loading={isSubmitting}>
           Sign in
         </Button>
       </form>

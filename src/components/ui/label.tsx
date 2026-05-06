@@ -2,9 +2,6 @@ import { forwardRef, type ComponentPropsWithoutRef, type ElementRef, type ReactN
 import * as LabelPrimitive from '@radix-ui/react-label';
 import { cn } from '@/lib/cn';
 
-/**
- * Label — small caps + tracking, kicker style, sits above an underline input.
- */
 type LabelProps = ComponentPropsWithoutRef<typeof LabelPrimitive.Root> & {
   required?: boolean;
   hint?: ReactNode;
@@ -16,18 +13,13 @@ export const Label = forwardRef<ElementRef<typeof LabelPrimitive.Root>, LabelPro
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
         <LabelPrimitive.Root
           ref={ref}
-          className={cn(
-            'kicker text-ink-2',
-            className,
-          )}
+          className={cn('text-[12.5px] font-medium text-ink-2', className)}
           {...rest}
         >
           {children}
-          {required && <span className="ml-1 text-danger lowercase">·</span>}
+          {required && <span className="ml-0.5 text-accent">*</span>}
         </LabelPrimitive.Root>
-        {hint && (
-          <span className="text-[10.5px] uppercase tracking-[0.14em] text-ink-3">{hint}</span>
-        )}
+        {hint && <span className="text-[11.5px] text-ink-3 font-normal">{hint}</span>}
       </div>
     );
   },
@@ -38,7 +30,6 @@ type FieldErrorChild =
   | { message?: string | undefined }
   | undefined;
 
-/** Inline error — shows beneath fields. Accepts either text or an RHF FieldError. */
 export function FieldError({ children }: { children?: FieldErrorChild }) {
   if (children == null || children === false) return null;
   const text =
@@ -46,10 +37,5 @@ export function FieldError({ children }: { children?: FieldErrorChild }) {
       ? (children as { message?: string | undefined }).message
       : (children as ReactNode);
   if (!text) return null;
-  return (
-    <p className="mt-1.5 flex items-center gap-1.5 text-[12px] text-danger">
-      <span aria-hidden>·</span>
-      <span>{text}</span>
-    </p>
-  );
+  return <p className="mt-1.5 text-[12px] text-danger leading-snug">{text}</p>;
 }

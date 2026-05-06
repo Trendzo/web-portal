@@ -9,7 +9,6 @@ import type { RetailerProfile } from '@/lib/types';
 import { AuthShell } from '@/components/forms/AuthShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { PasswordInput } from '@/components/ui/password-input';
 import { FieldError, Label } from '@/components/ui/label';
 
 const Schema = z.object({
@@ -45,12 +44,10 @@ export default function RetailerLogin() {
       const code = e instanceof ApiError ? e.code : '';
       toast.error(
         code === 'invalid_credentials'
-          ? "Those credentials don't match. Try again."
+          ? 'Incorrect email or password.'
           : code === 'forbidden'
             ? 'This account has been deactivated. Contact admin for help.'
-            : e instanceof Error
-              ? e.message
-              : 'Login failed.',
+            : e instanceof Error ? e.message : 'Login failed.',
       );
     }
   }
@@ -58,32 +55,35 @@ export default function RetailerLogin() {
   return (
     <AuthShell
       kicker="Retailer"
-      title={<>Sign in to your <em>store</em></>}
-      blurb={<>Manage your store, products, and inventory.</>}
+      title="Sign in to your store"
+      blurb="Manage your storefront, product listings, stock levels and promotions."
+      highlights={[
+        'Track your store approval status at a glance.',
+        'Add products in minutes — name, photos, variants, price, stock.',
+        'Update inventory directly when stock counts change.',
+        'Run promotions for your own catalogue (offers available now).',
+      ]}
       footer={
         <>
           Don't have an account?{' '}
-          <Link
-            to="/retailer/signup"
-            className="font-medium text-ink underline underline-offset-4 hover:no-underline"
-          >
+          <Link to="/retailer/signup" className="font-medium text-accent hover:underline underline-offset-2">
             Create one
           </Link>
         </>
       }
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6" noValidate>
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
         <div>
           <Label htmlFor="email" required>Email</Label>
-          <Input id="email" type="email" autoComplete="email" {...register('email')} />
+          <Input id="email" type="email" autoComplete="email" placeholder="you@store.com" {...register('email')} />
           <FieldError>{errors.email?.message}</FieldError>
         </div>
         <div>
           <Label htmlFor="password" required>Password</Label>
-          <PasswordInput id="password" autoComplete="current-password" {...register('password')} />
+          <Input id="password" type="password" autoComplete="current-password" {...register('password')} />
           <FieldError>{errors.password?.message}</FieldError>
         </div>
-        <Button type="submit" variant="ink" size="lg" caps className="w-full" loading={isSubmitting}>
+        <Button type="submit" variant="accent" size="lg" className="w-full" loading={isSubmitting}>
           Sign in
         </Button>
       </form>
