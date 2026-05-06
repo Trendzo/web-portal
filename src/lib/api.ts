@@ -8,8 +8,13 @@ import type { Envelope } from './types';
  *  3. unwraps the `{ success, data | error }` envelope so call-sites just `await api(...)`
  *  4. throws an `ApiError` carrying the backend error code so handlers can branch on it
  *  5. on 401, clears the session and lets the router redirect to login
+ *
+ * `VITE_API_BASE_URL` overrides the default. In local dev we leave it unset so
+ * Vite's proxy forwards `/api/*` to the backend on :3099. On Vercel we set it to
+ * the deployed backend's full URL (e.g. `https://closetx-backend-86wn.onrender.com/api/v1`)
+ * so the SPA hits the backend directly.
  */
-const BASE = '/api/v1';
+const BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 export class ApiError extends Error {
   constructor(
