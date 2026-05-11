@@ -36,6 +36,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { CopyableId } from '@/components/ui/copyable-id';
 import { Timeline } from '@/components/ui/timeline';
 import { ReturnDialog } from '@/components/ui/return-dialog';
+import { DoorVisitDialog } from '@/components/ui/door-visit-dialog';
 import {
   Dialog,
   DialogContent,
@@ -81,6 +82,7 @@ export default function RetailerOrderDetail() {
   const requestCancel = makeAction('request-cancel');
 
   const [counterReturnOpen, setCounterReturnOpen] = useState(false);
+  const [doorVisitOpen, setDoorVisitOpen] = useState(false);
 
   const verify = useMutation({
     mutationFn: ({ returnId, decision }: { returnId: string; decision: 'accepted' | 'rejected' }) =>
@@ -128,6 +130,7 @@ export default function RetailerOrderDetail() {
                 setReason('');
               },
               openCounterReturn: () => setCounterReturnOpen(true),
+              openDoorVisit: () => setDoorVisitOpen(true),
             }}
             pending={{
               accept: accept.isPending,
@@ -149,6 +152,13 @@ export default function RetailerOrderDetail() {
             onSuccess={() => {
               void qc.invalidateQueries({ queryKey: ['retailer', 'orders', id] });
             }}
+          />
+          <DoorVisitDialog
+            orderId={data.id}
+            items={data.items}
+            open={doorVisitOpen}
+            onOpenChange={setDoorVisitOpen}
+            onClosed={() => qc.invalidateQueries({ queryKey: ['retailer', 'orders'] })}
           />
         </>
       )}
@@ -289,6 +299,15 @@ function Detail({
                 onClick={actions.openCounterReturn}
               >
                 Counter return
+              </Button>
+            )}
+            {order.status === 'at_door' && (
+              <Button
+                variant="accent"
+                size="sm"
+                onClick={actions.openDoorVisit}
+              >
+                Start door visit
               </Button>
             )}
           </div>

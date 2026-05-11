@@ -1,5 +1,5 @@
 import { getToken } from './auth';
-import { ApiError } from './api';
+import { ApiError, BASE } from './api';
 
 export type UploadResult = {
   url: string;
@@ -30,7 +30,7 @@ export async function uploadMedia(
   fd.append('file', file);
 
   const qs = options.folder ? `?folder=${encodeURIComponent(options.folder)}` : '';
-  const res = await fetch(`/api/v1/uploads${qs}`, {
+  const res = await fetch(`${BASE}/uploads${qs}`, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: fd,

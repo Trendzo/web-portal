@@ -15,7 +15,7 @@ import type { Envelope } from './types';
  * the deployed backend's full URL (e.g. `https://closetx-backend-86wn.onrender.com/api/v1`)
  * so the SPA hits the backend directly.
  */
-const BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+export const BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 export class ApiError extends Error {
   constructor(

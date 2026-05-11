@@ -255,6 +255,36 @@ test.describe('Phase 4 — §4 Store Operations', () => {
   });
 });
 
+test.describe('Phase 9 — §9 Fulfilment Variants', () => {
+  test('admin delivery-windows renders fee table', async ({ asAdmin, consoleErrors }) => {
+    await asAdmin.goto('/admin/delivery-windows');
+    await expect(asAdmin.getByRole('heading', { name: /delivery windows/i }).first()).toBeVisible();
+    await expect(asAdmin.getByText(/standard|express|try.and.buy|pickup/i).first()).toBeVisible();
+    expect(consoleErrors).toEqual([]);
+  });
+});
+
+test.describe('Phase 10 — §10 Returns and Held Items', () => {
+  test('retailer returns queue renders two tabs', async ({ asRetailerActive, consoleErrors }) => {
+    await asRetailerActive.goto('/retailer/returns');
+    await expect(asRetailerActive.getByRole('tab', { name: /door returns/i })).toBeVisible();
+    await expect(asRetailerActive.getByRole('tab', { name: /standard returns/i })).toBeVisible();
+    expect(consoleErrors).toEqual([]);
+  });
+
+  test('retailer held-items list renders', async ({ asRetailerActive, consoleErrors }) => {
+    await asRetailerActive.goto('/retailer/held-items');
+    await expect(asRetailerActive.getByRole('heading', { name: /held items/i }).first()).toBeVisible();
+    expect(consoleErrors).toEqual([]);
+  });
+
+  test('admin held-items renders with cross-store visibility', async ({ asAdmin, consoleErrors }) => {
+    await asAdmin.goto('/admin/held-items');
+    await expect(asAdmin.getByRole('heading', { name: /held items/i }).first()).toBeVisible();
+    expect(consoleErrors).toEqual([]);
+  });
+});
+
 test.describe('Phase 8 — §8 Order Pipeline', () => {
   test('live retailer dashboard shows analytics sections', async ({ asRetailerActive, consoleErrors }) => {
     await asRetailerActive.goto('/retailer/dashboard');

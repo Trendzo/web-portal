@@ -144,6 +144,17 @@ async function stubAllApi(page: Page, role: 'admin' | 'retailer-active' | 'retai
       payload = [];
     } else if (/\/promotions/.test(url)) {
       payload = [];
+    } else if (/\/delivery-windows/.test(url)) {
+      payload = {
+        serviceableRadiusKm: 10,
+        surgeMultiplier: 1.0,
+        fees: {
+          standard: { baseFeePaise: 4900, perKmFeePaise: 500 },
+          express: { baseFeePaise: 9900, perKmFeePaise: 800 },
+          try_and_buy: { baseFeePaise: 14900, perKmFeePaise: 1000 },
+          pickup: { baseFeePaise: 0, perKmFeePaise: 0 },
+        },
+      };
     } else if (/\/refunds/.test(url) || /\/disputes/.test(url) || /\/issues/.test(url) || /\/held-items/.test(url)) {
       payload = [];
     } else if (/\/consumers/.test(url)) {

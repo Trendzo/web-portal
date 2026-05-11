@@ -1,3 +1,4 @@
+// MOCK_DEPENDENCY: §9 — delivery windows save endpoint pending (§12 fee config backend)
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -11,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RoleGate } from '@/components/shell/RoleGate';
+import { MockDataBadge } from '@/components/ui/mock-data-badge';
 
 type DeliveryWindowConfig = {
   serviceableRadiusKm: number;
@@ -44,7 +46,12 @@ function Inner() {
         kicker="Fulfilment / Fees"
         title="Delivery windows engine"
         description="Service area, surge hook, and per-method fee table. Super-admin only — fee changes take effect on the next checkout."
-        actions={<Button variant="accent" onClick={() => toast.info('Config saving not yet wired')}>Save</Button>}
+        actions={
+          <div className="flex items-center gap-2">
+            <MockDataBadge label="MOCKED — pending backend §9/§12" />
+            <Button variant="accent" onClick={() => toast.info('Config saving not yet wired')}>Save</Button>
+          </div>
+        }
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
