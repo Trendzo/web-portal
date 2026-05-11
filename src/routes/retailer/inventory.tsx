@@ -12,7 +12,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, BASE } from '@/lib/api';
 import { getToken } from '@/lib/auth';
 import {
   LOW_STOCK_THRESHOLD,
@@ -971,11 +971,9 @@ function ImportSummary({ result }: { result: InventoryImportResult }) {
 async function downloadInventoryCsv() {
   try {
     // We hit fetch directly so we get the raw response (the `api` helper unwraps
-    // the JSON envelope, which doesn't apply to CSV). Mirrors the BASE expression
-    // from lib/api.ts so prod-vs-dev URLs resolve the same way.
-    const base = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+    // the JSON envelope, which doesn't apply to CSV).
     const token = getToken();
-    const res = await fetch(`${base}/retailer/inventory/export`, {
+    const res = await fetch(`${BASE}/retailer/inventory/export`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) {

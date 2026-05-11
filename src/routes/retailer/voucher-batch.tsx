@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, Copy, Download, Sparkles } from 'lucide-react';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, BASE } from '@/lib/api';
+import { getToken } from '@/lib/auth';
 import type { Promotion } from '@/lib/types';
 import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
@@ -65,10 +66,9 @@ export default function RetailerVoucherBatch() {
   });
 
   function downloadCsv() {
-    const token = localStorage.getItem('closetx-dashboard.auth');
-    const authToken = token ? JSON.parse(token).state?.session?.token ?? '' : '';
-    const url = `/api/v1/retailer/voucher-codes/export?promotionId=${promoId}`;
-    fetch(url, { headers: authToken ? { Authorization: `Bearer ${authToken}` } : {} })
+    const token = getToken();
+    const url = `${BASE}/retailer/voucher-codes/export?promotionId=${promoId}`;
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then((r) => r.blob())
       .then((blob) => {
         const a = document.createElement('a');

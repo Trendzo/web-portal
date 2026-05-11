@@ -4,7 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FormProvider, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { ArrowLeft, Copy, Download, Pause, Play, Plus, X } from 'lucide-react';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, BASE } from '@/lib/api';
+import { getToken } from '@/lib/auth';
 import {
   discountTypeLabel,
   formatDiscount,
@@ -277,13 +278,10 @@ function VoucherCodesPanel({ promotionId }: { promotionId: string }) {
   });
 
   const downloadCsv = () => {
-    const url = `/api/v1/admin/promotions/${promotionId}/vouchers?format=csv`;
-    const token = localStorage.getItem('closetx-dashboard.auth');
-    // Simple anchor download with token in header isn't possible — fetch + blob instead.
+    const url = `${BASE}/admin/promotions/${promotionId}/vouchers?format=csv`;
+    const token = getToken();
     fetch(url, {
-      headers: token
-        ? { Authorization: `Bearer ${JSON.parse(token).state?.session?.token ?? ''}` }
-        : {},
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
       .then((r) => r.blob())
       .then((blob) => {
