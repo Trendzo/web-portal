@@ -86,6 +86,9 @@ export function Timeline({
                     <span className="italic">{t.reason}</span>
                   </>
                 )}
+                {typeof t.metadata?.impersonatingAdminSessionId === 'string' && (
+                  <span className="text-[10.5px] text-warning/70 italic">via admin impersonation</span>
+                )}
               </div>
             </div>
           </li>

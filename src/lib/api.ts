@@ -1,3 +1,4 @@
+import type { ZodType } from 'zod';
 import { getToken, useAuth } from './auth';
 import type { Envelope } from './types';
 
@@ -62,4 +63,34 @@ export async function api<T>(path: string, init: ApiInit = {}): Promise<T> {
     throw new ApiError(res.status, json.error.code, json.error.message, json.error.details);
   }
   return json.data;
+}
+
+/**
+ * Like `api<T>` but runs the response through a Zod schema before returning.
+ *
+ * Why this matters: an `api<T>` call type-asserts the success payload but does
+ * not verify it at runtime. If the backend returns the wrong shape (e.g. an
+ * empty array on a single-entity endpoint, a partial migration, a stale
+ * deploy), call-sites blindly read fields off the value and crash deep inside
+ * a render with no useful error. `apiValidated` rejects the malformed payload
+ * up-front with `ApiError(code='invalid_response')`, which `useQuery` then
+ * surfaces through its standard `isError` path so the route can render an
+ * error state instead of throwing into the React render boundary.
+ */
+export async function apiValidated<T>(
+  path: string,
+  schema: ZodType<T>,
+  init: ApiInit = {},
+): Promise<T> {
+  const raw = await api<unknown>(path, init);
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    throw new ApiError(
+      200,
+      'invalid_response',
+      `Response shape mismatch for ${path}`,
+      parsed.error.flatten(),
+    );
+  }
+  return parsed.data;
 }

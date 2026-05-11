@@ -1,8 +1,10 @@
-import { useEffect, useState, type ComponentType } from 'react';
+import { useEffect, useState, type ComponentType, type ReactElement } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { Bell, ChevronsLeft, Menu, Search, X } from 'lucide-react';
+import { ChevronsLeft, Menu, Search, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { AccountMenu, AccountsPanel } from './AccountMenu';
+import { BannerStack } from './BannerStack';
+import { NotificationsBell } from './NotificationsBell';
 
 export type SidebarItem = {
   to: string;
@@ -22,6 +24,8 @@ type SidebarShellProps = {
   groups: SidebarGroup[];
   /** Placeholder shown in the top-bar search affordance. Omit to hide. */
   searchHint?: string;
+  /** Optional element shown inside the dark sidebar footer (e.g. AI quota chip). */
+  sidebarFooter?: ComponentType | ReactElement;
 };
 
 const STORAGE_KEY = 'closetx.sidebar.collapsed';
@@ -32,7 +36,7 @@ const STORAGE_KEY = 'closetx.sidebar.collapsed';
  * column (top-bar + page outlet). Sidebar collapses to icon-only on desktop;
  * on mobile it opens as a slide-over drawer.
  */
-export function SidebarShell({ kindLabel, groups, searchHint }: SidebarShellProps) {
+export function SidebarShell({ kindLabel, groups, searchHint, sidebarFooter }: SidebarShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -45,20 +49,30 @@ export function SidebarShell({ kindLabel, groups, searchHint }: SidebarShellProp
   }, [collapsed]);
 
   return (
-    <div className="flex min-h-screen w-full bg-bg">
+    <div className="flex h-screen w-full overflow-hidden bg-bg">
       {/* Desktop sidebar — inverted: black surface with white-on-black active pill. */}
       <aside
         className={cn(
-          'hidden lg:flex lg:flex-col lg:shrink-0 bg-ink text-bg transition-[width] duration-200',
+          'hidden lg:flex lg:flex-col lg:shrink-0 bg-ink text-bg transition-[width] duration-200 overflow-y-auto',
           collapsed ? 'lg:w-[76px]' : 'lg:w-[244px]',
         )}
       >
         <SidebarHeader collapsed={collapsed} kindLabel={kindLabel} onToggle={() => setCollapsed((c) => !c)} />
         <SidebarBody groups={groups} collapsed={collapsed} />
+        {sidebarFooter && !collapsed && (
+          <div className="shrink-0 border-t border-[#2a2a2a] px-3 py-3">
+            {typeof sidebarFooter === 'function'
+              ? (() => {
+                  const F = sidebarFooter as ComponentType;
+                  return <F />;
+                })()
+              : sidebarFooter}
+          </div>
+        )}
       </aside>
 
       {/* Main column */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Top bar */}
         <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-line bg-bg/95 px-4 sm:px-6 backdrop-blur">
           <button
@@ -90,17 +104,12 @@ export function SidebarShell({ kindLabel, groups, searchHint }: SidebarShellProp
           )}
 
           <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              aria-label="Notifications"
-              className="relative grid size-9 place-items-center rounded-full text-ink-2 hover:bg-bg-3 press"
-            >
-              <Bell className="size-[18px]" />
-              <span className="absolute top-2 right-2 size-1.5 rounded-full bg-danger" />
-            </button>
+            <NotificationsBell />
             <AccountMenu />
           </div>
         </header>
+
+        <BannerStack />
 
         <main className="flex-1 min-h-0 overflow-y-auto bg-bg">
           <Outlet />

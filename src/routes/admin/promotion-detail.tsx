@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { FormProvider, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { ArrowLeft, Copy, Download, Pause, Play, Plus, X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
@@ -28,12 +29,11 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label, FieldError } from '@/components/ui/label';
+import { EligibilitySection, buildScopePayload } from '@/components/promotion/EligibilitySection';
 
 export default function AdminPromotionDetail() {
   const { id = '' } = useParams<{ id: string }>();
   const qc = useQueryClient();
-  const navigate = useNavigate();
-
   const promo = useQuery({
     queryKey: ['admin', 'promotion', id],
     queryFn: () => api<Promotion>(`/admin/promotions/${id}`),
@@ -216,22 +216,52 @@ export default function AdminPromotionDetail() {
         )}
 
         <TabsContent value="settings">
-          <div className="space-y-4 max-w-xl">
-            <p className="text-[13.5px] text-ink-2">
-              Edits to scope / eligibility / clubbing overrides are coming. For MVP, use lifecycle
-              actions above to pause/resume/revoke. Recreate the promotion if you need a structural change.
-            </p>
-            <Button
-              variant="outline"
-              caps
-              onClick={() => navigate('/admin/promotions')}
-            >
-              Back to list
-            </Button>
-          </div>
+          <ScopeEditPanel promotionId={p.id} onSaved={() => qc.invalidateQueries({ queryKey: ['admin', 'promotion', id] })} />
         </TabsContent>
       </Tabs>
     </Page>
+  );
+}
+
+// ─── Scope edit panel ───
+
+function ScopeEditPanel({ promotionId, onSaved }: { promotionId: string; onSaved: () => void }) {
+  const form = useForm({ defaultValues: { scope: {} as Record<string, unknown> } });
+
+  const save = useMutation({
+    mutationFn: (values: { scope: Record<string, unknown> }) => {
+      const scopePayload = buildScopePayload(values.scope);
+      return api(`/admin/promotions/${promotionId}`, {
+        method: 'PATCH',
+        body: { scope: scopePayload },
+      });
+    },
+    onSuccess: () => {
+      toast.success('Eligibility conditions saved');
+      onSaved();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Save failed'),
+  });
+
+  return (
+    <FormProvider {...form}>
+      <form
+        onSubmit={form.handleSubmit((v) => save.mutate(v))}
+        className="space-y-6 max-w-2xl"
+        noValidate
+      >
+        <p className="text-[13px] text-ink-3">
+          Update eligibility conditions for this promotion. Fields left blank remain unrestricted.
+          Saving overwrites the existing scope.
+        </p>
+        <EligibilitySection adminMode />
+        <div className="flex items-center gap-3 pt-2">
+          <Button type="submit" variant="ink" caps loading={save.isPending}>
+            Save conditions
+          </Button>
+        </div>
+      </form>
+    </FormProvider>
   );
 }
 

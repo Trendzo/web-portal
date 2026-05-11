@@ -1,0 +1,204 @@
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
+import { useBannerStack } from '@/lib/banners';
+import type { ComplianceFloorRow, KycReverification, Notification } from '@/lib/types';
+
+export function useKycBanner() {
+  const pushBanner = useBannerStack((s) => s.pushBanner);
+  const clearByKind = useBannerStack((s) => s.clearByKind);
+
+  const { data } = useQuery({
+    queryKey: ['retailer', 'kyc'],
+    queryFn: () => api<KycReverification | null>('/retailer/kyc'),
+  });
+
+  useEffect(() => {
+    if (!data) return;
+    const dueAt = new Date(data.dueAt).getTime();
+    const graceEndsAt = new Date(data.gracePeriodEndsAt).getTime();
+    const now = Date.now();
+
+    if (data.status === 'approved') {
+      clearByKind('kyc');
+      return;
+    }
+
+    const gracePassed = now > graceEndsAt;
+    const dueSoon = now > dueAt - 1000 * 60 * 60 * 24 * 7;
+
+    if (gracePassed) {
+      pushBanner({
+        id: 'kyc-overdue',
+        kind: 'kyc',
+        tone: 'danger',
+        title: 'KYC re-verification overdue',
+        body: 'Your store will auto-pause if documents are not submitted now.',
+        cta: { label: 'Open KYC checklist', href: '/retailer/kyc' },
+        dismissible: false,
+        portal: 'retailer',
+      });
+      return;
+    }
+    if (dueSoon) {
+      pushBanner({
+        id: 'kyc-due-soon',
+        kind: 'kyc',
+        tone: 'warning',
+        title: 'KYC re-verification due soon',
+        body: `Submit refreshed documents before ${new Date(graceEndsAt).toLocaleDateString()} to avoid auto-pause.`,
+        cta: { label: 'Open KYC checklist', href: '/retailer/kyc' },
+        dismissible: true,
+        portal: 'retailer',
+      });
+      return;
+    }
+    clearByKind('kyc');
+  }, [data, pushBanner, clearByKind]);
+}
+
+export function useHolidayBanner() {
+  const clearByKind = useBannerStack((s) => s.clearByKind);
+  useEffect(() => () => clearByKind('maintenance'), [clearByKind]);
+}
+
+export function useOrderSlaBanner() {
+  const clearByKind = useBannerStack((s) => s.clearByKind);
+  useEffect(() => () => clearByKind('floor_breach'), [clearByKind]);
+}
+
+export function useRetailerPayoutBanner() {
+  const pushBanner = useBannerStack((s) => s.pushBanner);
+  const clearByKind = useBannerStack((s) => s.clearByKind);
+  const { data } = useQuery({
+    queryKey: ['retailer', 'inbox', 'banner'],
+    queryFn: () => api<Notification[]>('/retailer/inbox?limit=50'),
+    refetchInterval: 120_000,
+  });
+  useEffect(() => {
+    if (!data) return;
+    const failedPayout = data.find((n) => !n.readAt && n.kind === 'payout' && /failed|retried/i.test(n.title));
+    if (failedPayout) {
+      pushBanner({
+        id: 'retailer-payout-failed',
+        kind: 'maintenance',
+        tone: 'warning',
+        title: failedPayout.title,
+        body: failedPayout.body,
+        cta: { label: 'Open payouts', href: '/retailer/payouts' },
+        dismissible: true,
+        portal: 'retailer',
+      });
+    } else {
+      clearByKind('maintenance');
+    }
+  }, [data, pushBanner, clearByKind]);
+}
+
+export function useAdminPayoutBanner() {
+  const pushBanner = useBannerStack((s) => s.pushBanner);
+  const clearByKind = useBannerStack((s) => s.clearByKind);
+  const { data } = useQuery({
+    queryKey: ['admin', 'inbox', 'banner'],
+    queryFn: () => api<Notification[]>('/admin/inbox?limit=50'),
+    refetchInterval: 120_000,
+  });
+  useEffect(() => {
+    if (!data) return;
+    const failed = data.find((n) => !n.readAt && /failed/i.test(n.title));
+    if (failed) {
+      pushBanner({
+        id: 'admin-failed-payouts',
+        kind: 'maintenance',
+        tone: 'warning',
+        title: failed.title,
+        body: failed.body,
+        cta: { label: 'Open payouts pipeline', href: '/admin/payouts-pipeline' },
+        dismissible: true,
+        portal: 'admin',
+      });
+    } else {
+      clearByKind('maintenance');
+    }
+  }, [data, pushBanner, clearByKind]);
+}
+
+export function useAdminDisputeBanner() {
+  const pushBanner = useBannerStack((s) => s.pushBanner);
+  const clearByKind = useBannerStack((s) => s.clearByKind);
+  const { data } = useQuery({
+    queryKey: ['admin', 'inbox', 'dispute-banner'],
+    queryFn: () => api<Notification[]>('/admin/inbox?limit=50'),
+    refetchInterval: 180_000,
+  });
+  useEffect(() => {
+    if (!data) return;
+    const idleDisputes = data.find((n) => !n.readAt && n.kind === 'issue');
+    if (idleDisputes) {
+      pushBanner({
+        id: 'admin-disputes-idle',
+        kind: 'floor_breach',
+        tone: 'info',
+        title: idleDisputes.title,
+        body: idleDisputes.body,
+        cta: { label: 'Triage disputes', href: '/admin/issues?status=awaiting_admin' },
+        dismissible: true,
+        portal: 'admin',
+      });
+    } else {
+      clearByKind('floor_breach');
+    }
+  }, [data, pushBanner, clearByKind]);
+}
+
+export function useAdminFloorBreachBanner() {
+  const pushBanner = useBannerStack((s) => s.pushBanner);
+  const clearByKind = useBannerStack((s) => s.clearByKind);
+  const { data } = useQuery({
+    queryKey: ['admin', 'reports', 'compliance', 'banner'],
+    queryFn: () => api<ComplianceFloorRow[]>('/admin/reports/compliance'),
+  });
+  useEffect(() => {
+    if (!data) return;
+    if (data.length > 0) {
+      pushBanner({
+        id: 'admin-floor-breach',
+        kind: 'suspended',
+        tone: 'warning',
+        title: `${data.length} retailer${data.length === 1 ? '' : 's'} below performance floor`,
+        body: 'Trigger §3 enforcement to warn or suspend.',
+        cta: { label: 'Open compliance report', href: '/admin/reports/compliance' },
+        dismissible: true,
+        portal: 'admin',
+      });
+    } else {
+      clearByKind('suspended');
+    }
+  }, [data, pushBanner, clearByKind]);
+}
+
+export function useAdminBanActivityBanner() {
+  useEffect(() => undefined, []);
+}
+
+/**
+ * Composite mount points for layouts. Each clears the other portal's banners
+ * on mount so stale cross-portal banners never bleed through.
+ */
+export function useRetailerBanners() {
+  const clearByPortal = useBannerStack((s) => s.clearByPortal);
+  useEffect(() => { clearByPortal('admin'); }, [clearByPortal]);
+  useKycBanner();
+  useHolidayBanner();
+  useOrderSlaBanner();
+  useRetailerPayoutBanner();
+}
+
+export function useAdminBanners() {
+  const clearByPortal = useBannerStack((s) => s.clearByPortal);
+  useEffect(() => { clearByPortal('retailer'); }, [clearByPortal]);
+  useAdminPayoutBanner();
+  useAdminDisputeBanner();
+  useAdminFloorBreachBanner();
+  useAdminBanActivityBanner();
+}

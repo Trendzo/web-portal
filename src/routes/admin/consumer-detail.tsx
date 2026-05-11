@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, IndianRupee, Sparkles } from 'lucide-react';
+import { ArrowLeft, Gift, IndianRupee, Sparkles } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import { formatPaise } from '@/lib/status';
+import { consumerStatusMeta, formatPaise } from '@/lib/status';
 import type {
+  ConsumerProfile,
   ConsumerWallet,
   LoyaltyTier,
   LoyaltyTransaction,
@@ -16,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -39,7 +41,12 @@ export default function AdminConsumerDetail() {
   const { id = '' } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const [adjusting, setAdjusting] = useState<'wallet' | 'loyalty' | null>(null);
+  const [action, setAction] = useState<'suspend' | 'unsuspend' | 'close' | null>(null);
 
+  const profile = useQuery({
+    queryKey: ['admin', 'consumer-profile', id],
+    queryFn: () => api<ConsumerProfile>(`/admin/consumers/${id}`),
+  });
   const wallet = useQuery({
     queryKey: ['admin', 'consumer-wallet', id],
     queryFn: () => api<WalletPayload>(`/admin/loyalty/consumers/${id}/wallet`),
@@ -49,10 +56,15 @@ export default function AdminConsumerDetail() {
     queryFn: () => api<LoyaltyPayload>(`/admin/loyalty/consumers/${id}/loyalty`),
   });
 
-  const refetch = () => {
+  const refetchAll = () => {
+    void qc.invalidateQueries({ queryKey: ['admin', 'consumer-profile', id] });
     void qc.invalidateQueries({ queryKey: ['admin', 'consumer-wallet', id] });
     void qc.invalidateQueries({ queryKey: ['admin', 'consumer-loyalty', id] });
+    void qc.invalidateQueries({ queryKey: ['admin', 'consumers'] });
   };
+
+  const consumer = profile.data;
+  const statusMeta = consumer ? consumerStatusMeta(consumer.status) : null;
 
   return (
     <Page>
@@ -64,12 +76,56 @@ export default function AdminConsumerDetail() {
         All consumers
       </Link>
 
-      <PageHeader
-        title={<>Consumer balances</>}
-        description={<>ID <span className="font-mono text-[13px]">{id}</span></>}
-      />
+      {profile.isLoading ? (
+        <Skeleton className="h-20 mb-6" />
+      ) : consumer ? (
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <h1 className="font-display italic text-[28px] leading-none text-ink">{consumer.name}</h1>
+              {statusMeta && <Badge tone={statusMeta.tone}>{statusMeta.label}</Badge>}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px] text-ink-2">
+              <span>{consumer.email}</span>
+              <span className="text-ink-4">·</span>
+              <span>{consumer.phone}</span>
+              {consumer.genderPreference && (
+                <>
+                  <span className="text-ink-4">·</span>
+                  <span className="capitalize">{consumer.genderPreference}</span>
+                </>
+              )}
+            </div>
+            <div className="mt-1 font-mono text-[10.5px] tracking-wider text-ink-3">
+              {consumer.id} · joined {new Date(consumer.signupAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </div>
+          </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
+          {/* Account actions */}
+          <div className="flex flex-wrap gap-2">
+            {consumer.status === 'active' && (
+              <Button variant="outline" size="sm" caps onClick={() => setAction('suspend')}>
+                Suspend
+              </Button>
+            )}
+            {consumer.status === 'suspended' && (
+              <Button variant="outline" size="sm" caps onClick={() => setAction('unsuspend')}>
+                Unsuspend
+              </Button>
+            )}
+            {consumer.status !== 'closed' && (
+              <Button variant="outline" size="sm" caps className="text-danger border-danger/40 hover:bg-danger/5" onClick={() => setAction('close')}>
+                Close account
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <PageHeader title={<>Consumer</>} description={<span className="font-mono text-[13px]">{id}</span>} />
+      )}
+
+      {/* Wallet + Loyalty + Gift Card cards */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader>
             <div>
@@ -146,56 +202,189 @@ export default function AdminConsumerDetail() {
             )}
           </CardContent>
         </Card>
+
+        <GiftCardBalanceCard consumerId={id} />
       </div>
 
-      <SectionHeading title="Wallet transactions" hint={`${wallet.data?.transactions.length ?? 0} recent`} />
-      <TransactionsTable
-        loading={wallet.isLoading}
-        rows={(wallet.data?.transactions ?? []).map((t) => ({
-          id: t.id,
-          when: t.at,
-          kind: t.kind,
-          amount: formatPaise(t.amountPaise),
-          balance: formatPaise(t.balanceAfterPaise),
-          note: t.note,
-        }))}
-      />
+      <Tabs defaultValue="orders" className="mt-10">
+        <TabsList className="overflow-x-auto whitespace-nowrap">
+          <TabsTrigger value="orders">Orders</TabsTrigger>
+          <TabsTrigger value="returns">Returns</TabsTrigger>
+          <TabsTrigger value="refunds">Refunds</TabsTrigger>
+          <TabsTrigger value="issues">Issues</TabsTrigger>
+          <TabsTrigger value="posts">Posts / reviews</TabsTrigger>
+          <TabsTrigger value="bans">Flags / bans</TabsTrigger>
+          <TabsTrigger value="audit">Wallet + loyalty + audit</TabsTrigger>
+        </TabsList>
 
-      <div className="mt-12">
-        <SectionHeading
-          title="Loyalty transactions"
-          hint={`${loyalty.data?.transactions.length ?? 0} recent`}
-        />
-      </div>
-      <TransactionsTable
-        loading={loyalty.isLoading}
-        rows={(loyalty.data?.transactions ?? []).map((t) => ({
-          id: t.id,
-          when: t.at,
-          kind: t.kind,
-          amount: `${t.points > 0 ? '+' : ''}${t.points} pts`,
-          balance: `${t.balanceAfterPoints} pts`,
-          note: t.note,
-        }))}
-      />
+        <TabsContent value="orders">
+          <RelatedLink title={`All orders by this consumer`} href={`/admin/orders?consumerId=${id}`} />
+        </TabsContent>
+        <TabsContent value="returns">
+          <RelatedLink title="Returns filed by this consumer" href={`/admin/orders?consumerId=${id}&hasReturn=1`} />
+        </TabsContent>
+        <TabsContent value="refunds">
+          <RelatedLink title="Refunds for this consumer" href={`/admin/refund-reconciliation?consumerId=${id}`} />
+        </TabsContent>
+        <TabsContent value="issues">
+          <RelatedLink title="Issues opened by or against this consumer" href={`/admin/issues?consumerId=${id}`} />
+        </TabsContent>
+        <TabsContent value="posts">
+          <div className="space-y-2">
+            <RelatedLink title="Community posts" href="/admin/community-moderation" />
+            <RelatedLink title="Product reviews" href="/admin/reviews-moderation" />
+          </div>
+        </TabsContent>
+        <TabsContent value="bans">
+          <BanFlagsCard consumerId={id} />
+        </TabsContent>
+        <TabsContent value="audit">
+          <SectionHeading title="Wallet transactions" hint={`${wallet.data?.transactions.length ?? 0} recent`} />
+          <TransactionsTable
+            loading={wallet.isLoading}
+            rows={(wallet.data?.transactions ?? []).map((t) => ({
+              id: t.id,
+              when: t.at,
+              kind: t.kind,
+              amount: formatPaise(t.amountPaise),
+              balance: formatPaise(t.balanceAfterPaise),
+              note: t.note,
+            }))}
+          />
 
-      {adjusting === 'wallet' && (
+          <div className="mt-12">
+            <SectionHeading
+              title="Loyalty transactions"
+              hint={`${loyalty.data?.transactions.length ?? 0} recent`}
+            />
+          </div>
+          <TransactionsTable
+            loading={loyalty.isLoading}
+            rows={(loyalty.data?.transactions ?? []).map((t) => ({
+              id: t.id,
+              when: t.at,
+              kind: t.kind,
+              amount: `${t.points > 0 ? '+' : ''}${t.points} pts`,
+              balance: `${t.balanceAfterPoints} pts`,
+              note: t.note,
+            }))}
+          />
+        </TabsContent>
+      </Tabs>
+
+      {adjusting && (
         <AdjustDialog
-          kind="wallet"
+          kind={adjusting}
           consumerId={id}
           onClose={() => setAdjusting(null)}
-          onDone={refetch}
+          onDone={refetchAll}
         />
       )}
-      {adjusting === 'loyalty' && (
-        <AdjustDialog
-          kind="loyalty"
+      {action && (
+        <AccountActionDialog
+          action={action}
           consumerId={id}
-          onClose={() => setAdjusting(null)}
-          onDone={refetch}
+          onClose={() => setAction(null)}
+          onDone={refetchAll}
         />
       )}
     </Page>
+  );
+}
+
+// MOCK_DEPENDENCY: §20 — independent ban toggles + related-link tab targets
+
+function RelatedLink({ title, href }: { title: string; href: string }) {
+  return (
+    <Card>
+      <CardContent className="flex items-center justify-between p-4 text-[13px]">
+        <span className="text-ink-2">{title}</span>
+        <Link to={href} className="text-accent hover:underline">Open →</Link>
+      </CardContent>
+    </Card>
+  );
+}
+
+function BanFlagsCard({ consumerId }: { consumerId: string }) {
+  const [bans, setBans] = useState({ community: false, rewards: false, reviews: false });
+  const toggle = (k: keyof typeof bans) => {
+    setBans((b) => {
+      const next = { ...b, [k]: !b[k] };
+      toast.success(`${k} ban ${next[k] ? 'enabled' : 'lifted'} (mock)`);
+      return next;
+    });
+    void consumerId;
+  };
+  const items: Array<{ key: keyof typeof bans; label: string; hint: string }> = [
+    { key: 'community', label: 'Community ban', hint: 'Cannot post to community feed; existing posts hidden.' },
+    { key: 'reviews', label: 'Reviews ban', hint: 'Cannot post product reviews; existing reviews hidden.' },
+    { key: 'rewards', label: 'Rewards ban', hint: 'Cannot earn new loyalty points; refund credit-back still proceeds.' },
+  ];
+  return (
+    <Card>
+      <CardContent className="p-6 space-y-3">
+        <SectionHeading title="Surface-specific bans" />
+        <p className="text-[12.5px] text-ink-3">Independent of global suspend / close. Use these to throttle behaviour without blocking purchase.</p>
+        {items.map((it) => (
+          <div key={it.key} className="flex items-center justify-between rounded-md border border-line bg-bg-2/30 px-3 py-2.5">
+            <div>
+              <div className="text-[13.5px] font-medium text-ink">{it.label}</div>
+              <div className="text-[11.5px] text-ink-3">{it.hint}</div>
+            </div>
+            <input
+              type="checkbox"
+              checked={bans[it.key]}
+              onChange={() => toggle(it.key)}
+              className="size-4 cursor-pointer accent-accent"
+            />
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function GiftCardBalanceCard({ consumerId }: { consumerId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin', 'consumer-gift-cards', consumerId],
+    queryFn: () =>
+      api<{ totalPaise: number; cards: Array<{ id: string; code: string; balancePaise: number; expiresOn: string }> }>(
+        `/admin/consumers/${consumerId}/gift-cards`,
+      ),
+  });
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            Gift cards
+          </CardTitle>
+          <p className="text-[12px] text-ink-3 mt-0.5">Active cards + expiry</p>
+        </div>
+        <Gift className="size-5 text-ink-3" />
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-12 w-32" />
+        ) : (
+          <>
+            <div className="font-display italic text-[44px] leading-none text-ink">
+              {formatPaise(data?.totalPaise ?? 0)}
+            </div>
+            <ul className="mt-3 space-y-1.5">
+              {(data?.cards ?? []).map((c) => (
+                <li key={c.id} className="flex items-center justify-between text-[12px] text-ink-3">
+                  <span className="font-mono">{c.code}</span>
+                  <span>
+                    {formatPaise(c.balancePaise)} · exp {new Date(c.expiresOn).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -238,7 +427,7 @@ function TransactionsTable({
             <tr key={r.id}>
               <td className="px-3 py-2.5 text-ink-2">{new Date(r.when).toLocaleString('en-IN')}</td>
               <td className="px-3 py-2.5">
-                <span className="kicker text-ink-3">{r.kind.replace('_', ' ')}</span>
+                <span className="kicker text-ink-3">{r.kind.replace(/_/g, ' ')}</span>
               </td>
               <td className="px-3 py-2.5 text-right font-mono tabular-nums text-ink">{r.amount}</td>
               <td className="px-3 py-2.5 text-right font-mono tabular-nums text-ink-2">{r.balance}</td>
@@ -322,6 +511,87 @@ function AdjustDialog({
             onClick={() => submit.mutate()}
           >
             Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AccountActionDialog({
+  action,
+  consumerId,
+  onClose,
+  onDone,
+}: {
+  action: 'suspend' | 'unsuspend' | 'close';
+  consumerId: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+
+  const titles = {
+    suspend: 'Suspend account',
+    unsuspend: 'Lift suspension',
+    close: 'Close account',
+  };
+  const descriptions = {
+    suspend: 'The consumer will not be able to place orders or log in while suspended.',
+    unsuspend: 'Restores the consumer to active status. They can log in and order again.',
+    close: 'This is irreversible. The account will be permanently closed. Provide a reason.',
+  };
+
+  const submit = useMutation({
+    mutationFn: () => {
+      const body = action === 'unsuspend' ? {} : { reason: reason.trim() };
+      return api(`/admin/consumers/${consumerId}/${action}`, { method: 'POST', body });
+    },
+    onSuccess: () => {
+      const msg = { suspend: 'Account suspended', unsuspend: 'Suspension lifted', close: 'Account closed' }[action];
+      toast.success(msg);
+      onClose();
+      onDone();
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Action failed'),
+  });
+
+  const needsReason = action !== 'unsuspend';
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{titles[action]}</DialogTitle>
+          <DialogDescription>{descriptions[action]}</DialogDescription>
+        </DialogHeader>
+        {needsReason && (
+          <div className="space-y-3">
+            <div>
+              <Label required>Reason</Label>
+              <Textarea
+                rows={3}
+                placeholder="Internal reason (not shown to consumer)"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </div>
+            <FieldError>{error}</FieldError>
+          </div>
+        )}
+        {!needsReason && error && <FieldError>{error}</FieldError>}
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button
+            variant={action === 'close' ? 'ink' : 'ink'}
+            caps
+            loading={submit.isPending}
+            disabled={needsReason && !reason.trim()}
+            onClick={() => submit.mutate()}
+            className={action === 'close' ? 'bg-danger text-paper hover:bg-danger/90 border-transparent' : ''}
+          >
+            {action === 'unsuspend' ? 'Lift suspension' : action === 'suspend' ? 'Suspend' : 'Close account'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   ArrowLeft,
+  ArrowUpRight,
   Check,
   ChevronRight,
   Coins,
@@ -30,7 +31,7 @@ import {
   refundStatusMeta,
   returnDecisionMeta,
 } from '@/lib/status';
-import type { HeldItem, OrderDetail, Refund, RefundDisbursement, Return } from '@/lib/types';
+import type { HeldItem, OrderDetail, OrderListRow, Refund, RefundDisbursement, Return } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -50,6 +51,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { OrderGroupCard } from '@/components/orders/OrderGroupCard';
 
 export default function AdminOrderDetail() {
   const { id } = useParams<{ id: string }>();
@@ -344,13 +346,32 @@ function Detail({ order, onCancelClick }: { order: OrderDetail; onCancelClick: (
           </span>
         }
         actions={
-          canCancel ? (
-            <Button variant="outline" iconLeft={<X className="size-3.5" />} onClick={onCancelClick}>
-              Cancel order
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
+              <Link to={`/retailer/tax-invoices?orderId=${order.id}`}>Tax invoice</Link>
             </Button>
-          ) : undefined
+            <Button asChild variant="outline" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
+              <Link to={`/admin/payouts-pipeline?orderId=${order.id}`}>Payout</Link>
+            </Button>
+            {canCancel && (
+              <Button variant="outline" iconLeft={<X className="size-3.5" />} onClick={onCancelClick}>
+                Cancel order
+              </Button>
+            )}
+          </div>
         }
       />
+
+      {order.group.siblingOrders.length > 0 && (
+        <div className="mb-4">
+          <OrderGroupCard
+            groupId={order.group.id}
+            status={order.group.status}
+            placedAt={order.group.placedAt}
+            orders={[orderDetailToListRow(order), ...order.group.siblingOrders]}
+          />
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Left column: items + customer */}
@@ -387,6 +408,8 @@ function Detail({ order, onCancelClick }: { order: OrderDetail; onCancelClick: (
               </ul>
             </CardContent>
           </Card>
+
+          <PriceSnapshotDiff orderId={order.id} />
 
           <Card>
             <CardHeader><CardTitle>Customer & delivery</CardTitle></CardHeader>
@@ -517,6 +540,68 @@ function Detail({ order, onCancelClick }: { order: OrderDetail; onCancelClick: (
       </div>
     </>
   );
+}
+
+type SnapshotRow = { variantId: string; listingNameSnap: string; snapshotPaise: number; currentPaise: number };
+
+function PriceSnapshotDiff({ orderId }: { orderId: string }) {
+  const { data = [], isLoading } = useQuery({
+    queryKey: ['admin', 'orders', orderId, 'price-snapshot'],
+    queryFn: () => api<SnapshotRow[]>(`/admin/orders/${orderId}/price-snapshot`),
+  });
+  const drift = data.filter((r) => r.currentPaise !== r.snapshotPaise);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Price snapshot diff</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-10 w-48" />
+        ) : drift.length === 0 ? (
+          <p className="text-[12.5px] text-ink-3 italic">All snapshot prices match the live variant catalogue.</p>
+        ) : (
+          <ul className="divide-y divide-line">
+            {drift.map((r) => {
+              const diff = r.currentPaise - r.snapshotPaise;
+              return (
+                <li key={r.variantId} className="flex items-center justify-between gap-3 py-2.5 text-[12.5px]">
+                  <span className="text-ink truncate">{r.listingNameSnap}</span>
+                  <span className="text-ink-3 font-mono">
+                    Snap {formatPaise(r.snapshotPaise)} → Live {formatPaise(r.currentPaise)}
+                    {' '}
+                    <span className={diff > 0 ? 'text-warning' : 'text-success'}>
+                      ({diff > 0 ? '+' : ''}{formatPaise(diff)})
+                    </span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function orderDetailToListRow(order: OrderDetail): OrderListRow {
+  return {
+    id: order.id,
+    groupId: order.groupId,
+    status: order.status,
+    storeId: order.storeId,
+    storeName: order.storeNameSnap,
+    consumerId: order.consumerId,
+    consumerName: order.consumerNameSnap,
+    consumerPhone: order.consumerPhoneSnap,
+    deliveryMethod: order.deliveryMethod,
+    paymentMethod: order.paymentMethod,
+    itemCount: order.items.length,
+    grandTotalPaise: order.grandTotalPaise,
+    placedAt: order.placedAt,
+    acceptedAt: order.acceptedAt,
+    deliveredAt: order.deliveredAt,
+  };
 }
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {

@@ -25,9 +25,6 @@ export async function uploadMedia(
   options: { folder?: string } = {},
 ): Promise<UploadResult> {
   const token = getToken();
-  if (!token) {
-    throw new ApiError(401, 'unauthorized', 'Sign in before uploading.');
-  }
 
   const fd = new FormData();
   fd.append('file', file);
@@ -35,7 +32,7 @@ export async function uploadMedia(
   const qs = options.folder ? `?folder=${encodeURIComponent(options.folder)}` : '';
   const res = await fetch(`/api/v1/uploads${qs}`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: fd,
   });
 

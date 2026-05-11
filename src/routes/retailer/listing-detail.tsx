@@ -9,8 +9,8 @@ import { ArrowLeft, ArrowUpRight, Check, Edit3, ImageOff, Plus, Save, X } from '
 import { api, ApiError } from '@/lib/api';
 import { MediaGallery } from '@/components/ui/media-gallery';
 import { VariantImagePicker } from '@/components/ui/variant-image-picker';
-import { listingStatusMeta, formatPaise } from '@/lib/status';
-import type { Listing, Variant } from '@/lib/types';
+import { listingStatusMeta, formatPaise, mechanismLabel, formatDiscount, promotionStatusMeta } from '@/lib/status';
+import type { AttributeAxisType, AttributeTemplate, Listing, Promotion, Variant } from '@/lib/types';
 import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +19,7 @@ import { Input, Textarea } from '@/components/ui/input';
 import { FieldError, Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ListingAuditList } from '@/components/retailer/listing-audit-list';
 import {
   Dialog,
   DialogContent,
@@ -45,25 +46,20 @@ const InventoryPatchSchema = z.object({
 type InventoryPatchValues = z.infer<typeof InventoryPatchSchema>;
 
 /** A single (option name → value) row in the variant builder, e.g. `{ name: 'Size', value: 'M' }`. */
-type OptionRow = { name: string; value: string };
+type AxisState = {
+  name: string;
+  type: AttributeAxisType;
+  allowedValues: string[];
+  selectedValues: string[];
+};
 
-/** Fold the option rows into the `attributes` map the backend stores. */
-function attrsFromOptions(options: OptionRow[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const { name, value } of options) {
-    const key = name.trim().toLowerCase();
-    const val = value.trim();
-    if (key && val) out[key] = val;
-  }
-  return out;
-}
+type RowFields = { price: string; stock: string; sku: string };
 
-/** Auto-derive a human label from the option values, e.g. "M / Black". */
-function labelFromOptions(options: OptionRow[]): string {
-  const parts = options
-    .map((o) => o.value.trim())
-    .filter(Boolean);
-  return parts.length > 0 ? parts.join(' / ') : 'Default';
+function cartesian(axesValues: string[][]): string[][] {
+  return axesValues.reduce<string[][]>(
+    (acc, values) => acc.flatMap((combo) => values.map((v) => [...combo, v])),
+    [[]],
+  );
 }
 
 export default function ListingDetail() {
@@ -131,9 +127,12 @@ export default function ListingDetail() {
       />
 
       <Tabs defaultValue="variants">
-        <TabsList>
-          <TabsTrigger value="variants">Variants & inventory</TabsTrigger>
+        <TabsList className="overflow-x-auto whitespace-nowrap">
+          <TabsTrigger value="variants">Variants &amp; inventory</TabsTrigger>
           <TabsTrigger value="details">Details</TabsTrigger>
+          <TabsTrigger value="promotions">Promotions</TabsTrigger>
+          <TabsTrigger value="ai">AI generations</TabsTrigger>
+          <TabsTrigger value="audit">Audit log</TabsTrigger>
         </TabsList>
 
         <TabsContent value="variants">
@@ -142,15 +141,122 @@ export default function ListingDetail() {
         <TabsContent value="details">
           <DetailsTab listing={l} onChanged={() => qc.invalidateQueries({ queryKey: ['retailer'] })} />
         </TabsContent>
+        <TabsContent value="promotions">
+          <PromotionsTab listing={l} />
+        </TabsContent>
+        <TabsContent value="ai">
+          <AiGenerationsTab listing={l} />
+        </TabsContent>
+        <TabsContent value="audit">
+          <AuditLogTab listing={l} />
+        </TabsContent>
       </Tabs>
     </Page>
   );
+}
+
+function PromotionsTab({ listing }: { listing: Listing }) {
+  const { data: promos, isLoading } = useQuery({
+    queryKey: ['retailer', 'promotions', { listingId: listing.id }],
+    queryFn: () => api<Promotion[]>(`/retailer/promotions?listingId=${listing.id}`),
+  });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <SectionHeading title="Promotions targeting this listing" hint="Offers, coupons, and vouchers whose scope includes this listing" />
+        <Button asChild variant="outline" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
+          <Link to="/retailer/promotions/new">New promotion</Link>
+        </Button>
+      </div>
+      {isLoading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-14 w-full" />
+        </div>
+      ) : !promos?.length ? (
+        <Empty
+          kicker="None yet"
+          title="No promotions target this listing."
+          description="Create a promotion and add this listing to its scope."
+          action={
+            <Button asChild variant="ink" size="sm">
+              <Link to="/retailer/promotions/new">New promotion</Link>
+            </Button>
+          }
+        />
+      ) : (
+        <ul className="space-y-2">
+          {promos.map((p) => {
+            const meta = promotionStatusMeta(p.effectiveStatus);
+            return (
+              <li key={p.id}>
+                <Link
+                  to={`/retailer/promotions/${p.id}`}
+                  className="flex items-center gap-3 rounded-lg border border-line bg-bg px-4 py-3 hover:bg-bg-2 transition-colors"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-[13.5px] text-ink truncate">{p.name}</span>
+                      <Badge flat>{mechanismLabel(p.mechanism)}</Badge>
+                    </div>
+                    <div className="mt-0.5 text-[12px] text-ink-3 truncate">
+                      {formatDiscount(p.discountType, p.config)} · {new Date(p.validFrom).toLocaleDateString('en-IN')} – {new Date(p.validUntil).toLocaleDateString('en-IN')}
+                    </div>
+                  </div>
+                  <Badge tone={meta.tone}>{meta.label}</Badge>
+                  <ArrowUpRight className="size-3.5 text-ink-3 shrink-0" />
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// MOCK_DEPENDENCY: §7 — per-listing AI submissions slice
+
+function AiGenerationsTab({ listing }: { listing: Listing }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <SectionHeading title="AI photo generations for this listing" />
+        <Button asChild variant="accent" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
+          <Link to={`/retailer/ai-catalog/new?listingId=${listing.id}`}>Generate new</Link>
+        </Button>
+      </div>
+      <Empty
+        kicker="Mocked"
+        title="No AI generations yet"
+        description="Submit input photos and let the AI catalog tool produce shot variants — accepted outputs auto-attach to the gallery."
+        action={
+          <Button asChild variant="outline">
+            <Link to="/retailer/ai-catalog">Open AI catalog</Link>
+          </Button>
+        }
+      />
+    </div>
+  );
+}
+
+// MOCK_DEPENDENCY: §5 — per-listing audit log
+
+function AuditLogTab({ listing }: { listing: Listing }) {
+  return <ListingAuditList listingId={listing.id} />;
 }
 
 function VariantsTab({ listing, onChanged }: { listing: Listing; onChanged: () => void }) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Variant | null>(null);
   const variants = listing.variants ?? [];
+
+  const { data: templates } = useQuery({
+    queryKey: ['retailer', 'attribute-templates'],
+    queryFn: () => api<AttributeTemplate[]>('/retailer/attribute-templates'),
+  });
+  const activeTemplate = templates?.find((t) => t.id === listing.templateId);
 
   return (
     <>
@@ -159,6 +265,18 @@ function VariantsTab({ listing, onChanged }: { listing: Listing; onChanged: () =
           title="Variants"
           hint={`${variants.length} on file`}
         />
+        {activeTemplate && (
+          <div className="flex items-center gap-1.5 text-[12px] text-ink-3">
+            <span className="text-ink-4">Template:</span>
+            <a
+              href={`/retailer/attribute-templates/${activeTemplate.id}`}
+              className="font-medium text-ink hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {activeTemplate.name}
+            </a>
+          </div>
+        )}
       </div>
       <div className="-mt-4 mb-6 flex justify-end">
         <Button variant="ink" caps iconLeft={<Plus className="size-3.5" />} onClick={() => setAdding(true)}>
@@ -246,12 +364,12 @@ function VariantsTab({ listing, onChanged }: { listing: Listing; onChanged: () =
         </div>
       )}
 
-      <CreateVariantDialog
+      <CreateVariantsDialog
         open={adding}
         onOpenChange={setAdding}
         listingId={listing.id}
+        currentTemplateId={listing.templateId ?? null}
         gallery={listing.galleryUrls ?? []}
-        existingVariants={variants}
         onCreated={onChanged}
       />
       <EditInventoryDialog
@@ -301,283 +419,462 @@ function VariantThumb({ urls }: { urls: string[] }) {
   );
 }
 
-function CreateVariantDialog({
+function CreateVariantsDialog({
   open,
   onOpenChange,
   listingId,
+  currentTemplateId,
   gallery,
-  existingVariants,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   listingId: string;
+  currentTemplateId: string | null;
   gallery: string[];
-  existingVariants: Variant[];
   onCreated: () => void;
 }) {
-  // ── Local state ──────────────────────────────────────────
-  // Shopify-style options builder. Empty = "no options" (single-variant product).
-  const [options, setOptions] = useState<OptionRow[]>([]);
-  const [labelOverride, setLabelOverride] = useState<string | null>(null);
-  const [sku, setSku] = useState('');
-  const [pricePaise, setPricePaise] = useState('99900');
-  const [stock, setStock] = useState('0');
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const qc = useQueryClient();
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(currentTemplateId);
+  const [axes, setAxes] = useState<AxisState[]>([]);
+  const [rowOverrides, setRowOverrides] = useState<Record<string, RowFields>>({});
+  const [bulkPrice, setBulkPrice] = useState('999');
+  const [bulkStock, setBulkStock] = useState('0');
+  const [globalImages, setGlobalImages] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset on close so reopening gives a fresh form.
+  const { data: templates } = useQuery({
+    queryKey: ['retailer', 'attribute-templates'],
+    queryFn: () => api<AttributeTemplate[]>('/retailer/attribute-templates'),
+    enabled: open,
+  });
+
+  // Reset on close
   useEffect(() => {
     if (open) return;
-    setOptions([]);
-    setLabelOverride(null);
-    setSku('');
-    setPricePaise('99900');
-    setStock('0');
-    setImageUrls([]);
+    setAxes([]);
+    setRowOverrides({});
+    setBulkPrice('999');
+    setBulkStock('0');
+    setGlobalImages([]);
     setError(null);
-  }, [open]);
+    setSelectedTemplateId(currentTemplateId);
+  }, [open, currentTemplateId]);
 
-  // Suggested option names from existing variants — when this listing already has
-  // "Size" and "Color" variants, the new dialog can suggest those keys as datalist.
-  const suggestedOptionNames = useMemo(() => {
-    const names = new Set<string>();
-    for (const v of existingVariants) {
-      for (const k of Object.keys(v.attributes)) names.add(capitalise(k));
+  // Populate axes whenever template loads or selection changes
+  useEffect(() => {
+    if (!selectedTemplateId || !templates) return;
+    const tpl = templates.find((t) => t.id === selectedTemplateId);
+    if (tpl) {
+      setAxes(tpl.axes.map((a) => ({ name: a.name, type: a.type, allowedValues: a.allowedValues, selectedValues: [] })));
+      setRowOverrides({});
     }
-    return Array.from(names);
-  }, [existingVariants]);
+  }, [selectedTemplateId, templates]);
 
-  const autoLabel = labelFromOptions(options);
-  const displayLabel = labelOverride ?? autoLabel;
+  function handleSelectTemplate(tplId: string | null) {
+    setSelectedTemplateId(tplId);
+    setRowOverrides({});
+    if (!tplId) {
+      setAxes([]);
+      return;
+    }
+    const tpl = templates?.find((t) => t.id === tplId);
+    if (tpl) {
+      setAxes(tpl.axes.map((a) => ({ name: a.name, type: a.type, allowedValues: a.allowedValues, selectedValues: [] })));
+    }
+  }
+
+  function toggleEnumValue(axisIdx: number, value: string) {
+    setAxes((prev) =>
+      prev.map((a, i) => {
+        if (i !== axisIdx) return a;
+        const has = a.selectedValues.includes(value);
+        return { ...a, selectedValues: has ? a.selectedValues.filter((v) => v !== value) : [...a.selectedValues, value] };
+      }),
+    );
+    setRowOverrides({});
+  }
+
+  function setFreeValues(axisIdx: number, values: string[]) {
+    setAxes((prev) => prev.map((a, i) => (i === axisIdx ? { ...a, selectedValues: values } : a)));
+    setRowOverrides({});
+  }
+
+  function addManualAxis() {
+    setAxes((prev) => [...prev, { name: '', type: 'free_text', allowedValues: [], selectedValues: [] }]);
+  }
+
+  function updateAxisName(axisIdx: number, name: string) {
+    setAxes((prev) => prev.map((a, i) => (i === axisIdx ? { ...a, name } : a)));
+  }
+
+  function removeAxis(axisIdx: number) {
+    setAxes((prev) => prev.filter((_, i) => i !== axisIdx));
+    setRowOverrides({});
+  }
+
+  const activeAxes = axes.filter((a) => a.selectedValues.length > 0);
+
+  const rows = useMemo(() => {
+    if (activeAxes.length === 0) {
+      return [{ key: '__default__', attrs: {} as Record<string, string>, label: 'Default' }];
+    }
+    return cartesian(activeAxes.map((a) => a.selectedValues)).map((combo) => ({
+      key: combo.join('||'),
+      attrs: Object.fromEntries(activeAxes.map((a, i) => [a.name.toLowerCase(), combo[i]!])),
+      label: combo.join(' / '),
+    }));
+  }, [activeAxes]);
+
+  function getRowFields(key: string): RowFields {
+    return rowOverrides[key] ?? { price: bulkPrice, stock: bulkStock, sku: '' };
+  }
+
+  function updateRow(key: string, patch: Partial<RowFields>) {
+    setRowOverrides((prev) => ({ ...prev, [key]: { ...getRowFields(key), ...patch } }));
+  }
 
   // ── Mutation ────────────────────────────────────────────
   const create = useMutation({
-    mutationFn: () =>
-      api<Variant>(`/retailer/listings/${listingId}/variants`, {
-        method: 'POST',
-        body: {
-          attributesLabel: displayLabel,
-          attributes: attrsFromOptions(options),
-          ...(sku.trim() ? { sku: sku.trim() } : {}),
-          pricePaise: parseInt(pricePaise, 10),
-          stock: parseInt(stock, 10),
-          imageUrls,
-        },
-      }),
+    mutationFn: async () => {
+      if (selectedTemplateId !== currentTemplateId) {
+        await api(`/retailer/listings/${listingId}`, { method: 'PATCH', body: { templateId: selectedTemplateId } });
+      }
+      const payloads = rows.map((r) => {
+        const rf = getRowFields(r.key);
+        return {
+          attributes: r.attrs,
+          attributesLabel: r.label,
+          pricePaise: Math.round(parseFloat(rf.price) * 100),
+          stock: parseInt(rf.stock, 10),
+          imageUrls: globalImages,
+          ...(rf.sku.trim() ? { sku: rf.sku.trim().toUpperCase() } : {}),
+        };
+      });
+      if (payloads.length === 1) {
+        return api<Variant>(`/retailer/listings/${listingId}/variants`, { method: 'POST', body: payloads[0] });
+      }
+      return api(`/retailer/listings/${listingId}/variants/bulk`, { method: 'POST', body: { variants: payloads } });
+    },
     onSuccess: () => {
-      toast.success('Variant added');
+      void qc.invalidateQueries({ queryKey: ['retailer', 'listing', listingId] });
+      toast.success(rows.length === 1 ? 'Variant created' : `${rows.length} variants created`);
       onOpenChange(false);
       onCreated();
     },
     onError: (e) => {
-      const code = e instanceof ApiError ? e.code : '';
-      toast.error(
-        code === 'sku_taken'
-          ? 'That SKU is already used on another variant of this product.'
+      setError(
+        e instanceof ApiError && e.code === 'sku_taken'
+          ? 'One or more SKUs already exist on this product.'
           : e instanceof Error
             ? e.message
-            : 'Could not add variant',
+            : 'Could not create variants',
       );
     },
   });
 
-  function handleAddOption() {
-    setOptions((prev) => [...prev, { name: '', value: '' }]);
-  }
-  function handleRemoveOption(i: number) {
-    setOptions((prev) => prev.filter((_, idx) => idx !== i));
-  }
-  function handleUpdateOption(i: number, patch: Partial<OptionRow>) {
-    setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
-    setLabelOverride(null); // user is editing — let the auto-label re-flow
-  }
-
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    // Validate: every option row must have both name and value (or be removed)
-    const incomplete = options.some(
-      (o) => (o.name.trim() && !o.value.trim()) || (!o.name.trim() && o.value.trim()),
-    );
-    if (incomplete) {
-      setError('Each option needs both a name and a value.');
+    if (axes.some((a) => a.selectedValues.length > 0 && !a.name.trim())) {
+      setError('Each axis needs a name.');
       return;
     }
-    // Duplicate option names are confusing
-    const names = options.map((o) => o.name.trim().toLowerCase()).filter(Boolean);
-    if (new Set(names).size !== names.length) {
-      setError('Each option name must be unique.');
-      return;
-    }
-    // Numeric checks
-    const pricePaiseNum = parseInt(pricePaise, 10);
-    const stockNum = parseInt(stock, 10);
-    if (!Number.isFinite(pricePaiseNum) || pricePaiseNum < 1) {
-      setError('Price must be at least 1 paisa.');
-      return;
-    }
-    if (!Number.isFinite(stockNum) || stockNum < 0) {
-      setError('Stock must be 0 or more.');
-      return;
+    for (const r of rows) {
+      const rf = getRowFields(r.key);
+      const price = parseFloat(rf.price);
+      const stock = parseInt(rf.stock, 10);
+      if (!Number.isFinite(price) || price < 0.01) {
+        setError(`Price for "${r.label}" must be at least ₹0.01.`);
+        return;
+      }
+      if (!Number.isFinite(stock) || stock < 0) {
+        setError(`Stock for "${r.label}" must be 0 or more.`);
+        return;
+      }
     }
     create.mutate();
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Add variant</DialogTitle>
+      <DialogContent className="flex max-h-[88vh] max-w-3xl flex-col gap-0 p-0">
+        <DialogHeader className="px-6 pb-4 pt-6">
+          <DialogTitle>Add variants</DialogTitle>
           <DialogDescription>
-            Define options like Size or Colour, set price &amp; stock, and add images. Skip
-            options entirely for single-variant products.
+            Select values per axis to generate combinations, then set price &amp; stock for each.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-          {/* Options builder */}
-          <section>
-            <div className="flex items-end justify-between mb-2">
-              <Label hint={options.length === 0 ? 'optional — skip for single-variant products' : undefined}>
-                Options
-              </Label>
-              <span className="text-[11px] uppercase tracking-[0.14em] text-ink-3">
-                {options.length} option{options.length === 1 ? '' : 's'}
-              </span>
-            </div>
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="flex-1 space-y-6 overflow-y-auto px-6 pb-4">
 
-            {options.length > 0 && (
-              <ul className="space-y-2 mb-2">
-                {options.map((opt, i) => (
-                  <li key={i} className="grid grid-cols-12 gap-2 items-end">
-                    <div className="col-span-5">
-                      <Input
-                        list="variant-option-names"
-                        placeholder="Name (e.g. Size)"
-                        value={opt.name}
-                        onChange={(e) => handleUpdateOption(i, { name: e.target.value })}
-                      />
-                    </div>
-                    <div className="col-span-6">
-                      <Input
-                        placeholder="Value (e.g. M)"
-                        value={opt.value}
-                        onChange={(e) => handleUpdateOption(i, { value: e.target.value })}
-                      />
-                    </div>
-                    <div className="col-span-1">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveOption(i)}
-                        className="grid h-9 w-full place-items-center text-ink-3 hover:text-danger"
-                        aria-label={`Remove option ${i + 1}`}
-                      >
-                        <X className="size-3.5" />
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {/* Datalist of existing option names — gives autosuggest in the inputs above */}
-            {suggestedOptionNames.length > 0 && (
-              <datalist id="variant-option-names">
-                {suggestedOptionNames.map((n) => (
-                  <option key={n} value={n} />
-                ))}
-              </datalist>
+            {/* Template picker */}
+            {(templates?.length ?? 0) > 0 && (
+              <section className="rounded-lg border border-line bg-bg-2/30 p-4">
+                <Label hint="populates axes below">From template</Label>
+                <Select
+                  value={selectedTemplateId ?? '__none__'}
+                  onValueChange={(v) => handleSelectTemplate(v === '__none__' ? null : v)}
+                >
+                  <SelectTrigger><SelectValue placeholder="No template — build manually" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No template — build manually</SelectItem>
+                    {templates!.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}{t.isPlatformDefault ? ' · platform default' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </section>
             )}
 
-            <button
-              type="button"
-              onClick={handleAddOption}
-              className="text-[12px] uppercase tracking-[0.14em] text-ink-2 hover:text-ink"
-            >
-              + Add option
-            </button>
-          </section>
+            {/* Axis value editors */}
+            {axes.length > 0 && (
+              <section className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="kicker text-ink-3">Select values per axis</span>
+                  <span className="text-[11px] uppercase tracking-widest text-ink-3">{activeAxes.length} active</span>
+                </div>
+                {axes.map((axis, i) => (
+                  <AxisValueEditor
+                    key={i}
+                    axis={axis}
+                    fromTemplate={Boolean(selectedTemplateId)}
+                    onNameChange={(name) => updateAxisName(i, name)}
+                    onToggleEnum={(v) => toggleEnumValue(i, v)}
+                    onSetFree={(values) => setFreeValues(i, values)}
+                    onRemove={() => removeAxis(i)}
+                  />
+                ))}
+              </section>
+            )}
 
-          {/* Display label — auto-generated from options, editable */}
-          <section>
-            <Label htmlFor="vLabel" hint="auto-filled from options · editable">
-              Display label
-            </Label>
-            <Input
-              id="vLabel"
-              value={displayLabel}
-              onChange={(e) => setLabelOverride(e.target.value)}
-            />
-            <p className="mt-1 text-[11.5px] text-ink-3">
-              Shown to customers (e.g. <span className="text-ink">{autoLabel}</span>).
-            </p>
-          </section>
+            {!selectedTemplateId && (
+              <button
+                type="button"
+                onClick={addManualAxis}
+                className="text-[12px] uppercase tracking-[0.14em] text-ink-2 hover:text-ink"
+              >
+                + Add axis
+              </button>
+            )}
 
-          {/* Pricing & inventory */}
-          <section>
-            <div className="kicker mb-2 text-ink-3">Pricing &amp; inventory</div>
-            <div className="grid gap-5 sm:grid-cols-3">
-              <div>
-                <Label htmlFor="vSku" hint="Optional">SKU</Label>
-                <Input
-                  id="vSku"
-                  mono
-                  placeholder="e.g. LIN-M-BLK"
-                  value={sku}
-                  onChange={(e) => setSku(e.target.value.toUpperCase())}
-                  className="uppercase"
-                />
+            {/* Combination matrix */}
+            <section>
+              <div className="mb-3 flex items-center justify-between">
+                <span className="kicker text-ink-3">
+                  {rows.length} variant{rows.length !== 1 ? 's' : ''} will be created
+                </span>
+                {rows.length > 1 && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-ink-3">Apply to all —</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[11px] text-ink-3">price ₹</span>
+                      <Input
+                        mono
+                        type="number"
+                        min={1}
+                        value={bulkPrice}
+                        onChange={(e) => { setBulkPrice(e.target.value); setRowOverrides({}); }}
+                        className="h-7 w-24 text-[12px]"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[11px] text-ink-3">stock</span>
+                      <Input
+                        mono
+                        type="number"
+                        min={0}
+                        value={bulkStock}
+                        onChange={(e) => { setBulkStock(e.target.value); setRowOverrides({}); }}
+                        className="h-7 w-20 text-[12px]"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
-              <div>
-                <Label htmlFor="vPrice" required hint="paise">Price</Label>
-                <Input
-                  id="vPrice"
-                  mono
-                  type="number"
-                  min={1}
-                  value={pricePaise}
-                  onChange={(e) => setPricePaise(e.target.value)}
-                />
+              <div className="overflow-hidden rounded-lg border border-line">
+                <table className="w-full text-[12.5px]">
+                  <thead className="border-b border-line bg-bg-2/40">
+                    <tr>
+                      <Th>Variant</Th>
+                      <Th>SKU <span className="font-normal normal-case tracking-normal text-ink-4">(optional)</span></Th>
+                      <Th>Price (₹)</Th>
+                      <Th>Stock</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => {
+                      const rf = getRowFields(row.key);
+                      return (
+                        <tr key={row.key} className="border-b border-line last:border-0">
+                          <Td className="font-medium text-ink">{row.label}</Td>
+                          <Td>
+                            <Input
+                              mono
+                              placeholder="LIN-M-BLK"
+                              value={rf.sku}
+                              onChange={(e) => updateRow(row.key, { sku: e.target.value.toUpperCase() })}
+                              className="h-7 text-[12px] uppercase"
+                            />
+                          </Td>
+                          <Td>
+                            <Input
+                              mono
+                              type="number"
+                              min={1}
+                              value={rf.price}
+                              onChange={(e) => updateRow(row.key, { price: e.target.value })}
+                              className="h-7 w-28 text-[12px]"
+                            />
+                          </Td>
+                          <Td>
+                            <Input
+                              mono
+                              type="number"
+                              min={0}
+                              value={rf.stock}
+                              onChange={(e) => updateRow(row.key, { stock: e.target.value })}
+                              className="h-7 w-20 text-[12px]"
+                            />
+                          </Td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-              <div>
-                <Label htmlFor="vStock" required>Stock</Label>
-                <Input
-                  id="vStock"
-                  mono
-                  type="number"
-                  min={0}
-                  value={stock}
-                  onChange={(e) => setStock(e.target.value)}
-                />
-              </div>
-            </div>
-          </section>
+            </section>
 
-          {/* Per-variant images — picked from the listing's media library, not uploaded
-              separately. Uploads happen on the Details tab; this dialog just selects. */}
-          <section>
-            <div className="kicker mb-2 text-ink-3">Images</div>
-            <VariantImagePicker
-              gallery={gallery}
-              selected={imageUrls}
-              onChange={setImageUrls}
-            />
-          </section>
+            {/* Images — applied to all variants created in this batch */}
+            {gallery.length > 0 && (
+              <section>
+                <div className="kicker mb-2 text-ink-3">
+                  Images <span className="font-normal normal-case tracking-normal text-ink-4">— applied to all variants</span>
+                </div>
+                <VariantImagePicker gallery={gallery} selected={globalImages} onChange={setGlobalImages} />
+              </section>
+            )}
 
-          <FieldError>{error}</FieldError>
+            {error && <FieldError>{error}</FieldError>}
+          </div>
 
-          <DialogFooter>
+          <div className="flex justify-end gap-2 border-t border-line px-6 py-4">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" variant="ink" caps loading={create.isPending}>Add variant</Button>
-          </DialogFooter>
+            <Button type="submit" variant="ink" caps loading={create.isPending}>
+              Create {rows.length > 1 ? `${rows.length} variants` : 'variant'}
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
   );
 }
 
-function capitalise(s: string): string {
-  return s.length ? s[0]!.toUpperCase() + s.slice(1) : s;
+function AxisValueEditor({
+  axis,
+  fromTemplate,
+  onNameChange,
+  onToggleEnum,
+  onSetFree,
+  onRemove,
+}: {
+  axis: AxisState;
+  fromTemplate: boolean;
+  onNameChange: (name: string) => void;
+  onToggleEnum: (value: string) => void;
+  onSetFree: (values: string[]) => void;
+  onRemove: () => void;
+}) {
+  const [freeInput, setFreeInput] = useState('');
+
+  function addFreeValue() {
+    const val = freeInput.trim();
+    if (val && !axis.selectedValues.includes(val)) {
+      onSetFree([...axis.selectedValues, val]);
+    }
+    setFreeInput('');
+  }
+
+  function handleFreeKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      addFreeValue();
+    } else if (e.key === 'Backspace' && !freeInput && axis.selectedValues.length > 0) {
+      onSetFree(axis.selectedValues.slice(0, -1));
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-line bg-bg-2/20 p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          {fromTemplate ? (
+            <div className="text-[13px] font-medium text-ink">{axis.name}</div>
+          ) : (
+            <Input
+              placeholder="Axis name (e.g. Size)"
+              value={axis.name}
+              onChange={(e) => onNameChange(e.target.value)}
+              className="h-7 text-[12px]"
+            />
+          )}
+          <span className="text-[11px] capitalize text-ink-4">{axis.type.replace('_', ' ')}</span>
+        </div>
+        {!fromTemplate && (
+          <button type="button" onClick={onRemove} className="mt-0.5 text-ink-3 hover:text-danger">
+            <X className="size-3.5" />
+          </button>
+        )}
+      </div>
+
+      {axis.type === 'enum' && axis.allowedValues.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {axis.allowedValues.map((v) => {
+            const selected = axis.selectedValues.includes(v);
+            return (
+              <button
+                key={v}
+                type="button"
+                onClick={() => onToggleEnum(v)}
+                className={`rounded-md border px-2.5 py-1 text-[12px] transition-colors ${
+                  selected
+                    ? 'border-ink bg-ink text-paper'
+                    : 'border-line bg-bg text-ink-2 hover:border-ink-3'
+                }`}
+              >
+                {v}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="flex min-h-[36px] flex-wrap items-center gap-1.5 rounded-md border border-line bg-bg px-2 py-1.5">
+          {axis.selectedValues.map((v, i) => (
+            <span key={i} className="inline-flex items-center gap-1 rounded-sm bg-ink/8 px-2 py-0.5 text-[12px] text-ink-2">
+              {v}
+              <button
+                type="button"
+                onClick={() => onSetFree(axis.selectedValues.filter((_, j) => j !== i))}
+                className="ml-0.5 text-ink-4 hover:text-danger"
+              >
+                <X className="size-2.5" />
+              </button>
+            </span>
+          ))}
+          <input
+            value={freeInput}
+            onChange={(e) => setFreeInput(e.target.value)}
+            onKeyDown={handleFreeKeyDown}
+            placeholder={axis.selectedValues.length === 0 ? 'Type a value and press Enter' : '+ add'}
+            className="min-w-16 flex-1 bg-transparent text-[12px] text-ink outline-none placeholder:text-ink-4"
+          />
+        </div>
+      )}
+    </div>
+  );
 }
 
 function EditInventoryDialog({

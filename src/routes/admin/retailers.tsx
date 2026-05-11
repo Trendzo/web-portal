@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Check, Search, X } from 'lucide-react';
+import { ArrowUpRight, Check, Search, X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { retailerStatusMeta } from '@/lib/status';
 import type { AdminRetailerView, RetailerStatus } from '@/lib/types';
@@ -30,7 +31,13 @@ import { FieldError, Label } from '@/components/ui/label';
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: RetailerStatus | 'all'; label: string }> = [
   { value: 'pending_approval', label: 'Pending approval' },
+  { value: 'under_review', label: 'Under review' },
+  { value: 'approved_no_store', label: 'Approved · awaiting store' },
+  { value: 'onboarding', label: 'Onboarding' },
   { value: 'active', label: 'Active' },
+  { value: 'paused', label: 'Paused' },
+  { value: 'suspended', label: 'Suspended' },
+  { value: 'terminated', label: 'Terminated' },
   { value: 'deactivated', label: 'Deactivated' },
   { value: 'all', label: 'All retailers' },
 ];
@@ -39,6 +46,8 @@ export default function AdminRetailers() {
   const [status, setStatus] = useState<RetailerStatus | 'all'>('pending_approval');
   const [q, setQ] = useState('');
   const [rejecting, setRejecting] = useState<AdminRetailerView | null>(null);
+  const [suspending, setSuspending] = useState<AdminRetailerView | null>(null);
+  const [terminating, setTerminating] = useState<AdminRetailerView | null>(null);
 
   const qc = useQueryClient();
 
@@ -74,6 +83,28 @@ export default function AdminRetailers() {
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Reject failed'),
   });
 
+  const suspend = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      api(`/admin/retailers/${id}/suspend`, { method: 'POST', body: { reason } }),
+    onSuccess: () => {
+      toast.success('Store suspended');
+      setSuspending(null);
+      void qc.invalidateQueries({ queryKey: ['admin', 'retailers'] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Suspend failed'),
+  });
+
+  const terminate = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      api(`/admin/retailers/${id}/terminate`, { method: 'POST', body: { reason } }),
+    onSuccess: () => {
+      toast.success('Retailer terminated');
+      setTerminating(null);
+      void qc.invalidateQueries({ queryKey: ['admin', 'retailers'] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Terminate failed'),
+  });
+
   const filtered = (data ?? []).filter((r) => {
     if (!q.trim()) return true;
     const n = q.toLowerCase();
@@ -89,7 +120,7 @@ export default function AdminRetailers() {
     <Page>
       <PageHeader
         title="Retailers"
-        description="Approve to admit, reject with cause to log a refusal. Approved retailers can then submit a storefront."
+        description="Approve to admit, reject with cause to log a refusal. A store is provisioned automatically on approval."
       />
 
       {/* Toolbar */}
@@ -179,29 +210,50 @@ export default function AdminRetailers() {
                       })}
                     </Td>
                     <Td className="text-right">
-                      {r.status === 'pending_approval' ? (
-                        <div className="inline-flex gap-1.5">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            iconLeft={<X className="size-3.5" />}
-                            onClick={() => setRejecting(r)}
-                          >
-                            Reject
-                          </Button>
-                          <Button
-                            variant="accent"
-                            size="sm"
-                            iconLeft={<Check className="size-3.5" />}
-                            onClick={() => approve.mutate(r.id)}
-                            loading={busy}
-                          >
-                            Approve
-                          </Button>
-                        </div>
-                      ) : (
-                        <span className="text-[11.5px] text-ink-4">—</span>
-                      )}
+                      <div className="inline-flex items-center gap-1.5">
+                        {r.status === 'pending_approval' ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              iconLeft={<X className="size-3.5" />}
+                              onClick={() => setRejecting(r)}
+                            >
+                              Reject
+                            </Button>
+                            <Button
+                              variant="accent"
+                              size="sm"
+                              iconLeft={<Check className="size-3.5" />}
+                              onClick={() => approve.mutate(r.id)}
+                              loading={busy}
+                            >
+                              Approve
+                            </Button>
+                          </>
+                        ) : r.status === 'active' ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setSuspending(r)}
+                            >
+                              Suspend
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-danger border-danger/40 hover:bg-danger/5"
+                              onClick={() => setTerminating(r)}
+                            >
+                              Terminate
+                            </Button>
+                          </>
+                        ) : null}
+                        <Button asChild variant="ghost" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
+                          <Link to={`/admin/retailers/${r.id}`}>View</Link>
+                        </Button>
+                      </div>
                     </Td>
                   </tr>
                 );
@@ -249,6 +301,21 @@ export default function AdminRetailers() {
                       </Button>
                     </div>
                   )}
+                  {r.status === 'active' && (
+                    <div className="flex gap-2 pt-1">
+                      <Button variant="outline" size="sm" className="flex-1" onClick={() => setSuspending(r)}>
+                        Suspend
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 text-danger border-danger/40"
+                        onClick={() => setTerminating(r)}
+                      >
+                        Terminate
+                      </Button>
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -264,6 +331,25 @@ export default function AdminRetailers() {
           reject.mutate({ id: rejecting.id, reason });
         }}
         loading={reject.isPending}
+      />
+      <ReasonActionDialog
+        title="Suspend store"
+        description="This will pause fulfilment immediately. The retailer account stays active so they can log in and see the notice. You can lift the suspension later."
+        confirmLabel="Suspend"
+        target={suspending}
+        onClose={() => setSuspending(null)}
+        onConfirm={(reason) => { if (suspending) suspend.mutate({ id: suspending.id, reason }); }}
+        loading={suspend.isPending}
+      />
+      <ReasonActionDialog
+        title="Terminate retailer"
+        description="This permanently deactivates the retailer and terminates their store. It cannot be undone."
+        confirmLabel="Terminate"
+        danger
+        target={terminating}
+        onClose={() => setTerminating(null)}
+        onConfirm={(reason) => { if (terminating) terminate.mutate({ id: terminating.id, reason }); }}
+        loading={terminate.isPending}
       />
     </Page>
   );
@@ -335,6 +421,64 @@ function RejectDialog({
             onClick={() => onConfirm(reason.trim())}
           >
             Reject
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReasonActionDialog({
+  title,
+  description,
+  confirmLabel,
+  danger = false,
+  target,
+  onClose,
+  onConfirm,
+  loading,
+}: {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  danger?: boolean;
+  target: AdminRetailerView | null;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+  loading: boolean;
+}) {
+  const [reason, setReason] = useState('');
+
+  return (
+    <Dialog
+      open={Boolean(target)}
+      onOpenChange={(o) => {
+        if (!o) { onClose(); setReason(''); }
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <div>
+          <Label htmlFor="action-reason" required>Reason</Label>
+          <Input
+            id="action-reason"
+            placeholder="Internal reason (logged)"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => { onClose(); setReason(''); }}>Cancel</Button>
+          <Button
+            variant={danger ? 'danger' : 'ink'}
+            disabled={reason.trim().length === 0}
+            loading={loading}
+            onClick={() => onConfirm(reason.trim())}
+          >
+            {confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

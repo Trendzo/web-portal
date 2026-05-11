@@ -1,10 +1,19 @@
 import type {
+  AccountDeletionStatus,
   ActorType,
+  ApplicationStatus,
+  ChangeRequestStatus,
   ClubbingDefault,
   CollectionKind,
   CollectionStatus,
+  ConsumerStatus,
+  DataExportStatus,
   DeliveryMethod,
   DiscountType,
+  EnforcementStep,
+  IssueDecision,
+  IssueStatus,
+  KycReverificationStatus,
   ListingStatus,
   Mechanism,
   OrderGroupStatus,
@@ -24,12 +33,73 @@ import type {
  */
 export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
+export function issueStatusMeta(s: IssueStatus): { label: string; tone: Tone } {
+  switch (s) {
+    case 'open':
+      return { label: 'Open', tone: 'warning' };
+    case 'requested_evidence':
+      return { label: 'Evidence requested', tone: 'info' };
+    case 'awaiting_consumer':
+      return { label: 'Awaiting consumer', tone: 'info' };
+    case 'awaiting_retailer':
+      return { label: 'Awaiting retailer', tone: 'info' };
+    case 'awaiting_admin':
+      return { label: 'Awaiting admin', tone: 'warning' };
+    case 'decided':
+      return { label: 'Decided', tone: 'success' };
+    case 'escalated':
+      return { label: 'Escalated', tone: 'danger' };
+    case 'resolved':
+      return { label: 'Resolved', tone: 'success' };
+    case 'closed':
+      return { label: 'Closed', tone: 'neutral' };
+  }
+}
+
+export function issueDecisionLabel(d: IssueDecision): string {
+  switch (d) {
+    case 'refund':
+      return 'Refund';
+    case 'fresh_delivery':
+      return 'Fresh delivery';
+    case 'pickup':
+      return 'Pickup';
+    case 'no_refund':
+      return 'No refund';
+    case 'split':
+      return 'Split';
+  }
+}
+
+export function consumerStatusMeta(s: ConsumerStatus): { label: string; tone: Tone } {
+  switch (s) {
+    case 'active':
+      return { label: 'Active', tone: 'success' };
+    case 'suspended':
+      return { label: 'Suspended', tone: 'warning' };
+    case 'closed':
+      return { label: 'Closed', tone: 'danger' };
+  }
+}
+
 export function retailerStatusMeta(s: RetailerStatus): { label: string; tone: Tone } {
   switch (s) {
     case 'pending_approval':
       return { label: 'Pending approval', tone: 'warning' };
+    case 'under_review':
+      return { label: 'Under review', tone: 'info' };
+    case 'approved_no_store':
+      return { label: 'Approved · awaiting store', tone: 'info' };
+    case 'onboarding':
+      return { label: 'Onboarding', tone: 'info' };
     case 'active':
       return { label: 'Active', tone: 'success' };
+    case 'paused':
+      return { label: 'Paused', tone: 'warning' };
+    case 'suspended':
+      return { label: 'Suspended', tone: 'danger' };
+    case 'terminated':
+      return { label: 'Terminated', tone: 'danger' };
     case 'deactivated':
       return { label: 'Deactivated', tone: 'danger' };
   }
@@ -388,5 +458,99 @@ export function heldItemDispositionLabel(d: 'returned_to_consumer' | 'redelivere
       return 'Restocked';
     case 'written_off':
       return 'Written off';
+  }
+}
+
+// ─── §2 Onboarding ───
+
+export function applicationStatusMeta(s: ApplicationStatus): { label: string; tone: Tone } {
+  switch (s) {
+    case 'pending':
+      return { label: 'Pending review', tone: 'warning' };
+    case 'under_review':
+      return { label: 'Under review', tone: 'info' };
+    case 'docs_requested':
+      return { label: 'Docs requested', tone: 'warning' };
+    case 'approved':
+      return { label: 'Approved', tone: 'success' };
+    case 'rejected':
+      return { label: 'Rejected', tone: 'danger' };
+  }
+}
+
+// ─── §3 KYC & Compliance ───
+
+export function kycReverificationStatusMeta(s: KycReverificationStatus): { label: string; tone: Tone } {
+  switch (s) {
+    case 'pending':
+      return { label: 'Pending', tone: 'warning' };
+    case 'submitted':
+      return { label: 'Submitted', tone: 'info' };
+    case 'approved':
+      return { label: 'Approved', tone: 'success' };
+    case 'rejected':
+      return { label: 'Rejected', tone: 'danger' };
+    case 'overdue':
+      return { label: 'Overdue', tone: 'danger' };
+  }
+}
+
+export function changeRequestStatusMeta(s: ChangeRequestStatus): { label: string; tone: Tone } {
+  switch (s) {
+    case 'pending':
+      return { label: 'Pending', tone: 'warning' };
+    case 'under_review':
+      return { label: 'Under review', tone: 'info' };
+    case 'approved':
+      return { label: 'Approved', tone: 'success' };
+    case 'rejected':
+      return { label: 'Rejected', tone: 'danger' };
+  }
+}
+
+export function dataExportStatusMeta(s: DataExportStatus): { label: string; tone: Tone } {
+  switch (s) {
+    case 'pending':
+      return { label: 'Pending', tone: 'warning' };
+    case 'building':
+      return { label: 'Building', tone: 'info' };
+    case 'ready':
+      return { label: 'Ready', tone: 'success' };
+    case 'expired':
+      return { label: 'Expired', tone: 'neutral' };
+    case 'failed':
+      return { label: 'Failed', tone: 'danger' };
+  }
+}
+
+export function accountDeletionStatusMeta(
+  s: AccountDeletionStatus,
+): { label: string; tone: Tone } {
+  switch (s) {
+    case 'pending':
+      return { label: 'Pending', tone: 'warning' };
+    case 'in_progress':
+      return { label: 'In progress', tone: 'info' };
+    case 'completed':
+      return { label: 'Completed', tone: 'neutral' };
+    case 'cancelled':
+      return { label: 'Cancelled', tone: 'neutral' };
+  }
+}
+
+export function enforcementStepMeta(s: EnforcementStep): { label: string; tone: Tone } {
+  switch (s) {
+    case 'warning_1':
+      return { label: 'Warning 1', tone: 'warning' };
+    case 'warning_2':
+      return { label: 'Warning 2', tone: 'warning' };
+    case 'warning_3':
+      return { label: 'Warning 3', tone: 'danger' };
+    case 'suspension':
+      return { label: 'Suspended', tone: 'danger' };
+    case 'termination':
+      return { label: 'Terminated', tone: 'danger' };
+    case 'lifted':
+      return { label: 'Lifted', tone: 'success' };
   }
 }

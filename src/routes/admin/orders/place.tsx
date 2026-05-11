@@ -27,11 +27,42 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CopyableId } from '@/components/ui/copyable-id';
+import { MockDataBadge } from '@/components/ui/mock-data-badge';
+import { RoleGate } from '@/components/shell/RoleGate';
 
 type AdminStore = Store & { id: string };
 type CartLine = { variantId: string; qty: number };
 
 export default function PlaceTestOrder() {
+  // Dev-only QA tool — gated behind super-admin sub-role + import.meta.env.DEV
+  // so production admin sessions cannot accidentally place test orders against
+  // real consumer data.
+  return (
+    <RoleGate kind="admin" subRole="super_admin">
+      {import.meta.env.DEV ? <PlaceTestOrderInner /> : <DevOnlyBlock />}
+    </RoleGate>
+  );
+}
+
+function DevOnlyBlock() {
+  return (
+    <Page>
+      <PageHeader
+        title="Place test order"
+        description="This QA tool is only available in dev builds."
+        actions={<MockDataBadge label="DEV-ONLY" />}
+      />
+      <Card>
+        <CardContent className="p-6 text-[13px] text-ink-3">
+          Production admins should not place orders against live consumer data. Spin up the dashboard
+          with `npm run dev` to use this tool.
+        </CardContent>
+      </Card>
+    </Page>
+  );
+}
+
+function PlaceTestOrderInner() {
   const navigate = useNavigate();
   const [storeId, setStoreId] = useState<string>('');
   const [consumerId, setConsumerId] = useState<string>('');
@@ -149,6 +180,7 @@ export default function PlaceTestOrder() {
       <PageHeader
         title="Place a test order"
         description="Walk an order through the lifecycle without a real consumer or payment gateway. Mint a synthetic customer, pick a store + items, choose how the payment should resolve."
+        actions={<MockDataBadge label="DEV-ONLY" />}
       />
 
       <div className="grid gap-4 lg:grid-cols-3">

@@ -32,6 +32,37 @@ const DECISIONS: ReadonlyArray<{ value: Decision; label: string; tone: string }>
   { value: 'refused', label: 'Refused', tone: 'danger' },
 ];
 
+// MOCK_DEPENDENCY: §9 — try-on countdown not in API yet (assume 10 min from
+// dialog open; backend will return a `windowEndsAt` timestamp).
+
+const TRY_ON_WINDOW_MS = 10 * 60 * 1000;
+
+function TryOnCountdown() {
+  const [openedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const remaining = openedAt + TRY_ON_WINDOW_MS - now;
+  const expired = remaining <= 0;
+  const mm = Math.max(0, Math.floor(remaining / 60_000));
+  const ss = Math.max(0, Math.floor((remaining % 60_000) / 1000));
+  const tone = expired
+    ? 'border-danger/30 bg-danger-soft text-danger'
+    : remaining < 60_000
+      ? 'border-warning/40 bg-warning-soft text-warning'
+      : 'border-info/30 bg-info-soft text-info';
+  return (
+    <div className={`-mt-2 mb-3 inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[12px] ${tone}`}>
+      <span className="font-semibold uppercase tracking-wide text-[11px]">Try-on window</span>
+      <span className="font-mono">
+        {expired ? 'expired — extend or close' : `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')} left`}
+      </span>
+    </div>
+  );
+}
+
 /**
  * Try-and-Buy door visit dialog. Per-item kept/returned/refused decisions, with mandatory
  * reason + photo for refused items. Admin acts on behalf of agent for MVP.
@@ -125,6 +156,8 @@ export function DoorVisitDialog({
             transitions the order.
           </DialogDescription>
         </DialogHeader>
+
+        {open && <TryOnCountdown />}
 
         <ul className="divide-y divide-line max-h-[50vh] overflow-y-auto -mx-1">
           {items.map((it) => {

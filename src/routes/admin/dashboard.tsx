@@ -3,17 +3,22 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowUpRight,
+  BadgePercent,
   Check,
   Clock,
   Download,
   Filter,
   Inbox,
+  IndianRupee,
   MoreHorizontal,
+  RotateCcw,
+  ShieldAlert,
   ShoppingBag,
   SlidersHorizontal,
   Store,
   TrendingUp,
   Users,
+  Wallet,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -119,6 +124,9 @@ export default function AdminDashboard() {
         />
       </div>
 
+      {/* §21 Marketplace KPIs (MOCK_DEPENDENCY: §21) */}
+      <MarketplaceKpiStrip />
+
       {/* Chart + top retailers */}
       <div className="grid gap-4 lg:grid-cols-3 mb-6">
         <ChartCard series={series} className="lg:col-span-2" />
@@ -128,12 +136,95 @@ export default function AdminDashboard() {
         />
       </div>
 
+      {/* §21 Cohorts (MOCK_DEPENDENCY: §21) */}
+      <CohortsCard />
+
       {/* Latest applications */}
       <LatestApplicationsCard
         items={topApplications}
         loading={pendingRetailers.isLoading}
       />
     </Page>
+  );
+}
+
+// ─── §21 Marketplace KPIs (mocked) ───
+
+function MarketplaceKpiStrip() {
+  // MOCK_DEPENDENCY: §21 — wire to /admin/reports/marketplace-kpis
+  const kpis: { label: string; value: string; tone: 'success' | 'danger' | 'neutral'; delta: string; icon: React.ReactNode }[] = [
+    { label: 'GMV (today)', value: '₹38.4L', tone: 'success', delta: '+12.4% wow', icon: <IndianRupee className="size-4" /> },
+    { label: 'Take-rate', value: '14.2%', tone: 'neutral', delta: 'Floor 12%', icon: <BadgePercent className="size-4" /> },
+    { label: 'Dispute-rate', value: '1.8%', tone: 'success', delta: '-0.3pt wow', icon: <ShieldAlert className="size-4" /> },
+    { label: 'Refund-rate', value: '4.1%', tone: 'danger', delta: '+0.6pt wow', icon: <RotateCcw className="size-4" /> },
+    { label: 'Payout volume (24h)', value: '₹61.2L', tone: 'neutral', delta: '7 failed', icon: <Wallet className="size-4" /> },
+  ];
+  return (
+    <section className="mb-6">
+      <div className="kicker mb-2">Marketplace KPIs · today</div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        {kpis.map((k) => (
+          <div key={k.label} className="surface-card p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[11.5px] uppercase tracking-wide text-ink-3">{k.label}</span>
+              <span className="grid size-7 place-items-center rounded-full bg-bg-3 text-ink-2">{k.icon}</span>
+            </div>
+            <div className="mt-2 font-mono text-[22px] text-ink leading-none">{k.value}</div>
+            <div className={cn('mt-1.5 text-[11.5px]',
+              k.tone === 'success' ? 'text-success' : k.tone === 'danger' ? 'text-danger' : 'text-ink-3')}>
+              {k.delta}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ─── §21 Cohorts (mocked) ───
+
+function CohortsCard() {
+  // MOCK_DEPENDENCY: §21 — retailer-cohort retention by month
+  const cohorts: { cohort: string; size: number; m1: number; m2: number; m3: number }[] = [
+    { cohort: 'Feb 2026', size: 142, m1: 88, m2: 71, m3: 64 },
+    { cohort: 'Mar 2026', size: 168, m1: 91, m2: 74, m3: 0 },
+    { cohort: 'Apr 2026', size: 201, m1: 89, m2: 0, m3: 0 },
+    { cohort: 'May 2026', size: 184, m1: 0, m2: 0, m3: 0 },
+  ];
+  return (
+    <section className="surface-card mb-6 p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-[15px] font-semibold text-ink">Retailer cohorts</h2>
+          <p className="text-[12.5px] text-ink-3">Active-retailer retention by signup month.</p>
+        </div>
+        <Link to="/admin/reports/leaderboard" className="text-[12px] text-ink-3 hover:text-ink">View leaderboard →</Link>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[12.5px]">
+          <thead className="text-ink-3">
+            <tr className="border-b border-line">
+              <th className="px-3 py-2 text-left font-medium">Cohort</th>
+              <th className="px-3 py-2 text-right font-medium">Size</th>
+              <th className="px-3 py-2 text-right font-medium">M+1</th>
+              <th className="px-3 py-2 text-right font-medium">M+2</th>
+              <th className="px-3 py-2 text-right font-medium">M+3</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cohorts.map((c) => (
+              <tr key={c.cohort} className="border-b border-line/60">
+                <td className="px-3 py-2 text-ink">{c.cohort}</td>
+                <td className="px-3 py-2 text-right font-mono">{c.size}</td>
+                <td className="px-3 py-2 text-right font-mono">{c.m1 ? `${c.m1}%` : '—'}</td>
+                <td className="px-3 py-2 text-right font-mono">{c.m2 ? `${c.m2}%` : '—'}</td>
+                <td className="px-3 py-2 text-right font-mono">{c.m3 ? `${c.m3}%` : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

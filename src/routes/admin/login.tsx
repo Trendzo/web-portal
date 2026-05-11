@@ -7,6 +7,7 @@ import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import type { AdminProfile } from '@/lib/types';
 import { AuthShell } from '@/components/forms/AuthShell';
+import { HardwareKeyChallenge } from '@/components/forms/HardwareKeyChallenge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -76,6 +77,7 @@ export default function AdminLogin() {
         <Button type="submit" variant="accent" size="lg" className="w-full" loading={isSubmitting}>
           Sign in
         </Button>
+        <HardwareKeyChallenge />
       </form>
     </AuthShell>
   );

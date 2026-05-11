@@ -9,7 +9,7 @@ import { ArrowUpRight, ImageOff, Plus, Search } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { canPublishProducts, deriveGate } from '@/lib/gate';
 import { listingStatusMeta } from '@/lib/status';
-import type { Brand, Category, Listing, ListingStatus, RetailerProfile, Store } from '@/lib/types';
+import type { AttributeTemplate, Brand, Category, Listing, ListingStatus, RetailerProfile, Store } from '@/lib/types';
 import { GateNotice } from '@/components/retailer/gate-notice';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Badge } from '@/components/ui/badge';
@@ -50,6 +50,7 @@ const CreateSchema = z.object({
   badge: z.enum(['new', 'hot', 'trending', 'none']).default('none'),
   listingPolicy: z.enum(['return', 'replace', 'final_sale']).default('return'),
   hsn: z.string().trim().max(8).optional(),
+  templateId: z.string().optional(),
   // No status here — every new listing starts as `draft`. The retailer publishes
   // (status='active') from the detail page after adding variants and images.
 });
@@ -61,6 +62,8 @@ export default function RetailerListings() {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<ListingStatus | 'all'>('all');
   const [q, setQ] = useState('');
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // Drives the gate banner. Only mutations on this page are gated server-side, but
   // we mirror the rule client-side so the user knows in advance.
@@ -70,6 +73,19 @@ export default function RetailerListings() {
   });
   const gate = deriveGate(me.data?.retailer, me.data?.store);
   const canPublish = canPublishProducts(gate);
+
+  const qc = useQueryClient();
+  const bulkStatus = useMutation({
+    mutationFn: (body: { ids: string[]; status: 'active' | 'draft' }) =>
+      api<{ updated: number; skipped: number }>('/retailer/listings/bulk-status', { method: 'POST', body }),
+    onSuccess: (data) => {
+      toast.success(`Updated ${data.updated} product${data.updated === 1 ? '' : 's'}${data.skipped > 0 ? ` · ${data.skipped} skipped` : ''}`);
+      setSelected(new Set());
+      setBulkMode(false);
+      void qc.invalidateQueries({ queryKey: ['retailer', 'listings'] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Bulk update failed'),
+  });
 
   const listings = useQuery({
     queryKey: ['retailer', 'listings', status],
@@ -96,9 +112,21 @@ export default function RetailerListings() {
         }
         actions={
           canPublish ? (
-            <Button variant="ink" caps iconLeft={<Plus className="size-3.5" />} onClick={() => setOpen(true)}>
-              New product
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant={bulkMode ? 'ink' : 'outline'}
+                size="sm"
+                onClick={() => {
+                  setBulkMode((b) => !b);
+                  setSelected(new Set());
+                }}
+              >
+                {bulkMode ? 'Exit bulk mode' : 'Bulk select'}
+              </Button>
+              <Button variant="ink" caps iconLeft={<Plus className="size-3.5" />} onClick={() => setOpen(true)}>
+                New product
+              </Button>
+            </div>
           ) : undefined
         }
       />
@@ -159,15 +187,73 @@ export default function RetailerListings() {
               }
             />
           ) : (
-            <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-stagger>
-              {filtered.map((l, i) => <ListingCard key={l.id} listing={l} ord={i + 1} />)}
-            </ul>
+            <>
+              {bulkMode && (
+                <div className="mb-3 flex items-center justify-between rounded-md border border-line bg-bg-2/40 px-3 py-2 text-[12.5px]">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selected.size === filtered.length && filtered.length > 0}
+                      onChange={(e) =>
+                        setSelected(e.target.checked ? new Set(filtered.map((l) => l.id)) : new Set())
+                      }
+                      className="size-4 cursor-pointer accent-accent"
+                    />
+                    <span className="text-ink-2">{selected.size} of {filtered.length} selected</span>
+                  </label>
+                </div>
+              )}
+              <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-stagger>
+                {filtered.map((l, i) => (
+                  <li key={l.id} className="relative">
+                    {bulkMode && (
+                      <label className="absolute left-2 top-2 z-10 grid size-7 place-items-center rounded-md bg-bg/95 backdrop-blur shadow-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(l.id)}
+                          onChange={(e) => {
+                            setSelected((s) => {
+                              const next = new Set(s);
+                              if (e.target.checked) next.add(l.id);
+                              else next.delete(l.id);
+                              return next;
+                            });
+                          }}
+                          className="size-4 cursor-pointer accent-accent"
+                        />
+                      </label>
+                    )}
+                    <ListingCard listing={l} ord={i + 1} />
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </>
       )}
 
+      {bulkMode && selected.size > 0 && (
+        <BulkActionBar
+          count={selected.size}
+          ids={[...selected]}
+          onActivate={() => bulkStatus.mutate({ ids: [...selected], status: 'active' })}
+          onDraft={() => bulkStatus.mutate({ ids: [...selected], status: 'draft' })}
+          pending={bulkStatus.isPending}
+        />
+      )}
+
       <CreateDialog open={open} onOpenChange={setOpen} />
     </Page>
+  );
+}
+
+function BulkActionBar({ count, ids: _ids, onActivate, onDraft, pending }: { count: number; ids: string[]; onActivate: () => void; onDraft: () => void; pending?: boolean }) {
+  return (
+    <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full border border-line bg-bg/95 backdrop-blur px-3 py-2 shadow-lg flex items-center gap-2">
+      <span className="text-[12.5px] text-ink-2 px-2">{count} selected</span>
+      <Button size="sm" variant="outline" disabled={pending} onClick={onDraft}>Move to draft</Button>
+      <Button size="sm" variant="accent" loading={pending ?? false} onClick={onActivate}>Make active</Button>
+    </div>
   );
 }
 
@@ -257,6 +343,10 @@ function CreateDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
     queryKey: ['catalog', 'categories'],
     queryFn: () => api<Category[]>('/catalog/categories'),
   });
+  const templates = useQuery({
+    queryKey: ['retailer', 'attribute-templates'],
+    queryFn: () => api<AttributeTemplate[]>('/retailer/attribute-templates'),
+  });
 
   const {
     register,
@@ -276,12 +366,16 @@ function CreateDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
       badge: 'none',
       listingPolicy: 'return',
       hsn: '',
+      templateId: '',
     },
   });
 
   const create = useMutation({
     mutationFn: (v: CreateValues) =>
-      api<Listing>('/retailer/listings', { method: 'POST', body: { ...v, galleryUrls: [] } }),
+      api<Listing>('/retailer/listings', {
+        method: 'POST',
+        body: { ...v, galleryUrls: [], ...(v.templateId ? {} : { templateId: undefined }) },
+      }),
     onSuccess: (l) => {
       toast.success(`Created · ${l.name}`, {
         description: 'Add variants and at least one image, then publish.',
@@ -409,6 +503,31 @@ function CreateDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
               <FieldError>{errors.hsn?.message}</FieldError>
             </div>
           </div>
+          {(templates.data ?? []).length > 0 && (
+            <div>
+              <Label hint="Optional — auto-fills variant axis names">Attribute template</Label>
+              <Select
+                value={watch('templateId') || '__none__'}
+                onValueChange={(v) => setValue('templateId', v === '__none__' ? '' : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="No template — build manually" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No template</SelectItem>
+                  {(templates.data ?? []).map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                      {t.isPlatformDefault ? ' · platform default' : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-[11.5px] text-ink-3">
+                Templates pre-fill axis names (Size, Colour…) when you add variants.
+              </p>
+            </div>
+          )}
           <div className="rounded-xs border border-rule bg-paper-2/50 px-3 py-2.5 text-[12.5px] text-ink-2 leading-relaxed">
             <span className="kicker text-ink-3 mr-2">Next</span>
             New products start as <em>draft</em>. Add variants (price + stock) and at least

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -23,6 +23,7 @@ import {
   orderStatusMeta,
   paymentMethodLabel,
   paymentStatusMeta,
+  refundDisbursementStatusMeta,
   refundStatusMeta,
   returnDecisionMeta,
 } from '@/lib/status';
@@ -234,6 +235,17 @@ function Detail({
             {order.consumerNameSnap} · {deliveryMethodLabel(order.deliveryMethod)} · {paymentMethodLabel(order.paymentMethod)}
           </p>
 
+          {(order.status === 'routing' || order.status === 'pending') && (
+            <AcceptanceCountdown placedAt={order.placedAt} />
+          )}
+
+          {order.deliveryMethod === 'try_and_buy' && (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-md border border-info/30 bg-info-soft px-2.5 py-1.5 text-[12px] text-info">
+              <span className="font-semibold uppercase tracking-wide text-[11px]">Prepaid only</span>
+              <span>COD blocked for try-and-buy — capture confirmed at checkout.</span>
+            </div>
+          )}
+
           {primaryAction && (
             <Button
               variant="accent"
@@ -308,16 +320,35 @@ function Detail({
             <CardTitle>Refunds</CardTitle>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-2">
+            <ul className="space-y-3">
               {(order.refunds ?? []).map((rf) => {
                 const m = refundStatusMeta(rf.status);
                 return (
-                  <li key={rf.id} className="flex items-center justify-between text-[12.5px]">
-                    <div className="flex items-center gap-2">
-                      <Badge tone={m.tone}>{m.label}</Badge>
-                      <CopyableId value={rf.id} label="refund id" />
+                  <li key={rf.id} className="space-y-2">
+                    <div className="flex items-center justify-between text-[12.5px]">
+                      <div className="flex items-center gap-2">
+                        <Badge tone={m.tone}>{m.label}</Badge>
+                        <CopyableId value={rf.id} label="refund id" />
+                      </div>
+                      <span className="font-mono tabular-nums">{formatPaise(rf.totalRefundPaise)}</span>
                     </div>
-                    <span className="font-mono tabular-nums">{formatPaise(rf.totalRefundPaise)}</span>
+                    {rf.disbursements.length > 0 && (
+                      <ul className="rounded-md border border-line bg-bg-2/30 p-2 space-y-1.5">
+                        {rf.disbursements.map((d) => {
+                          const dm = refundDisbursementStatusMeta(d.status);
+                          return (
+                            <li key={d.id} className="flex items-center justify-between text-[11.5px]">
+                              <div className="flex items-center gap-2">
+                                <Badge tone={dm.tone}>{dm.label}</Badge>
+                                <span className="capitalize text-ink-2">{d.destination.replace(/_/g, ' ')}</span>
+                                {d.gatewayRef && <span className="font-mono text-[10.5px] text-ink-4">· {d.gatewayRef}</span>}
+                              </div>
+                              <span className="font-mono tabular-nums text-ink">{formatPaise(d.amountPaise)}</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                   </li>
                 );
               })}
@@ -480,6 +511,32 @@ function nextStepHeading(status: OrderStatus): string {
     case 'payment_failed':
       return 'Payment did not go through. Awaiting customer retry or admin cancellation.';
   }
+}
+
+// MOCK_DEPENDENCY: §8 — acceptance window length not in API yet (assume 5 min from placedAt).
+
+const ACCEPTANCE_WINDOW_MS = 5 * 60 * 1000;
+
+function AcceptanceCountdown({ placedAt }: { placedAt: string }) {
+  const expiresAt = new Date(placedAt).getTime() + ACCEPTANCE_WINDOW_MS;
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+  const remainingMs = expiresAt - now;
+  const expired = remainingMs <= 0;
+  const mm = Math.max(0, Math.floor(remainingMs / 60_000));
+  const ss = Math.max(0, Math.floor((remainingMs % 60_000) / 1000));
+  const tone = expired ? 'border-danger/30 bg-danger-soft text-danger' : remainingMs < 60_000 ? 'border-warning/40 bg-warning-soft text-warning' : 'border-info/30 bg-info-soft text-info';
+  return (
+    <div className={`mt-3 inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[12px] ${tone}`}>
+      <span className="font-semibold uppercase tracking-wide text-[11px]">Acceptance window</span>
+      <span className="font-mono">
+        {expired ? 'expired' : `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')} left`}
+      </span>
+    </div>
+  );
 }
 
 function Row({ icon, k, v }: { icon: React.ReactNode; k: string; v: React.ReactNode }) {

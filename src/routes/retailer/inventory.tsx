@@ -25,16 +25,18 @@ import {
 } from '@/lib/inventory';
 import { listingStatusMeta, formatPaise } from '@/lib/status';
 import type {
+  InventoryAdjustment,
   InventoryImportResult,
   InventoryRow,
   ListingStatus,
   Variant,
 } from '@/lib/types';
 import { cn } from '@/lib/cn';
-import { Page, PageHeader } from '@/components/ui/page';
+import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -145,6 +147,15 @@ export default function RetailerInventory() {
         }
       />
 
+      <Tabs defaultValue="overview">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="health">Health</TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview">
+
       {/* Stat tiles. Fixed-grid so the four numbers stay aligned regardless of
           width — a quick scan of the row tells the operator the state of the catalog
           before they even touch the table. */}
@@ -240,12 +251,121 @@ export default function RetailerInventory() {
         <InventoryTable rows={filtered} />
       )}
 
+        </TabsContent>
+
+        <TabsContent value="health">
+          <HealthTab rows={all} />
+        </TabsContent>
+
+        <TabsContent value="history">
+          <HistoryTab />
+        </TabsContent>
+      </Tabs>
+
       <ImportDialog
         open={importOpen}
         onOpenChange={setImportOpen}
         onImported={() => inventory.refetch()}
       />
     </Page>
+  );
+}
+
+// MOCK_DEPENDENCY: §21 — Inventory Health rollup (best/dead/oversold/low-stock)
+
+function HealthTab({ rows }: { rows: InventoryRow[] }) {
+  const lowStock = rows.filter((r) => r.stock > 0 && r.stock <= 5);
+  const outOfStock = rows.filter((r) => r.stock === 0);
+  const oversold = rows.filter((r) => r.reserved > r.stock);
+  const bestStocked = [...rows].sort((a, b) => b.stock - a.stock).slice(0, 5);
+  const deadStock = [...rows].filter((r) => r.stock > 20).slice(0, 5);
+
+  return (
+    <div className="space-y-6">
+      <SectionHeading title="Inventory health" />
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <HealthStat label="Low stock" count={lowStock.length} tone="warning" />
+        <HealthStat label="Out of stock" count={outOfStock.length} tone="danger" />
+        <HealthStat label="Oversold" count={oversold.length} tone="danger" />
+        <HealthStat label="Dead stock (sample)" count={deadStock.length} tone="neutral" />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <HealthCard title="Top stocked variants" items={bestStocked.map((r) => ({ key: r.id, primary: r.listingName, secondary: `${r.attributesLabel} · ${r.stock} units` }))} />
+        <HealthCard title="Possibly dead stock" items={deadStock.map((r) => ({ key: r.id, primary: r.listingName, secondary: `${r.attributesLabel} · ${r.stock} units · low velocity` }))} />
+      </div>
+    </div>
+  );
+}
+
+function HealthStat({ label, count, tone }: { label: string; count: number; tone: 'neutral' | 'warning' | 'danger' }) {
+  const toneCls = tone === 'warning' ? 'text-warning' : tone === 'danger' ? 'text-danger' : 'text-ink';
+  return (
+    <div className="rounded-lg border border-line bg-bg p-4">
+      <div className="kicker mb-1.5">{label}</div>
+      <div className={`text-[26px] font-semibold leading-none ${toneCls}`}>{count}</div>
+    </div>
+  );
+}
+
+function HealthCard({ title, items }: { title: string; items: Array<{ key: string; primary: string; secondary: string }> }) {
+  return (
+    <div className="rounded-lg border border-line bg-bg">
+      <div className="border-b border-line px-4 py-3 text-[13.5px] font-semibold text-ink">{title}</div>
+      {items.length === 0 ? (
+        <div className="p-4 text-[12.5px] text-ink-3 italic">Nothing to surface.</div>
+      ) : (
+        <ul className="divide-y divide-line">
+          {items.map((it) => (
+            <li key={it.key} className="px-4 py-2.5">
+              <div className="text-[13px] text-ink">{it.primary}</div>
+              <div className="text-[11.5px] text-ink-3">{it.secondary}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function HistoryTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['retailer', 'inventory', 'adjustments'],
+    queryFn: () => api<InventoryAdjustment[]>('/retailer/inventory/adjustments'),
+  });
+  const rows = data ?? [];
+
+  return (
+    <div className="space-y-3">
+      <SectionHeading title="Adjustment history" />
+      {isLoading ? (
+        <Skeleton className="h-40" />
+      ) : rows.length === 0 ? (
+        <Empty kicker="No history" title="No stock adjustments recorded yet." />
+      ) : (
+        <ol className="space-y-2">
+          {rows.map((r) => (
+            <li key={r.id} className="flex items-start gap-3 rounded-md border border-line bg-bg-2/30 px-3 py-2.5">
+              <span
+                className={cn(
+                  'font-mono text-sm font-semibold shrink-0 w-14 text-right',
+                  r.delta > 0 ? 'text-success' : 'text-danger',
+                )}
+              >
+                {r.delta > 0 ? `+${r.delta}` : r.delta}
+              </span>
+              <div className="min-w-0 flex-1 text-[12.5px] text-ink">
+                <span className="font-medium">{r.reason.replace(/_/g, ' ')}</span>
+                {r.note && <span className="ml-1 text-ink-3"> — {r.note}</span>}
+                <div className="text-ink-4 mt-0.5 font-mono">sku·{r.variantId.slice(-6)} → {r.newStock} in stock</div>
+              </div>
+              <span className="text-[11.5px] text-ink-4 shrink-0">{new Date(r.at).toLocaleDateString()}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
   );
 }
 

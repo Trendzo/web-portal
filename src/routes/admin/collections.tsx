@@ -105,7 +105,7 @@ export default function AdminCollections() {
   return (
     <Page>
       <PageHeader
-        title={<>Collections</>}
+        title={<>Featured Selections</>}
         description={
           <>
             Curate outfits, occasions, drops, edits, and trend rails. Collections appear

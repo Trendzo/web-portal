@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import type { Mechanism, Promotion } from '@/lib/types';
 import { DiscountConfigForm } from '@/components/promotion/DiscountConfigForm';
+import { EligibilitySection, buildScopePayload } from '@/components/promotion/EligibilitySection';
 
 type FormValues = {
   name: string;
@@ -30,6 +31,7 @@ type FormValues = {
   perConsumerLimit?: number | null;
   status: 'draft' | 'scheduled' | 'active';
   notes?: string;
+  scope: Record<string, unknown>;
 };
 
 export default function AdminPromotionNew() {
@@ -46,6 +48,7 @@ export default function AdminPromotionNew() {
       totalUses: null,
       perConsumerLimit: 1,
       status: 'draft',
+      scope: {},
     },
   });
 
@@ -63,6 +66,8 @@ export default function AdminPromotionNew() {
       if (v.storeId) payload.storeId = v.storeId;
       if (v.totalUses != null) payload.totalUses = v.totalUses;
       if (v.perConsumerLimit != null) payload.perConsumerLimit = v.perConsumerLimit;
+      const scopePayload = buildScopePayload(v.scope);
+      if (Object.keys(scopePayload).length) payload.scope = scopePayload;
       return api<Promotion>('/admin/promotions', { method: 'POST', body: payload });
     },
     onSuccess: (p) => {
@@ -169,6 +174,8 @@ export default function AdminPromotionNew() {
                 />
               </div>
             </div>
+            <SectionHeading title="Eligibility" />
+            <EligibilitySection adminMode />
           </section>
 
           <aside className="lg:col-span-5 space-y-7">

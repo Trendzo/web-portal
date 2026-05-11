@@ -14,7 +14,13 @@ export type Gate =
   | { state: 'retailer_deactivated' }
   | { state: 'no_store' }
   | { state: 'store_pending' }
-  | { state: 'store_blocked'; status: StoreStatus };
+  | { state: 'store_blocked'; status: StoreStatus }
+  // Banner-only gates added for §3 / §22. `canPublishProducts` keeps its
+  // strict `state === 'ready'` check; these states bubble up to BannerStack
+  // for a non-blocking warning instead of disabling the publish path.
+  | { state: 'kyc_overdue'; dueAt: string }
+  | { state: 'floor_breached'; metric: string }
+  | { state: 'suspended'; reason: string | null };
 
 /** Derive the gate from the latest retailer + store snapshot (from `/retailer/me`). */
 export function deriveGate(
@@ -26,8 +32,8 @@ export function deriveGate(
   if (retailer.status === 'pending_approval') return { state: 'retailer_pending' };
   // retailer is active
   if (!store) return { state: 'no_store' };
-  if (store.status === 'onboarding') return { state: 'store_pending' };
-  if (store.status === 'active') return { state: 'ready' };
+  // onboarding = provisioned, retailer adds inventory before going live — allow product management
+  if (store.status === 'onboarding' || store.status === 'active') return { state: 'ready' };
   return { state: 'store_blocked', status: store.status };
 }
 

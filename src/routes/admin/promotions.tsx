@@ -1,21 +1,25 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowUpRight, Plus, Search } from 'lucide-react';
-import { api, ApiError } from '@/lib/api';
+import { ArrowUpRight, Plus, Search, Sparkles } from 'lucide-react';
+import { api } from '@/lib/api';
 import {
   discountTypeLabel,
   formatDiscount,
+  formatPaise,
+  formatAge,
   mechanismLabel,
   promotionStatusMeta,
 } from '@/lib/status';
-import type { Mechanism, Promotion, PromotionStatus } from '@/lib/types';
+import type { Mechanism, Promotion, PromotionAnomaly, PromotionPerformance, PromotionStatus, TargetedDrop } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
   SelectContent,
@@ -35,35 +39,7 @@ const STATUS_OPTIONS: ReadonlyArray<{ value: PromotionStatus | 'all'; label: str
   { value: 'revoked', label: 'Revoked' },
 ];
 
-const MECH_OPTIONS: ReadonlyArray<{ value: Mechanism | 'all'; label: string }> = [
-  { value: 'all', label: 'All mechanisms' },
-  { value: 'offer', label: 'Offers (auto)' },
-  { value: 'coupon', label: 'Coupons (code)' },
-  { value: 'voucher', label: 'Vouchers (single-use)' },
-];
-
 export default function AdminPromotions() {
-  const [status, setStatus] = useState<PromotionStatus | 'all'>('all');
-  const [mechanism, setMechanism] = useState<Mechanism | 'all'>('all');
-  const [q, setQ] = useState('');
-
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'promotions', status, mechanism],
-    queryFn: () => {
-      const params = new URLSearchParams();
-      if (status !== 'all') params.set('status', status);
-      if (mechanism !== 'all') params.set('mechanism', mechanism);
-      const qs = params.toString();
-      return api<Promotion[]>(`/admin/promotions${qs ? `?${qs}` : ''}`);
-    },
-  });
-
-  const filtered = (data ?? []).filter((p) => {
-    if (!q.trim()) return true;
-    const n = q.toLowerCase();
-    return p.name.toLowerCase().includes(n) || p.id.toLowerCase().includes(n);
-  });
-
   return (
     <Page>
       <PageHeader
@@ -81,71 +57,200 @@ export default function AdminPromotions() {
         }
       />
 
-      <div className="mb-6 flex flex-col gap-3 border-b border-rule pb-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex max-w-md flex-1 items-center gap-3">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-1 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
-            <Input
-              placeholder="Search by name or ID…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className="!pl-7"
-            />
-          </div>
+      <Tabs defaultValue="offers">
+        <TabsList className="overflow-x-auto whitespace-nowrap">
+          <TabsTrigger value="offers">Offers</TabsTrigger>
+          <TabsTrigger value="coupons">Coupons</TabsTrigger>
+          <TabsTrigger value="vouchers">Vouchers</TabsTrigger>
+          <TabsTrigger value="drops">Targeted drops</TabsTrigger>
+          <TabsTrigger value="performance">Performance</TabsTrigger>
+          <TabsTrigger value="anomalies">Anomalies</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="offers"><MechanismList mechanism="offer" /></TabsContent>
+        <TabsContent value="coupons"><MechanismList mechanism="coupon" /></TabsContent>
+        <TabsContent value="vouchers"><MechanismList mechanism="voucher" /></TabsContent>
+        <TabsContent value="drops"><DropsTab /></TabsContent>
+        <TabsContent value="performance"><PerformanceTab /></TabsContent>
+        <TabsContent value="anomalies"><AnomaliesTab /></TabsContent>
+      </Tabs>
+    </Page>
+  );
+}
+
+function MechanismList({ mechanism }: { mechanism: Mechanism }) {
+  const [status, setStatus] = useState<PromotionStatus | 'all'>('all');
+  const [q, setQ] = useState('');
+
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['admin', 'promotions', status, mechanism],
+    queryFn: () => {
+      const params = new URLSearchParams({ mechanism });
+      if (status !== 'all') params.set('status', status);
+      return api<Promotion[]>(`/admin/promotions?${params.toString()}`);
+    },
+  });
+
+  const filtered = (data ?? [])
+    .filter((p) => p.mechanism === mechanism)
+    .filter((p) => (q.trim() ? p.name.toLowerCase().includes(q.toLowerCase()) || p.id.toLowerCase().includes(q.toLowerCase()) : true));
+
+  return (
+    <>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="relative max-w-md flex-1">
+          <Search className="pointer-events-none absolute left-1 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
+          <Input placeholder="Search by name or ID…" value={q} onChange={(e) => setQ(e.target.value)} className="!pl-7" />
         </div>
-        <div className="flex items-center gap-3">
-          <Select value={mechanism} onValueChange={(v) => setMechanism(v as Mechanism | 'all')}>
-            <SelectTrigger className="sm:w-52"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {MECH_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={status} onValueChange={(v) => setStatus(v as PromotionStatus | 'all')}>
-            <SelectTrigger className="sm:w-44"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {STATUS_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <Select value={status} onValueChange={(v) => setStatus(v as PromotionStatus | 'all')}>
+          <SelectTrigger className="sm:w-44"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {STATUS_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {isLoading ? (
         <div className="space-y-px border-y border-rule" data-stagger>
-          {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-20" />)}
+          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-20" />)}
         </div>
       ) : isError ? (
-        <Empty
-          kicker="Connection lost"
-          title="Couldn't load promotions"
-          action={<Button variant="outline" onClick={() => refetch()}>Retry</Button>}
-        />
+        <Empty kicker="Connection lost" title="Couldn't load promotions" action={<Button variant="outline" onClick={() => refetch()}>Retry</Button>} />
       ) : filtered.length === 0 ? (
-        <Empty
-          kicker={q || status !== 'all' || mechanism !== 'all' ? 'No matches' : 'No promotions yet'}
-          title={
-            q || status !== 'all' || mechanism !== 'all'
-              ? 'Nothing matches that filter.'
-              : 'No promotions yet.'
-          }
-          description="Create an offer, coupon, or voucher to start running campaigns."
-          action={
-            <Button asChild variant="ink" caps iconLeft={<Plus className="size-3.5" />}>
-              <Link to="/admin/promotions/new">New promotion</Link>
-            </Button>
-          }
-        />
+        <Empty kicker="None" title={`No ${mechanism}s match this filter.`} />
       ) : (
         <ol className="border-y border-rule divide-y divide-rule" data-stagger>
-          {filtered.map((p, i) => (
-            <PromotionRow key={p.id} promo={p} ord={i + 1} />
-          ))}
+          {filtered.map((p, i) => <PromotionRow key={p.id} promo={p} ord={i + 1} />)}
         </ol>
       )}
-    </Page>
+    </>
+  );
+}
+
+function DropsTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin', 'promotions', 'drops'],
+    queryFn: () => api<TargetedDrop[]>('/admin/promotions/targeted-drops'),
+  });
+  const list = data ?? [];
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-[12.5px] text-ink-3">{list.length} drop{list.length === 1 ? '' : 's'}</span>
+        <Button asChild iconLeft={<Plus className="size-3.5" />}>
+          <Link to="/admin/targeted-drops">New drop</Link>
+        </Button>
+      </div>
+      {isLoading ? <Skeleton className="h-32" /> : list.length === 0 ? (
+        <Empty kicker="No drops" title="No targeted drops sent." />
+      ) : (
+        <ul className="space-y-2">
+          {list.map((d) => (
+            <Card key={d.id}>
+              <CardContent className="p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-semibold text-ink">{d.name}</div>
+                    <div className="mt-1 text-[12px] text-ink-3">
+                      Promo {d.promotionName} · cohort {d.cohortKind.replace(/_/g, ' ')} · audience {d.audienceSize.toLocaleString('en-IN')}
+                    </div>
+                    <div className="mt-1 text-[11.5px] text-ink-4">Pushed {formatAge(d.pushedAt)} · {d.redemptionCount} redemptions</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function PerformanceTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin', 'promotions', 'performance'],
+    queryFn: () => api<PromotionPerformance[]>('/admin/promotions/performance'),
+  });
+  const list = data ?? [];
+  return (
+    <div className="space-y-3">
+      {isLoading ? <Skeleton className="h-40" /> : list.length === 0 ? (
+        <Empty kicker="No data" title="No promotion metrics yet." />
+      ) : (
+        <Card>
+          <CardContent className="overflow-x-auto p-0">
+            <table className="w-full text-[12.5px]">
+              <thead className="bg-bg-2/40">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-ink-3">Promotion</th>
+                  <th className="px-3 py-2 text-right font-medium text-ink-3">Redemptions</th>
+                  <th className="px-3 py-2 text-right font-medium text-ink-3">GMV influence</th>
+                  <th className="px-3 py-2 text-right font-medium text-ink-3">AOV lift</th>
+                  <th className="px-3 py-2 text-right font-medium text-ink-3">Refund rate</th>
+                  <th className="px-3 py-2 text-center font-medium text-ink-3">Anomaly</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((m) => (
+                  <tr key={m.promotionId} className="border-t border-line">
+                    <td className="px-3 py-2 text-ink">{m.name}</td>
+                    <td className="px-3 py-2 text-right font-mono">{m.redemptions.toLocaleString('en-IN')}</td>
+                    <td className="px-3 py-2 text-right font-mono">{formatPaise(m.gmvInfluencePaise)}</td>
+                    <td className="px-3 py-2 text-right font-mono">+{(m.aovLiftBp / 100).toFixed(2)}%</td>
+                    <td className="px-3 py-2 text-right font-mono">{(m.refundRateBp / 100).toFixed(2)}%</td>
+                    <td className="px-3 py-2 text-center">
+                      {m.anomalyFlagged ? <Badge tone="danger" pulse><Sparkles className="size-3 mr-1 inline" />Flagged</Badge> : <span className="text-ink-4">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function AnomaliesTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin', 'promotions', 'anomalies'],
+    queryFn: () => api<PromotionAnomaly[]>('/admin/promotions/anomalies'),
+  });
+  const list = data ?? [];
+  return (
+    <div className="space-y-3">
+      {isLoading ? <Skeleton className="h-32" /> : list.length === 0 ? (
+        <Empty kicker="All clear" title="No promotion anomalies." />
+      ) : (
+        <ul className="space-y-2">
+          {list.map((a) => (
+            <Card key={a.id} className={a.severity === 'high' ? 'border-danger/40' : a.severity === 'medium' ? 'border-warning/40' : ''}>
+              <CardContent className="p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[14px] font-semibold text-ink">{a.promotionName}</span>
+                      <Badge tone={a.severity === 'high' ? 'danger' : a.severity === 'medium' ? 'warning' : 'neutral'}>{a.severity}</Badge>
+                      <Badge tone="neutral" flat>{a.kind.replace(/_/g, ' ')}</Badge>
+                      <Badge tone={a.status === 'open' ? 'warning' : a.status === 'acknowledged' ? 'info' : 'success'}>{a.status}</Badge>
+                    </div>
+                    <div className="mt-1 text-[12px] text-ink-3">
+                      {a.metric}: <span className="font-mono">{a.value}</span> (threshold <span className="font-mono">{a.threshold}</span>) · {a.consumersInvolved} consumer{a.consumersInvolved === 1 ? '' : 's'} involved · detected {formatAge(a.detectedAt)}
+                    </div>
+                  </div>
+                  <Button asChild variant="outline" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
+                    <Link to={`/admin/promotions/anomalies/${a.id}`}>Investigate</Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -195,6 +300,3 @@ function PromotionRow({ promo, ord }: { promo: Promotion; ord: number }) {
     </li>
   );
 }
-
-// Suppress unused — kept for API parity with other pages.
-void ApiError;

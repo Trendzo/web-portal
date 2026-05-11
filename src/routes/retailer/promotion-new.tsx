@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import type { Mechanism, Promotion } from '@/lib/types';
 import { DiscountConfigForm } from '@/components/promotion/DiscountConfigForm';
+import { EligibilitySection, buildScopePayload } from '@/components/promotion/EligibilitySection';
 
 type FormValues = {
   name: string;
@@ -28,6 +29,7 @@ type FormValues = {
   totalUses?: number | null;
   perConsumerLimit?: number | null;
   status: 'draft' | 'scheduled' | 'active';
+  scope: Record<string, unknown>;
 };
 
 export default function RetailerPromotionNew() {
@@ -43,6 +45,7 @@ export default function RetailerPromotionNew() {
       totalUses: null,
       perConsumerLimit: null,
       status: 'active',
+      scope: {},
     },
   });
 
@@ -61,6 +64,8 @@ export default function RetailerPromotionNew() {
       };
       if (v.totalUses != null) payload.totalUses = v.totalUses;
       if (v.perConsumerLimit != null) payload.perConsumerLimit = v.perConsumerLimit;
+      const scopePayload = buildScopePayload(v.scope);
+      if (Object.keys(scopePayload).length) payload.scope = scopePayload;
       return api<Promotion>('/retailer/promotions', { method: 'POST', body: payload });
     },
     onSuccess: (p) => {
@@ -159,6 +164,8 @@ export default function RetailerPromotionNew() {
               <Input mono type="number" min={0} placeholder="∞" {...register('perConsumerLimit', { setValueAs: nullableInt })} />
             </div>
           </div>
+
+          <EligibilitySection />
 
           <div className="flex items-center justify-end gap-3 border-t border-rule pt-6">
             <Button asChild variant="ghost"><Link to="/retailer/promotions">Cancel</Link></Button>

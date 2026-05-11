@@ -21,8 +21,8 @@ function configFor(gate: Exclude<Gate, { state: 'ready' }>): Config {
         title: <>Your account is being reviewed.</>,
         body: (
           <>
-            Once admin approves your account, you'll be able to publish products. You can
-            still submit your storefront in the meantime — admin reviews it separately.
+            Once admin approves your account, your store is created automatically and
+            you'll be able to publish products.
           </>
         ),
         cta: { label: 'Go to overview', href: '/retailer/dashboard' },
@@ -37,16 +37,16 @@ function configFor(gate: Exclude<Gate, { state: 'ready' }>): Config {
       };
     case 'no_store':
       return {
-        kicker: 'Storefront missing',
+        kicker: 'Store not provisioned',
         kickerTone: 'info',
-        title: <>You need a storefront before adding products.</>,
+        title: <>Your store is being set up.</>,
         body: (
           <>
-            Submit your store address and admin will review it. Once your storefront is
-            active, you can publish products and manage inventory.
+            Your store is created automatically when ClosetX approves your application.
+            If this persists after approval, contact admin.
           </>
         ),
-        cta: { label: 'Submit storefront', href: '/retailer/store' },
+        cta: { label: 'Go to overview', href: '/retailer/dashboard' },
       };
     case 'store_pending':
       return {
@@ -67,6 +67,30 @@ function configFor(gate: Exclude<Gate, { state: 'ready' }>): Config {
         kickerTone: 'danger',
         title: <>Your storefront is currently <em>{gate.status}</em>.</>,
         body: <>Contact admin to restore it.</>,
+        cta: null,
+      };
+    case 'kyc_overdue':
+      return {
+        kicker: 'KYC re-verification overdue',
+        kickerTone: 'warning',
+        title: <>Re-submit KYC to keep selling.</>,
+        body: <>Your re-verification was due {new Date(gate.dueAt).toLocaleDateString()}. Upload the requested documents to clear the warning.</>,
+        cta: { label: 'Resubmit KYC', href: '/retailer/kyc' },
+      };
+    case 'floor_breached':
+      return {
+        kicker: 'Performance floor breached',
+        kickerTone: 'warning',
+        title: <>Your store is below the {gate.metric} threshold.</>,
+        body: <>Repeated breaches escalate the warning ladder. Review the metric and act.</>,
+        cta: { label: 'View dashboard', href: '/retailer/dashboard' },
+      };
+    case 'suspended':
+      return {
+        kicker: 'Account suspended',
+        kickerTone: 'danger',
+        title: <>This account has been suspended.</>,
+        body: <>{gate.reason ?? 'Contact admin to discuss restoration.'}</>,
         cta: null,
       };
   }

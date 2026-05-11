@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Inbox, Truck, CheckCircle2, XCircle } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { api } from '@/lib/api';
 import {
   deliveryMethodLabel,
@@ -18,26 +18,72 @@ import { Empty } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/cn';
 
-type Tab = 'needs-action' | 'in-transit' | 'recent' | 'cancelled';
+// Doc-aligned 8-bucket tab strip per §8 plan. `needs-action` pulse stays via
+// orderStatusMeta.pulse on each row Badge — we no longer need a dedicated
+// "needs action" tab because pending/accepted/packed/at_door already surface
+// it visually.
+type Tab =
+  | 'pending'
+  | 'accepted'
+  | 'packed'
+  | 'picked_up'
+  | 'in_delivery'
+  | 'at_door'
+  | 'delivered_today'
+  | 'cancelled_today';
 
 const TAB_STATUSES: Record<Tab, OrderStatus[]> = {
-  'needs-action': ['routing', 'accepted', 'packed', 'undelivered', 'returned_to_store'],
-  'in-transit': ['picked_up', 'out_for_delivery', 'at_door', 'returning_to_store'],
-  recent: ['delivered', 'closed'],
-  cancelled: ['cancelled', 'payment_failed'],
+  pending: ['routing'],
+  accepted: ['accepted'],
+  packed: ['packed'],
+  picked_up: ['picked_up'],
+  in_delivery: ['out_for_delivery', 'undelivered', 'returning_to_store'],
+  at_door: ['at_door', 'returned_to_store'],
+  delivered_today: ['delivered'],
+  cancelled_today: ['cancelled', 'payment_failed'],
 };
 
-const TAB_META: Record<Tab, { label: string; icon: typeof Inbox; tone: 'accent' | 'info' | 'success' | 'neutral' }> = {
-  'needs-action': { label: 'Needs action', icon: Inbox, tone: 'accent' },
-  'in-transit': { label: 'In transit', icon: Truck, tone: 'info' },
-  recent: { label: 'Recent', icon: CheckCircle2, tone: 'success' },
-  cancelled: { label: 'Cancelled', icon: XCircle, tone: 'neutral' },
+const TAB_LABEL: Record<Tab, string> = {
+  pending: 'Pending acceptance',
+  accepted: 'Accepted',
+  packed: 'Packed',
+  picked_up: 'Picked up',
+  in_delivery: 'In delivery',
+  at_door: 'At door / verify',
+  delivered_today: 'Delivered today',
+  cancelled_today: 'Cancelled today',
 };
 
-const TABS: Tab[] = ['needs-action', 'in-transit', 'recent', 'cancelled'];
+const TABS: Tab[] = [
+  'pending',
+  'accepted',
+  'packed',
+  'picked_up',
+  'in_delivery',
+  'at_door',
+  'delivered_today',
+  'cancelled_today',
+];
+
+function startOfToday(): number {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function inTodayBucket(tab: Tab, o: OrderListRow): boolean {
+  const today = startOfToday();
+  if (tab === 'delivered_today') {
+    return o.deliveredAt ? new Date(o.deliveredAt).getTime() >= today : false;
+  }
+  if (tab === 'cancelled_today') {
+    return new Date(o.placedAt).getTime() >= today;
+  }
+  return true;
+}
 
 export default function RetailerOrdersList() {
-  const [tab, setTab] = useState<Tab>('needs-action');
+  const [tab, setTab] = useState<Tab>('pending');
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['retailer', 'orders', 'all'],
@@ -47,10 +93,10 @@ export default function RetailerOrdersList() {
 
   const all = data ?? [];
   const counts = useMemo(() => {
-    const map: Record<Tab, number> = { 'needs-action': 0, 'in-transit': 0, recent: 0, cancelled: 0 };
+    const map = Object.fromEntries(TABS.map((t) => [t, 0])) as Record<Tab, number>;
     for (const o of all) {
       for (const t of TABS) {
-        if (TAB_STATUSES[t].includes(o.status)) {
+        if (TAB_STATUSES[t].includes(o.status) && inTodayBucket(t, o)) {
           map[t] += 1;
           break;
         }
@@ -59,7 +105,7 @@ export default function RetailerOrdersList() {
     return map;
   }, [all]);
 
-  const filtered = all.filter((o) => TAB_STATUSES[tab].includes(o.status));
+  const filtered = all.filter((o) => TAB_STATUSES[tab].includes(o.status) && inTodayBucket(tab, o));
 
   return (
     <Page>
@@ -68,12 +114,11 @@ export default function RetailerOrdersList() {
         description="Walk every order through the lifecycle — accept, pack, hand to delivery, then mark delivered."
       />
 
-      {/* Tabs */}
       <div className="mb-4 flex gap-1.5 overflow-x-auto -mx-1 px-1 pb-1">
         {TABS.map((t) => {
-          const m = TAB_META[t];
-          const Icon = m.icon;
           const active = tab === t;
+          const meta = orderStatusMeta(TAB_STATUSES[t][0]!);
+          const pulse = meta.pulse && counts[t] > 0;
           return (
             <button
               key={t}
@@ -86,8 +131,8 @@ export default function RetailerOrdersList() {
                   : 'border-line bg-bg text-ink-2 hover:border-line-2 hover:text-ink',
               )}
             >
-              <Icon className="size-3.5" />
-              {m.label}
+              {pulse && <span className="size-1.5 rounded-full bg-current pulse-dot" aria-hidden />}
+              {TAB_LABEL[t]}
               {counts[t] > 0 && (
                 <span className={cn(
                   'rounded-full px-1.5 py-0.5 text-[10.5px] font-mono',
@@ -113,14 +158,14 @@ export default function RetailerOrdersList() {
         />
       ) : filtered.length === 0 ? (
         <Empty
-          kicker={tab === 'needs-action' ? 'All clear' : 'Nothing here'}
+          kicker={tab === 'pending' ? 'All clear' : 'Nothing here'}
           title={
-            tab === 'needs-action'
-              ? 'No orders need your attention right now.'
+            tab === 'pending'
+              ? 'No orders need acceptance right now.'
               : 'No orders in this view.'
           }
           description={
-            tab === 'needs-action'
+            tab === 'pending'
               ? 'New orders will appear here as soon as customers place them.'
               : undefined
           }

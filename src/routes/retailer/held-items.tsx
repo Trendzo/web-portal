@@ -1,10 +1,20 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Clock, PackageOpen, Truck } from 'lucide-react';
+import { Archive, Clock, PackageOpen, Trash2, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { formatAge, heldItemDispositionLabel, heldItemStatusMeta } from '@/lib/status';
-import type { HeldItem, HeldItemStatus } from '@/lib/types';
+import type { HeldItem, HeldItemDisposition, HeldItemStatus } from '@/lib/types';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/input';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,6 +39,7 @@ const STATUS_OPTIONS: ReadonlyArray<{ value: HeldItemStatus | 'all'; label: stri
 
 export default function RetailerHeldItems() {
   const [status, setStatus] = useState<HeldItemStatus | 'all'>('holding');
+  const [dispositionTarget, setDispositionTarget] = useState<HeldItem | null>(null);
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -135,6 +146,16 @@ export default function RetailerHeldItems() {
                         </Button>
                       </div>
                     )}
+                    {h.status === 'expired' && !h.disposition && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        iconLeft={<Archive className="size-3" />}
+                        onClick={() => setDispositionTarget(h)}
+                      >
+                        Record disposition
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -142,6 +163,99 @@ export default function RetailerHeldItems() {
           })}
         </ul>
       )}
+
+      <DispositionDialog
+        target={dispositionTarget}
+        onClose={() => setDispositionTarget(null)}
+        onRecorded={() => {
+          setDispositionTarget(null);
+          void qc.invalidateQueries({ queryKey: ['retailer', 'held-items'] });
+        }}
+      />
     </Page>
+  );
+}
+
+// MOCK_DEPENDENCY: §10 — post-expiry disposition recording (POST endpoint pending)
+
+const DISPOSITIONS: Array<{ value: HeldItemDisposition; label: string; icon: typeof Archive; tone: 'success' | 'neutral' | 'danger' }> = [
+  { value: 'restocked', label: 'Restocked to inventory', icon: Archive, tone: 'success' },
+  { value: 'written_off', label: 'Written off', icon: Trash2, tone: 'danger' },
+  { value: 'forfeited_to_store', label: 'Disposed (kept by store)', icon: PackageOpen, tone: 'neutral' },
+];
+
+function DispositionDialog({
+  target,
+  onClose,
+  onRecorded,
+}: {
+  target: HeldItem | null;
+  onClose: () => void;
+  onRecorded: () => void;
+}) {
+  const [picked, setPicked] = useState<HeldItemDisposition>('restocked');
+  const [note, setNote] = useState('');
+
+  const submit = useMutation({
+    mutationFn: () =>
+      api(`/retailer/held-items/${target?.id ?? ''}/record-disposition`, {
+        method: 'POST',
+        body: { disposition: picked, note: note || undefined },
+      }),
+    onSuccess: () => {
+      toast.success('Disposition recorded');
+      setNote('');
+      onRecorded();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Failed to record'),
+  });
+
+  return (
+    <Dialog open={Boolean(target)} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Archive className="size-4" /> Post-expiry disposition
+          </DialogTitle>
+          <DialogDescription>
+            The holding window expired. Tell the platform what you did with the item — restock, write
+            off, or dispose. Action is recorded for audit; admin reviews disposition trends in enforcement.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          {DISPOSITIONS.map((d) => {
+            const Icon = d.icon;
+            const active = picked === d.value;
+            return (
+              <button
+                key={d.value}
+                type="button"
+                onClick={() => setPicked(d.value)}
+                className={
+                  'flex w-full items-center gap-3 rounded-md border px-3 py-2.5 text-left transition-colors ' +
+                  (active ? 'border-accent bg-accent-soft' : 'border-line bg-bg hover:border-line-2')
+                }
+              >
+                <Icon className={'size-4 shrink-0 ' + (d.tone === 'success' ? 'text-success' : d.tone === 'danger' ? 'text-danger' : 'text-ink-2')} />
+                <span className="text-[13.5px] text-ink">{d.label}</span>
+              </button>
+            );
+          })}
+
+          <div>
+            <Label htmlFor="disp-note">Optional note</Label>
+            <Textarea id="disp-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. moved to clearance bin" />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="accent" loading={submit.isPending} onClick={() => submit.mutate()}>
+            Record
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

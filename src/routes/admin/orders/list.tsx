@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: OrderStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All statuses' },
@@ -74,6 +75,18 @@ export default function AdminOrdersList() {
           </Button>
         }
       />
+
+      <Tabs defaultValue="all">
+        <TabsList>
+          <TabsTrigger value="all">All orders</TabsTrigger>
+          <TabsTrigger value="timeout">Acceptance timeout re-routing</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="timeout">
+          <AcceptanceTimeoutPanel />
+        </TabsContent>
+
+        <TabsContent value="all">
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex max-w-md flex-1 items-center gap-2">
@@ -212,7 +225,76 @@ export default function AdminOrdersList() {
           </ul>
         </div>
       )}
+        </TabsContent>
+      </Tabs>
     </Page>
+  );
+}
+
+// MOCK_DEPENDENCY: §8 — acceptance timeout re-routing queue (orders that hit
+// acceptance timeout repeatedly and need manual re-routing decision).
+
+type TimeoutRow = {
+  orderId: string;
+  storeName: string;
+  consumerName: string;
+  attempts: number;
+  lastTimeoutAt: string;
+  candidateStoreCount: number;
+};
+
+function AcceptanceTimeoutPanel() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin', 'orders', 'acceptance-timeout'],
+    queryFn: () => api<TimeoutRow[]>('/admin/orders/acceptance-timeout'),
+  });
+  const list = data ?? [];
+
+  return (
+    <div className="space-y-3">
+      {isLoading ? (
+        <Skeleton className="h-32" />
+      ) : list.length === 0 ? (
+        <Empty kicker="All clear" title="No orders are stuck in acceptance timeout." />
+      ) : (
+        <div className="rounded-lg border border-line bg-bg overflow-hidden">
+          <table className="w-full text-[13px]">
+            <thead className="bg-bg-2 border-b border-line">
+              <tr>
+                <Th>Order</Th>
+                <Th>Originating store</Th>
+                <Th>Customer</Th>
+                <Th className="text-right">Timeout attempts</Th>
+                <Th className="text-right">Candidate stores</Th>
+                <Th>Last timeout</Th>
+                <Th></Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {list.map((r) => (
+                <tr key={r.orderId} className="hover:bg-bg-2/50 transition-colors">
+                  <Td><CopyableId value={r.orderId} label="order id" /></Td>
+                  <Td className="text-ink-2">{r.storeName}</Td>
+                  <Td className="text-ink-2">{r.consumerName}</Td>
+                  <Td className="text-right">
+                    <Badge tone={r.attempts >= 3 ? 'danger' : 'warning'} pulse={r.attempts >= 3}>
+                      {r.attempts} {r.attempts === 1 ? 'try' : 'tries'}
+                    </Badge>
+                  </Td>
+                  <Td className="text-right text-ink-2">{r.candidateStoreCount}</Td>
+                  <Td className="text-[12px] text-ink-3">{formatAge(r.lastTimeoutAt)}</Td>
+                  <Td className="text-right">
+                    <Button asChild variant="outline" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
+                      <Link to={`/admin/orders/${r.orderId}`}>Re-route</Link>
+                    </Button>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 

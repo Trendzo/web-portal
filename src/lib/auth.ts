@@ -6,14 +6,25 @@ import type { AdminProfile, RetailerProfile } from './types';
  *  and sign-out flows can write directly without round-tripping through the
  *  React-visible store (see `prepareAccountChangeForReload`). */
 export const AUTH_STORAGE_KEY = 'closetx-dashboard.auth';
-const AUTH_STORAGE_VERSION = 2;
+const AUTH_STORAGE_VERSION = 3;
+
+/** Admin viewing the platform as a specific store — every action audit-logged
+ *  against both the admin id and the impersonated store. */
+export type ImpersonationContext = {
+  storeId: string;
+  retailerId: string;
+  /** Unix ms when impersonation started. */
+  since: number;
+};
 
 /**
  * One signed-in identity (admin OR retailer). The store can hold many of these and
  * switch between them — the *active* one is what `session` points at.
+ *
+ * `impersonating` only applies to the admin variant; retailers never impersonate.
  */
 export type Session =
-  | { kind: 'admin'; token: string; admin: AdminProfile }
+  | { kind: 'admin'; token: string; admin: AdminProfile; impersonating?: ImpersonationContext }
   | { kind: 'retailer'; token: string; retailer: RetailerProfile };
 
 export type AccountId = string;
@@ -129,6 +140,8 @@ export const useAuth = create<AuthStore>()(
       },
       // v1 schema was `{ session }`. Promote it into the v2 multi-account shape so
       // anyone who signed in before the upgrade keeps their session.
+      // v2 → v3 added the optional `impersonating` field on admin sessions —
+      // absent on every existing record, so the v2 shape passes through unchanged.
       migrate: (persisted, fromVersion) => {
         if (fromVersion < 2 && persisted && typeof persisted === 'object') {
           const old = persisted as { session?: Session | null };
@@ -151,6 +164,35 @@ export const useAuth = create<AuthStore>()(
 /** Convenience: read the current bearer token (or null) without subscribing. */
 export function getToken(): string | null {
   return useAuth.getState().session?.token ?? null;
+}
+
+/** Subscribe to the active session's impersonation context. Returns null when
+ *  the active session is a retailer or when no impersonation is in flight. */
+export function useImpersonation(): ImpersonationContext | null {
+  return useAuth((s) => (s.session?.kind === 'admin' ? (s.session.impersonating ?? null) : null));
+}
+
+/** Mutate the active admin session's impersonation context and reload to the
+ *  given home path without a login flash. No-op if active session is not admin. */
+export function startImpersonationAndReload(ctx: ImpersonationContext, redirectTo = '/retailer/dashboard'): void {
+  const { accounts, activeId, session } = useAuth.getState();
+  if (!session || session.kind !== 'admin' || !activeId) return;
+  const updated: Session = { ...session, impersonating: ctx };
+  const nextAccounts = accounts.map((a) => (accountIdOf(a) === activeId ? updated : a));
+  prepareAccountChangeForReload({ accounts: nextAccounts, activeId });
+  window.location.assign(redirectTo);
+}
+
+/** Clear impersonation on the active admin session and reload to admin home
+ *  without a login flash. */
+export function exitImpersonationAndReload(redirectTo = '/admin/dashboard'): void {
+  const { accounts, activeId, session } = useAuth.getState();
+  if (!session || session.kind !== 'admin' || !activeId) return;
+  const { impersonating: _drop, ...rest } = session;
+  const updated: Session = rest;
+  const nextAccounts = accounts.map((a) => (accountIdOf(a) === activeId ? updated : a));
+  prepareAccountChangeForReload({ accounts: nextAccounts, activeId });
+  window.location.assign(redirectTo);
 }
 
 /**

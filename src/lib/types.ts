@@ -8,7 +8,17 @@ export type Envelope<T> =
 export type AdminSubRole = 'super_admin' | 'ops_admin' | 'support';
 export type RetailerSubRole = 'owner' | 'manager' | 'staff';
 
-export type RetailerStatus = 'pending_approval' | 'active' | 'deactivated';
+export type ConsumerStatus = 'active' | 'suspended' | 'closed';
+export type RetailerStatus =
+  | 'pending_approval'
+  | 'under_review'
+  | 'approved_no_store'
+  | 'onboarding'
+  | 'active'
+  | 'paused'
+  | 'suspended'
+  | 'terminated'
+  | 'deactivated';
 export type StoreStatus = 'onboarding' | 'active' | 'paused' | 'suspended' | 'terminated';
 export type ListingStatus = 'draft' | 'active' | 'retired';
 export type Gender = 'her' | 'him' | 'unisex';
@@ -84,6 +94,7 @@ export type Listing = {
   storeId: string;
   brandId: string | null;
   categoryId: string;
+  templateId: string | null;
   name: string;
   description: string | null;
   hsn: string | null;
@@ -120,6 +131,35 @@ export type InventoryImportResult = {
   applied: number;
   skipped: number;
   errors: { row: number; sku: string; reason: string }[];
+};
+
+export type InventoryAdjustment = {
+  id: string;
+  variantId: string;
+  delta: number;
+  newStock: number;
+  reason: string;
+  actorKind: string;
+  actorId: string | null;
+  refKind: string | null;
+  refId: string | null;
+  note: string | null;
+  at: string;
+};
+
+/** What `GET /retailer/orders` returns per row. */
+export type RetailerOrder = {
+  id: string;
+  status: string;
+  consumerName: string;
+  consumerPhone: string;
+  deliveryMethod: string;
+  paymentMethod: string;
+  itemCount: number;
+  grandTotalPaise: number;
+  placedAt: string;
+  acceptedAt: string | null;
+  deliveredAt: string | null;
 };
 
 export type AdminRetailerView = RetailerProfile & {
@@ -355,8 +395,52 @@ export type ConsumerSummary = {
   email: string;
   phone: string;
   name: string;
-  status: string;
+  status: ConsumerStatus;
   signupAt: string;
+};
+
+export type ConsumerProfile = ConsumerSummary & {
+  genderPreference: 'her' | 'him' | 'unisex' | null;
+};
+
+// ─────────────────────── Issues (formerly "Disputes" — see §19) ───────────────────────
+// `kind: 'dispute'` keeps the historical adversarial workflow; `'query'` is the
+// upcoming lighter ticket type. Status union is widened with the doc-aligned
+// awaiting_* states so future §19 work can populate them without another rename.
+
+export type IssueKind = 'query' | 'dispute';
+
+export type IssueStatus =
+  | 'open'
+  | 'requested_evidence'
+  | 'awaiting_consumer'
+  | 'awaiting_retailer'
+  | 'awaiting_admin'
+  | 'decided'
+  | 'escalated'
+  | 'resolved'
+  | 'closed';
+
+export type IssueDecision = 'refund' | 'fresh_delivery' | 'pickup' | 'no_refund' | 'split';
+
+export type IssueListRow = {
+  id: string;
+  /** Optional today; populated when §19 ships. Defaults to `'dispute'` for legacy rows. */
+  kind?: IssueKind;
+  orderId: string | null;
+  returnId: string | null;
+  targetKind: 'order' | 'return';
+  targetId: string;
+  openedByActorType: ActorType;
+  openedByActorId: string;
+  openedAt: string;
+  description: string;
+  evidence: string[];
+  status: IssueStatus;
+  decision: IssueDecision | null;
+  decisionNote: string | null;
+  decidedAt: string | null;
+  decidedByAdminId: string | null;
 };
 
 // ─────────────────────── Orders ───────────────────────
@@ -541,7 +625,7 @@ export type OrderDetail = {
   piiScrubbedAt: string | null;
   idempotencyKey: string;
 
-  group: { id: string; status: OrderGroupStatus; placedAt: string };
+  group: { id: string; status: OrderGroupStatus; placedAt: string; siblingOrders: OrderListRow[] };
   items: OrderItem[];
   payments: Payment[];
   transitions: OrderTransition[];
@@ -683,4 +767,758 @@ export type HeldItem = {
   extensionReason: string | null;
   resolvedAt: string | null;
   return?: ReturnWithItem;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §1 Identity & Access — staff, admin team, sub-role permissions, notifications
+// ─────────────────────────────────────────────────────────────────────
+
+export type RetailerStaff = {
+  id: string;
+  storeId: string | null;
+  email: string;
+  legalName: string;
+  phone: string;
+  gstin: string;
+  subRole: RetailerSubRole;
+  status: 'pending_approval' | 'active' | 'deactivated';
+  createdAt: string;
+};
+
+export type RetailerStaffInvite = {
+  id: string;
+  email: string;
+  subRole: RetailerSubRole;
+  invitedAt: string;
+  expiresAt: string;
+};
+
+export type AdminTeamMember = {
+  id: string;
+  email: string;
+  name: string;
+  subRole: AdminSubRole;
+  active: boolean;
+  lastActiveAt: string | null;
+  createdAt: string;
+};
+
+/** Action × sub-role permission grid edited by super-admin under §1. */
+export type SubRolePermissionMatrix<Role extends string> = {
+  actions: string[];
+  subRoles: Role[];
+  cells: Record<string, Record<Role, boolean>>;
+};
+
+export type NotificationKind = 'order' | 'refund' | 'kyc' | 'system' | 'issue' | 'payout';
+
+export type Notification = {
+  id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  deepLink: string | null;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export type BannerKind = 'impersonation' | 'kyc' | 'maintenance' | 'floor_breach' | 'suspended';
+
+// ─────────────────────────────────────────────────────────────────────
+// §2 Retailer Onboarding — application pipeline, clarification thread, store profile
+// ─────────────────────────────────────────────────────────────────────
+
+export type ApplicationStatus =
+  | 'pending'
+  | 'under_review'
+  | 'docs_requested'
+  | 'approved'
+  | 'rejected';
+
+export type Application = {
+  id: string;
+  legalName: string;
+  email: string;
+  phone: string;
+  gstin: string;
+  pan: string | null;
+  addressLine: string;
+  pincode: string;
+  stateCode: string;
+  submittedAt: string;
+  status: ApplicationStatus;
+  pennyDropResult: 'matched' | 'failed' | 'not_attempted';
+  gstinVerification: 'valid' | 'invalid' | 'not_attempted';
+  documentsCount: number;
+  clarificationCount: number;
+  documents?: ApplicationDocument[];
+};
+
+export type ApplicationDocument = {
+  id: string;
+  kind: 'storefront_photo' | 'address_proof' | 'pan' | 'gst_certificate' | 'bank_proof' | 'other';
+  url: string;
+};
+
+export type ClarificationMessage = {
+  id: string;
+  applicationId: string;
+  authorKind: 'admin' | 'retailer';
+  authorLabel: string;
+  body: string;
+  attachments: string[];
+  fieldKey: string | null;
+  createdAt: string;
+};
+
+export type StoreHoursDay = { from: string; to: string; closed: boolean };
+export type StoreHours = {
+  monday: StoreHoursDay;
+  tuesday: StoreHoursDay;
+  wednesday: StoreHoursDay;
+  thursday: StoreHoursDay;
+  friday: StoreHoursDay;
+  saturday: StoreHoursDay;
+  sunday: StoreHoursDay;
+};
+
+export type BankAccount = {
+  accountHolderName: string;
+  accountNumber: string;
+  ifsc: string;
+  bankName: string | null;
+  pennyDropStatus: 'matched' | 'name_mismatch' | 'failed' | 'not_attempted';
+  pennyDropAt: string | null;
+};
+
+export type RequiredDocumentType =
+  | 'gstin_certificate'
+  | 'pan_card'
+  | 'address_proof'
+  | 'cancelled_cheque'
+  | 'shop_act_license';
+
+export type StoreDocument = {
+  id: string;
+  kind: RequiredDocumentType;
+  label: string;
+  status: 'verified' | 'pending_review' | 'missing' | 'rejected';
+  uploadedAt: string | null;
+  fileUrl: string | null;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §3 KYC & Compliance — re-verification, change requests, enforcement, exports/deletions
+// ─────────────────────────────────────────────────────────────────────
+
+export type KycDocumentStatus = 'verified' | 'pending_review' | 'missing' | 'rejected';
+
+export type KycDocument = {
+  id: string;
+  kind: RequiredDocumentType;
+  label: string;
+  status: KycDocumentStatus;
+  uploadedAt: string | null;
+  fileUrl: string | null;
+};
+
+export type KycReverificationStatus = 'pending' | 'submitted' | 'approved' | 'rejected' | 'overdue';
+
+export type KycReverification = {
+  id: string;
+  retailerId: string;
+  dueAt: string;
+  gracePeriodEndsAt: string;
+  status: KycReverificationStatus;
+  lastVerifiedAt: string | null;
+  documents: KycDocument[];
+};
+
+export type ChangeRequestField = 'legal_name' | 'address' | 'bank_account' | 'gstin';
+export type ChangeRequestStatus = 'pending' | 'under_review' | 'approved' | 'rejected';
+
+export type ChangeRequest = {
+  id: string;
+  retailerId: string;
+  field: ChangeRequestField;
+  currentValue: string;
+  requestedValue: string;
+  reason: string;
+  status: ChangeRequestStatus;
+  submittedAt: string;
+  decidedAt: string | null;
+  decisionNote: string | null;
+};
+
+export type EnforcementStep = 'warning_1' | 'warning_2' | 'warning_3' | 'suspension' | 'termination' | 'lifted';
+
+export type PolicyEnforcementAction = {
+  id: string;
+  storeId: string;
+  step: EnforcementStep;
+  breachKind: 'acceptance_rate' | 'fulfilment_sla' | 'dispute_rate' | 'return_rate' | 'kyc_overdue' | 'policy_violation';
+  metric: Record<string, unknown> | null;
+  actedAt: string;
+  actedByAdminId: string | null;
+  reason: string | null;
+  liftsActionId: string | null;
+};
+
+/** @deprecated use PolicyEnforcementAction */
+export type PolicyEnforcement = PolicyEnforcementAction;
+
+export type DataExportStatus = 'pending' | 'building' | 'ready' | 'expired' | 'failed';
+
+export type DataExportRequest = {
+  id: string;
+  consumerId: string;
+  requestedAt: string;
+  status: DataExportStatus;
+  readyAt: string | null;
+  downloadUrl: string | null;
+  expiresAt: string | null;
+  failureReason: string | null;
+};
+
+export type AccountDeletionStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+
+export type AccountDeletionRequest = {
+  id: string;
+  consumerId: string;
+  requestedAt: string;
+  status: AccountDeletionStatus;
+  scheduledFor: string;
+  cancelledAt: string | null;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §4 Store Operations — pause state, holiday calendar, notification prefs
+// ─────────────────────────────────────────────────────────────────────
+
+export type StoreVisibilityWhilePaused = 'block_orders_only' | 'hide_from_catalog';
+
+export type StorePauseState = {
+  paused: boolean;
+  visibility: StoreVisibilityWhilePaused;
+  pausedAt: string | null;
+  reason: string | null;
+};
+
+export type HolidayDate = {
+  date: string; // YYYY-MM-DD
+  label: string | null;
+};
+
+export type NotificationChannel = 'push' | 'email' | 'sms' | 'in_app';
+export type DashboardTileKey = 'sales' | 'orders' | 'inventory' | 'top_products' | 'recent_products' | 'compliance';
+
+export type NotificationPrefs = {
+  channels: Record<NotificationChannel, boolean>;
+  dailyDigest: boolean;
+  language: 'en' | 'hi' | 'mr' | 'ta';
+  enabledDashboardTiles: DashboardTileKey[];
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §5 Catalog and Listings — attribute templates, audit, moderation flags
+// ─────────────────────────────────────────────────────────────────────
+
+export type AttributeAxisType = 'enum' | 'free_text' | 'numeric' | 'color';
+
+export type AttributeTemplate = {
+  id: string;
+  name: string;
+  isPlatformDefault?: boolean;
+  axes: Array<{
+    name: string;
+    type: AttributeAxisType;
+    allowedValues: string[];
+  }>;
+  usedByListingCount: number;
+  updatedAt: string | null;
+};
+
+export type ListingAuditEntry = {
+  id: string;
+  listingId: string;
+  action: string;
+  actorKind: 'retailer' | 'admin' | 'system';
+  actorId: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  at: string;
+  note: string | null;
+};
+
+export type CatalogFlagSource = 'automation' | 'user_report' | 'admin_review';
+export type CatalogFlagStatus = 'open' | 'under_appeal' | 'resolved_taken_down' | 'resolved_restored' | 'resolved_dismissed';
+
+export type CatalogFlag = {
+  id: string;
+  listingId: string;
+  source: CatalogFlagSource;
+  reasonCode: string;
+  details: string | null;
+  reportedByConsumerId: string | null;
+  ruleKey: string | null;
+  status: CatalogFlagStatus;
+  openedAt: string;
+  resolvedAt: string | null;
+};
+
+/** @deprecated use CatalogFlagSource */
+export type CatalogFlagKind = 'auto_flagged' | 'user_reported' | 'under_appeal';
+
+// ─────────────────────────────────────────────────────────────────────
+// §7 AI Catalog Generation
+// ─────────────────────────────────────────────────────────────────────
+
+export type AiSubmissionStatus =
+  | 'submitted'
+  | 'processing'
+  | 'ready_for_review'
+  | 'accepted'
+  | 'rejected'
+  | 'regenerating'
+  | 'failed';
+export type AiSubmissionMode = 'with_model' | 'without_model';
+
+export type AiSubmission = {
+  id: string;
+  storeId: string;
+  listingId: string | null;
+  mode: AiSubmissionMode;
+  rawPhotos: string[];
+  outputUrls: string[];
+  status: AiSubmissionStatus;
+  costPaise: number | null;
+  parentSubmissionId: string | null;
+  thirdPartyRequestId: string | null;
+  at: string;
+};
+
+export type AiQuota = {
+  used: number;
+  total: number;
+  remaining: number;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §12 Fees and Charges
+// ─────────────────────────────────────────────────────────────────────
+
+export type FeesConfig = {
+  defaultPlatformFeeBp: number;
+  surgeMultiplier: number;
+  gstRateBp: number;
+  tcsRateBp: number;
+  intraStateSplit: { cgstBp: number; sgstBp: number };
+  interStateSplit: { igstBp: number };
+  delivery: Record<DeliveryMethod, { baseFeePaise: number; perKmFeePaise: number }>;
+  platformFeeOverrides: Array<{ retailerId: string; retailerName: string; platformFeeBp: number; reason: string }>;
+};
+
+export type RetailerFeeView = {
+  platformFeeBp: number;
+  payoutCadenceDays: number;
+  delegationModeEnabled: boolean;
+  handlingFeePaise: number;
+  convenienceFeePaise: number;
+  gstRateBp: number;
+  tcsRateBp: number;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §13 Promotion performance + targeted drops + anomalies
+// ─────────────────────────────────────────────────────────────────────
+
+export type PromotionPerformance = {
+  promotionId: string;
+  name: string;
+  redemptions: number;
+  gmvInfluencePaise: number;
+  aovLiftBp: number;
+  refundRateBp: number;
+  anomalyFlagged: boolean;
+};
+
+export type TargetedDrop = {
+  id: string;
+  name: string;
+  promotionId: string;
+  promotionName: string;
+  cohortKind: 'specific_consumers' | 'tier' | 'segment';
+  audienceSize: number;
+  pushedAt: string;
+  redemptionCount: number;
+};
+
+export type PromotionAnomaly = {
+  id: string;
+  promotionId: string;
+  promotionName: string;
+  kind: 'velocity_spike' | 'concentrated_consumers' | 'refund_spike' | 'suspect_traffic';
+  detectedAt: string;
+  severity: 'low' | 'medium' | 'high';
+  metric: string;
+  value: string;
+  threshold: string;
+  status: 'open' | 'acknowledged' | 'resolved';
+  consumersInvolved: number;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §14 Wallet payouts (account closure escheat)
+// ─────────────────────────────────────────────────────────────────────
+
+export type WalletPayoutStatus = 'pending_claim' | 'awaiting_bank' | 'paid' | 'escheated' | 'failed';
+
+export type WalletPayout = {
+  id: string;
+  consumerId: string;
+  consumerEmail: string;
+  balancePaise: number;
+  closedAt: string;
+  claimWindowEndsAt: string;
+  status: WalletPayoutStatus;
+  bankAccountMasked: string | null;
+  paidAt: string | null;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §15 Payment capture reconciliation + failures
+// ─────────────────────────────────────────────────────────────────────
+
+export type PaymentReconciliationStatus = 'matched' | 'mismatch' | 'missing_capture' | 'missing_settlement';
+
+export type PaymentReconRow = {
+  id: string;
+  orderId: string;
+  gateway: 'razorpay' | 'phonepe' | 'cashfree' | 'manual';
+  capturePaise: number;
+  settlementPaise: number;
+  status: PaymentReconciliationStatus;
+  capturedAt: string;
+  settledAt: string | null;
+  diffPaise: number;
+};
+
+export type PaymentFailureRow = {
+  id: string;
+  orderId: string;
+  consumerEmail: string;
+  amountPaise: number;
+  method: PaymentMethod;
+  failureCode: string;
+  failureMessage: string;
+  attemptCount: number;
+  reservationStillHeld: boolean;
+  failedAt: string;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §16 Refunds — post-payout recovery
+// ─────────────────────────────────────────────────────────────────────
+
+export type PostPayoutRecoveryStatus = 'planned' | 'debited' | 'failed' | 'cancelled';
+
+export type PostPayoutRecoveryRow = {
+  id: string;
+  refundId: string;
+  orderId: string;
+  retailerId: string;
+  retailerName: string;
+  payoutCycleId: string;
+  refundedPaise: number;
+  plannedDebitPaise: number;
+  status: PostPayoutRecoveryStatus;
+  reason: string | null;
+  createdAt: string;
+  scheduledFor: string;
+  settledAt: string | null;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §17 Consumer Invoicing
+// ─────────────────────────────────────────────────────────────────────
+
+export type TaxInvoiceKind = 'invoice' | 'supplementary' | 'commission';
+
+export type TaxInvoice = {
+  id: string;
+  number: string;
+  kind: TaxInvoiceKind;
+  status: 'draft' | 'issued' | 'credited';
+  orderId: string;
+  storeId: string;
+  consumerName: string;
+  issuedAt: string | null;
+  totalPaise: number;
+  taxableValuePaise: number;
+  cgstPaise: number;
+  sgstPaise: number;
+  igstPaise: number;
+  pdfUrl: string | null;
+  linkedInvoiceId: string | null;
+  createdAt: string;
+};
+
+export type InvoiceNumberingConfig = {
+  legalEntityId: string;
+  legalEntityName: string;
+  prefix: string;
+  pattern: string;
+  nextSequence: number;
+  resetCycle: 'never' | 'fiscal_year' | 'monthly';
+};
+
+export type GstReturnFile = {
+  id: string;
+  period: string;
+  kind: 'gstr1' | 'gstr3b' | 'tcs_reconciliation';
+  generatedAt: string | null;
+  downloadUrl: string | null;
+  status: 'pending' | 'generating' | 'ready' | 'failed';
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §18 Retailer Billing & Settlement
+// ─────────────────────────────────────────────────────────────────────
+
+export type CommissionInvoice = {
+  id: string;
+  number: string;
+  orderId: string;
+  storeId: string;
+  commissionPaise: number;
+  gstOnCommissionPaise: number;
+  totalPaise: number;
+  issuedAt: string;
+  pdfUrl: string | null;
+};
+
+export type BillingStatement = {
+  id: string;
+  period: string;
+  storeId: string;
+  status: 'open' | 'closing' | 'closed';
+  ordersCount: number;
+  grossPaise: number;
+  commissionPaise: number;
+  tcsPaise: number;
+  refundsPaise: number;
+  holdsPaise: number;
+  adjustmentsPaise: number;
+  netPaise: number;
+  generatedAt: string;
+};
+
+export type BillingStatementDetail = BillingStatement & {
+  liabilityBookings: Array<{ id: string; issueId: string; description: string; amountPaise: number }>;
+};
+
+export type PayoutCycleStatus = 'pending' | 'processing' | 'paid' | 'failed';
+
+export type PayoutCycle = {
+  id: string;
+  storeId: string;
+  period: string;
+  cycleStart: string;
+  cycleEnd: string;
+  grossPaise: number;
+  commissionPaise: number;
+  commissionTaxPaise: number;
+  refundsHeldPaise: number;
+  adjustmentsPaise: number;
+  netPaise: number;
+  amountPaise: number;
+  status: PayoutCycleStatus;
+  bankAccountMasked: string;
+  bankConfirmationRef: string | null;
+  retryCount: number;
+  initiatedAt: string | null;
+  settledAt: string | null;
+  statementUrl: string | null;
+  createdAt: string;
+  deductions?: Array<{ kind: string; label: string; amountPaise: number }>;
+};
+
+export type EarlyDisbursementStatus = 'pending' | 'approved' | 'rejected';
+
+export type EarlyDisbursementRequest = {
+  id: string;
+  storeId: string;
+  storeName: string;
+  amountPaise: number;
+  reason: string;
+  requestedAt: string;
+  status: EarlyDisbursementStatus;
+  decidedAt: string | null;
+  decisionNote: string | null;
+};
+
+export type BillingMonthSummary = {
+  period: string;
+  status: 'open' | 'closing' | 'closed';
+  storesIncluded: number;
+  totalGrossPaise: number;
+  totalCommissionPaise: number;
+  totalNetPaise: number;
+  closedAt: string | null;
+  gstReturnStatus: 'pending' | 'generating' | 'ready' | 'failed';
+};
+
+export type AdminPayoutRow = {
+  id: string;
+  storeId: string;
+  storeName: string;
+  period: string;
+  amountPaise: number;
+  status: PayoutCycleStatus;
+  bankAccountMasked: string;
+  bankConfirmationRef: string | null;
+  retryCount: number;
+  initiatedAt: string | null;
+  settledAt: string | null;
+  createdAt: string;
+};
+
+export type TailOfCycleRow = {
+  storeId: string;
+  storeName: string;
+  period: string;
+  unreconciledPaise: number;
+  reasonHints: string[];
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §19 Issue detail (extends IssueListRow already in place)
+// ─────────────────────────────────────────────────────────────────────
+
+export type IssueAttachment = { id: string; url: string; label: string };
+
+export type IssueMessage = {
+  id: string;
+  issueId: string;
+  authorKind: 'admin' | 'retailer' | 'consumer' | 'system';
+  authorLabel: string;
+  body: string;
+  attachments: IssueAttachment[];
+  createdAt: string;
+};
+
+export type IssueDetail = IssueListRow & {
+  target: Record<string, unknown> | null;
+  decidedByAdmin: { id: string; email: string } | null;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §20 Consumer Management — bans + community/reviews moderation
+// ─────────────────────────────────────────────────────────────────────
+
+export type ConsumerBanFlags = {
+  community: boolean;
+  rewards: boolean;
+  reviews: boolean;
+};
+
+export type CommunityFlag = {
+  id: string;
+  consumerId: string;
+  consumerLabel: string;
+  postId: string;
+  excerpt: string;
+  reason: 'spam' | 'harassment' | 'nsfw' | 'misinfo' | 'other';
+  reportedBy: string;
+  reportedAt: string;
+  status: 'open' | 'approved' | 'taken_down';
+};
+
+export type ReviewFlag = {
+  id: string;
+  consumerId: string;
+  consumerLabel: string;
+  reviewId: string;
+  listingId: string;
+  listingName: string;
+  rating: number;
+  excerpt: string;
+  reason: 'spam' | 'fake' | 'abuse' | 'irrelevant' | 'other';
+  reportedAt: string;
+  status: 'open' | 'approved' | 'taken_down' | 'edited';
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// §21 Analytics & Reporting (rollup row shapes)
+// ─────────────────────────────────────────────────────────────────────
+
+export type SalesReportRow = {
+  bucket: string;
+  ordersCount: number;
+  grossPaise: number;
+  netPaise: number;
+};
+
+export type FulfilmentMetricRow = {
+  bucket: string;
+  acceptanceRateBp: number;
+  avgTimeToAcceptMs: number;
+  avgTimeToPackMs: number;
+  avgTimeToHandoverMs: number;
+  avgEndToEndMs: number;
+};
+
+export type ReturnsReportRow = {
+  bucket: string;
+  returnRateBp: number;
+  totalReturns: number;
+  topListing: string;
+  topReason: string;
+};
+
+export type LeaderboardRow = {
+  retailerId: string;
+  retailerName: string;
+  acceptanceRateBp: number;
+  fulfilmentScoreBp: number;
+  returnRateBp: number;
+  disputeRateBp: number;
+  rank: number;
+};
+
+export type FunnelStep = {
+  label: string;
+  count: number;
+  dropoffPctFromPrevious: number;
+};
+
+export type FeatureUsageRow = {
+  feature: string;
+  uniqueUsers: number;
+  totalUsage: number;
+  costPaise: number;
+};
+
+export type OperationalRow = {
+  metric: string;
+  value: string;
+  trendBp: number;
+};
+
+export type ComplianceFloorRow = {
+  retailerName: string;
+  metric: string;
+  value: string;
+  threshold: string;
+  daysBelow: number;
+};
+
+export type InventoryHealthRow = {
+  listingId: string;
+  listingName: string;
+  variantSku: string | null;
+  stock: number;
+  reservedDays: number;
+  status: 'low_stock' | 'out_of_stock' | 'overstock' | 'aged';
+  lastSoldAt: string | null;
 };
