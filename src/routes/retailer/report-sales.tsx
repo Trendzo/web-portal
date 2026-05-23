@@ -2,7 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import { Download } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatPaise } from '@/lib/status';
-import { useCsvExport } from '@/lib/csv';
+import { useServerCsv } from '@/lib/csv';
+import { unwrapMeta, unwrapRows } from '@/lib/report';
+import { FreshnessLabel } from '@/components/ui/freshness-label';
 import type { SalesReportRow } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,16 +14,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 export default function RetailerReportSales() {
   const { data, isLoading } = useQuery({
     queryKey: ['retailer', 'reports', 'sales'],
-    queryFn: () => api<SalesReportRow[]>('/retailer/reports/sales'),
+    queryFn: () => api<unknown>('/retailer/reports/sales'),
   });
-  const rows = data ?? [];
-
-  const exportCsv = useCsvExport<SalesReportRow>('sales_report', [
-    { key: 'bucket', header: 'Date', accessor: (r) => r.bucket },
-    { key: 'ordersCount', header: 'Orders', accessor: (r) => r.ordersCount },
-    { key: 'gross', header: 'Gross (₹)', accessor: (r) => (r.grossPaise / 100).toFixed(2) },
-    { key: 'net', header: 'Net (₹)', accessor: (r) => (r.netPaise / 100).toFixed(2) },
-  ]);
+  const rows = unwrapRows<SalesReportRow>(data);
+  const meta = unwrapMeta(data);
+  const exportCsv = useServerCsv('sales_report', '/retailer/reports/sales');
 
   const totals = rows.reduce(
     (acc, r) => ({ orders: acc.orders + r.ordersCount, gross: acc.gross + r.grossPaise, net: acc.net + r.netPaise }),
@@ -35,7 +32,10 @@ export default function RetailerReportSales() {
         title="Sales report"
         description="Daily orders, gross merchandise value, and net (after discounts and refunds). Last 14 days."
         actions={
-          <Button variant="outline" size="sm" iconLeft={<Download className="size-3.5" />} onClick={() => exportCsv(rows)}>Export CSV</Button>
+          <>
+            <FreshnessLabel generatedAtIst={meta?.generatedAtIst} />
+            <Button variant="outline" size="sm" iconLeft={<Download className="size-3.5" />} onClick={() => exportCsv()}>Export CSV</Button>
+          </>
         }
       />
 

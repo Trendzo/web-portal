@@ -94,6 +94,7 @@ export function mockCatalogFlags(): CatalogFlag[] {
     reportedByConsumerId: _kind === 'user_reported' ? 'consumer_4421' : null,
     ruleKey: _kind === 'auto_flagged' ? `rule_${reasonCode}` : null,
     status,
+    assignedAdminId: null,
     openedAt: new Date(now() - HOUR * hoursAgo).toISOString(),
     resolvedAt: status !== 'open' ? new Date(now() - HOUR * (hoursAgo / 2)).toISOString() : null,
   });

@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { FormProvider, useForm } from 'react-hook-form';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
@@ -15,9 +15,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { Mechanism, Promotion } from '@/lib/types';
+import type { AdminStoreView, Brand, Category, Listing, Mechanism, Promotion } from '@/lib/types';
 import { DiscountConfigForm } from '@/components/promotion/DiscountConfigForm';
 import { EligibilitySection, buildScopePayload } from '@/components/promotion/EligibilitySection';
+import { StackingPreview } from '@/components/promotion/StackingPreview';
+import { MultiSelect, type MultiSelectOption } from '@/components/ui/multi-select';
+
+type AdminDiscountType =
+  | 'flat_amount' | 'percent' | 'percent_upto' | 'bogo' | 'bxgy' | 'bundle' | 'tiered_cart' | 'free_shipping';
 
 type FormValues = {
   name: string;
@@ -32,6 +37,8 @@ type FormValues = {
   status: 'draft' | 'scheduled' | 'active';
   notes?: string;
   scope: Record<string, unknown>;
+  stackableWith: string[];
+  nonStackable: string[];
 };
 
 export default function AdminPromotionNew() {
@@ -49,6 +56,8 @@ export default function AdminPromotionNew() {
       perConsumerLimit: 1,
       status: 'draft',
       scope: {},
+      stackableWith: [],
+      nonStackable: [],
     },
   });
 
@@ -68,6 +77,8 @@ export default function AdminPromotionNew() {
       if (v.perConsumerLimit != null) payload.perConsumerLimit = v.perConsumerLimit;
       const scopePayload = buildScopePayload(v.scope);
       if (Object.keys(scopePayload).length) payload.scope = scopePayload;
+      if (v.stackableWith.length) payload.stackableWith = v.stackableWith;
+      if (v.nonStackable.length) payload.nonStackable = v.nonStackable;
       return api<Promotion>('/admin/promotions', { method: 'POST', body: payload });
     },
     onSuccess: (p) => {
@@ -81,6 +92,46 @@ export default function AdminPromotionNew() {
   });
 
   const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = form;
+  const storeId = watch('storeId');
+
+  const stores = useQuery({
+    queryKey: ['admin', 'stores', 'all'],
+    queryFn: () => api<AdminStoreView[]>('/admin/stores'),
+  });
+  const listings = useQuery({
+    queryKey: ['admin', 'stores', storeId, 'listings'],
+    queryFn: () => api<Listing[]>(`/admin/stores/${storeId}/listings`),
+    enabled: Boolean(storeId),
+  });
+  const brands = useQuery({
+    queryKey: ['catalog', 'brands'],
+    queryFn: () => api<Brand[]>('/catalog/brands'),
+  });
+  const categories = useQuery({
+    queryKey: ['catalog', 'categories'],
+    queryFn: () => api<Category[]>('/catalog/categories'),
+  });
+
+  const listingItems = (listings.data ?? []).map((l) => ({
+    id: l.id,
+    name: l.name,
+    variants: (l.variants ?? []).map((v) => ({ id: v.id, label: v.attributesLabel })),
+  }));
+  const brandItems = (brands.data ?? []).map((b) => ({ id: b.id, name: b.name }));
+  const categoryItems = (categories.data ?? []).map((c) => ({ id: c.id, label: c.label }));
+  const storeItems = (stores.data ?? []).map((s) => ({ id: s.id, name: s.legalName }));
+
+  const allPromos = useQuery({
+    queryKey: ['admin', 'promotions', 'all'],
+    queryFn: () => api<Promotion[]>('/admin/promotions'),
+  });
+  const promoOptions: MultiSelectOption[] = (allPromos.data ?? []).map((p) => ({
+    value: p.id,
+    label: p.name,
+    hint: p.mechanism,
+  }));
+  const stackableWith = watch('stackableWith') ?? [];
+  const nonStackable = watch('nonStackable') ?? [];
 
   return (
     <Page>
@@ -122,8 +173,25 @@ export default function AdminPromotionNew() {
                 </Select>
               </div>
               <div>
-                <Label hint="Optional — store-scoped">Store ID</Label>
-                <Input mono placeholder="Leave blank for platform-wide" {...register('storeId')} />
+                <Label hint="Optional — store-scoped">Store</Label>
+                <Select
+                  value={storeId || '__platform__'}
+                  onValueChange={(v) => setValue('storeId', v === '__platform__' ? '' : v)}
+                  disabled={stores.isLoading}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={stores.isLoading ? 'Loading stores…' : 'Pick a store'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__platform__">Platform-wide (no store)</SelectItem>
+                    {(stores.data ?? []).map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        <span className="font-medium">{s.legalName}</span>
+                        <span className="ml-2 font-mono text-[11px] text-ink-3">{s.id}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label required>Initial status</Label>
@@ -139,7 +207,7 @@ export default function AdminPromotionNew() {
             </div>
 
             <SectionHeading title="Discount" />
-            <DiscountConfigForm />
+            <DiscountConfigForm listings={listingItems} listingsLoading={listings.isLoading} />
 
             <SectionHeading title="Validity & caps" />
             <div className="grid gap-5 sm:grid-cols-2">
@@ -175,7 +243,51 @@ export default function AdminPromotionNew() {
               </div>
             </div>
             <SectionHeading title="Eligibility" />
-            <EligibilitySection adminMode />
+            <EligibilitySection
+              listings={listingItems}
+              listingsLoading={listings.isLoading}
+              categories={categoryItems}
+              categoriesLoading={categories.isLoading}
+              brands={brandItems}
+              brandsLoading={brands.isLoading}
+              stores={storeItems}
+              storesLoading={stores.isLoading}
+            />
+
+            <SectionHeading title="Stacking overrides" hint="Per-promotion exceptions to the platform clubbing matrix" />
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div>
+                <Label hint="Force-allow stacking with these promos">Stackable with</Label>
+                <MultiSelect
+                  options={promoOptions}
+                  value={stackableWith}
+                  onChange={(next) => setValue('stackableWith', next)}
+                  placeholder={allPromos.isLoading ? 'Loading…' : 'Pick promotions'}
+                  loading={allPromos.isLoading}
+                />
+              </div>
+              <div>
+                <Label hint="Block stacking with these promos">Non-stackable with</Label>
+                <MultiSelect
+                  options={promoOptions}
+                  value={nonStackable}
+                  onChange={(next) => setValue('nonStackable', next)}
+                  placeholder={allPromos.isLoading ? 'Loading…' : 'Pick promotions'}
+                  loading={allPromos.isLoading}
+                />
+              </div>
+            </div>
+            <div className="mt-5">
+              <StackingPreview
+                mechanism={watch('mechanism')}
+                discountType={watch('discountType') as AdminDiscountType}
+                issuer="admin"
+                stackableWith={stackableWith}
+                nonStackable={nonStackable}
+                policyEndpoint="/admin/clubbing-matrix"
+                promosEndpoint="/admin/promotions"
+              />
+            </div>
           </section>
 
           <aside className="lg:col-span-5 space-y-7">

@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { Download } from 'lucide-react';
 import { api } from '@/lib/api';
-import { useCsvExport } from '@/lib/csv';
+import { useServerCsv } from '@/lib/csv';
+import { unwrapMeta, unwrapRows } from '@/lib/report';
+import { FreshnessLabel } from '@/components/ui/freshness-label';
 import type { ReturnsReportRow } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,17 +18,11 @@ function pctFromBp(bp: number): string {
 export default function RetailerReportReturns() {
   const { data, isLoading } = useQuery({
     queryKey: ['retailer', 'reports', 'returns'],
-    queryFn: () => api<ReturnsReportRow[]>('/retailer/reports/returns'),
+    queryFn: () => api<unknown>('/retailer/reports/returns'),
   });
-  const rows = data ?? [];
-
-  const exportCsv = useCsvExport<ReturnsReportRow>('returns_report', [
-    { key: 'bucket', header: 'Date', accessor: (r) => r.bucket },
-    { key: 'rate', header: 'Return rate', accessor: (r) => pctFromBp(r.returnRateBp) },
-    { key: 'total', header: 'Returns', accessor: (r) => r.totalReturns },
-    { key: 'top', header: 'Top listing', accessor: (r) => r.topListing },
-    { key: 'reason', header: 'Top reason', accessor: (r) => r.topReason },
-  ]);
+  const rows = unwrapRows<ReturnsReportRow>(data);
+  const meta = unwrapMeta(data);
+  const exportCsv = useServerCsv('returns_report', '/retailer/reports/returns');
 
   return (
     <Page>
@@ -35,7 +31,10 @@ export default function RetailerReportReturns() {
         title="Returns report"
         description="Return rate, count, and top listing/reason by day. Identifies products driving repeat returns."
         actions={
-          <Button variant="outline" size="sm" iconLeft={<Download className="size-3.5" />} onClick={() => exportCsv(rows)}>Export CSV</Button>
+          <>
+            <FreshnessLabel generatedAtIst={meta?.generatedAtIst} />
+            <Button variant="outline" size="sm" iconLeft={<Download className="size-3.5" />} onClick={() => exportCsv()}>Export CSV</Button>
+          </>
         }
       />
 

@@ -1,18 +1,31 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowUpRight, UserPlus } from 'lucide-react';
+import { ArrowUpRight, Eye, EyeOff, KeyRound, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { formatAge } from '@/lib/status';
-import type { RetailerStaff, RetailerStaffInvite, RetailerSubRole } from '@/lib/types';
-import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
+import type { RetailerStaff, RetailerSubRole } from '@/lib/types';
+import { Page, PageHeader } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CopyableId } from '@/components/ui/copyable-id';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { StaffTempPasswordModal } from '@/components/retailer/staff-temp-password-modal';
 
 const SUB_ROLE_LABEL: Record<RetailerSubRole, string> = {
   owner: 'Owner',
@@ -22,24 +35,53 @@ const SUB_ROLE_LABEL: Record<RetailerSubRole, string> = {
 
 export default function RetailerStaffPage() {
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [resetTarget, setResetTarget] = useState<RetailerStaff | null>(null);
+  const [tempPasswordShown, setTempPasswordShown] = useState<{ email: string; tempPassword: string } | null>(null);
   const queryClient = useQueryClient();
+  // Only owners can call /retailer/staff/:id/reset-password (staff.reset_password
+  // permission). Hide the button otherwise rather than letting the user discover
+  // a 403 at click time.
+  const session = useAuth((s) => s.session);
+  const subRole = session?.kind === 'retailer'
+    ? (session.retailer as unknown as { subRole?: RetailerSubRole } | null)?.subRole
+    : undefined;
+  const canResetPasswords = subRole === 'owner';
 
   const staffQuery = useQuery({
     queryKey: ['retailer', 'staff'],
     queryFn: () => api<RetailerStaff[]>('/retailer/staff'),
   });
-  const invitesQuery = useQuery({
-    queryKey: ['retailer', 'staff', 'invites'],
-    queryFn: () => api<RetailerStaffInvite[]>('/retailer/staff/invites'),
+
+  const deactivateMutation = useMutation({
+    mutationFn: (id: string) => api(`/retailer/staff/deactivate/${id}`, { method: 'POST' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['retailer', 'staff'] });
+      toast.success('Staff member terminated');
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Failed to deactivate'),
   });
 
-  const revokeMutation = useMutation({
-    mutationFn: (inviteId: string) => api(`/retailer/staff/invites/${inviteId}`, { method: 'DELETE' }),
+  const reactivateMutation = useMutation({
+    mutationFn: (id: string) => api(`/retailer/staff/reactivate/${id}`, { method: 'POST' }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['retailer', 'staff', 'invites'] });
-      toast.success('Invite revoked.');
+      void queryClient.invalidateQueries({ queryKey: ['retailer', 'staff'] });
+      toast.success('Staff member reactivated');
     },
-    onError: () => toast.error('Failed to revoke invite.'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Failed to reactivate'),
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: (id: string) =>
+      api<{ id: string; tempPassword: string }>(`/retailer/staff/${id}/reset-password`, { method: 'POST' }),
+    onSuccess: (res) => {
+      if (resetTarget) {
+        setTempPasswordShown({ email: resetTarget.email, tempPassword: res.tempPassword });
+      }
+      setResetTarget(null);
+      toast.success('Password reset · hand the temp password to the staff member');
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Failed to reset password'),
   });
 
   const visible = useMemo(() => {
@@ -58,9 +100,9 @@ export default function RetailerStaffPage() {
         actions={
           <Button
             iconLeft={<UserPlus className="size-3.5" />}
-            onClick={() => toast.info('Invite flow coming soon.')}
+            onClick={() => setInviteOpen(true)}
           >
-            Invite member
+            Add staff
           </Button>
         }
       />
@@ -113,6 +155,39 @@ export default function RetailerStaffPage() {
                     Joined {formatAge(s.createdAt)}
                   </div>
                 </div>
+                {canResetPasswords && s.subRole !== 'owner' && s.status === 'active' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    iconLeft={<KeyRound className="size-3.5" />}
+                    onClick={() => setResetTarget(s)}
+                  >
+                    Reset password
+                  </Button>
+                )}
+                {s.subRole !== 'owner' && s.status === 'active' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    loading={deactivateMutation.isPending && deactivateMutation.variables === s.id}
+                    onClick={() => {
+                      if (!window.confirm(`Deactivate ${s.legalName}? They will lose access immediately.`)) return;
+                      deactivateMutation.mutate(s.id);
+                    }}
+                  >
+                    Deactivate
+                  </Button>
+                )}
+                {s.subRole !== 'owner' && s.status === 'terminated' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    loading={reactivateMutation.isPending && reactivateMutation.variables === s.id}
+                    onClick={() => reactivateMutation.mutate(s.id)}
+                  >
+                    Reactivate
+                  </Button>
+                )}
                 <Button asChild variant="ghost" size="sm" iconRight={<ArrowUpRight className="size-3" />}>
                   <Link to={`/retailer/staff/${s.id}`}>Open</Link>
                 </Button>
@@ -121,42 +196,122 @@ export default function RetailerStaffPage() {
           ))}
         </ul>
       )}
+      <AddStaffDialog
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
+        onDone={() => void queryClient.invalidateQueries({ queryKey: ['retailer', 'staff'] })}
+      />
 
-      <div className="mt-10">
-        <SectionHeading
-          kicker="Pending"
-          title="Invites awaiting acceptance"
-          hint={invitesQuery.data ? `${invitesQuery.data.length} open` : undefined}
-        />
-        {invitesQuery.isLoading ? (
-          <Skeleton className="h-16" />
-        ) : (invitesQuery.data ?? []).length === 0 ? (
-          <Empty kicker="No invites" title="Nobody has been invited recently." />
-        ) : (
-          <ul className="space-y-2">
-            {(invitesQuery.data ?? []).map((inv) => (
-              <Card key={inv.id}>
-                <CardContent className="flex flex-wrap items-center gap-3 p-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[14px] text-ink">{inv.email}</div>
-                    <div className="mt-0.5 text-[12px] text-ink-3">
-                      {SUB_ROLE_LABEL[inv.subRole]} · expires {formatAge(inv.expiresAt)}
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={revokeMutation.isPending}
-                    onClick={() => revokeMutation.mutate(inv.id)}
-                  >
-                    Revoke
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </ul>
-        )}
-      </div>
+      <Dialog open={resetTarget !== null} onOpenChange={(o) => { if (!o) setResetTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Force-reset password?</DialogTitle>
+            <DialogDescription>
+              Generates a fresh temporary password for{' '}
+              <span className="font-medium text-ink">{resetTarget?.email ?? ''}</span>. Their current
+              password stops working immediately. You'll see the new password once — hand it to them
+              in person and tell them to change it after signing in.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setResetTarget(null)}>Cancel</Button>
+            <Button
+              variant="ink"
+              loading={resetPasswordMutation.isPending}
+              onClick={() => resetTarget && resetPasswordMutation.mutate(resetTarget.id)}
+            >
+              Generate temp password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <StaffTempPasswordModal
+        info={tempPasswordShown}
+        onClose={() => setTempPasswordShown(null)}
+      />
     </Page>
+  );
+}
+
+function AddStaffDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenChange: (v: boolean) => void; onDone: () => void }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [subRole, setSubRole] = useState<'manager' | 'staff'>('staff');
+
+  function reset() { setName(''); setEmail(''); setPassword(''); setSubRole('staff'); }
+
+  const create = useMutation({
+    mutationFn: () =>
+      api('/retailer/staff/create', { method: 'POST', body: { legalName: name.trim(), email, password, subRole } }),
+    onSuccess: () => {
+      toast.success(`${name.trim()} added — they can now log in`);
+      onOpenChange(false);
+      reset();
+      onDone();
+    },
+    onError: (err: Error) => {
+      toast.error(err.message?.includes('already') ? 'An account with this email already exists' : 'Failed to add staff');
+    },
+  });
+
+  const canSubmit = name.trim().length > 0 && email.trim().length > 0 && password.length >= 6;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) reset(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add staff member</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="staff-name" required>Full name</Label>
+            <Input id="staff-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Riya Sharma" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="staff-email" required>Email</Label>
+            <Input id="staff-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="staff-pw" required>Password</Label>
+            <div className="relative">
+              <Input
+                id="staff-pw"
+                type={showPw ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Min. 6 characters"
+                className="pr-9"
+              />
+              <button
+                type="button"
+                className="absolute inset-y-0 right-2.5 flex items-center text-ink-3 hover:text-ink"
+                onClick={() => setShowPw((p) => !p)}
+              >
+                {showPw ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Role</Label>
+            <Select value={subRole} onValueChange={(v) => setSubRole(v as 'manager' | 'staff')}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manager">Manager</SelectItem>
+                <SelectItem value="staff">Floor staff</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={() => create.mutate()} loading={create.isPending} disabled={!canSubmit}>
+            Add staff
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -26,24 +26,34 @@ export default function RetailerHolidayCalendar() {
   const list = data ?? [];
   const [date, setDate] = useState('');
   const [label, setLabel] = useState('');
+  const [view, setView] = useState<'upcoming' | 'all'>('upcoming');
+
+  const today = new Date().toISOString().slice(0, 10);
+  const in30 = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const upcoming = list.filter((h) => h.date >= today && h.date <= in30);
+  const past = list.filter((h) => h.date < today);
+  const future = list.filter((h) => h.date > in30);
+  const displayList = view === 'upcoming' ? upcoming : [...future, ...upcoming].sort((a, b) => a.date.localeCompare(b.date));
 
   const add = useMutation({
     mutationFn: (h: HolidayDate) =>
       api('/retailer/store/holiday-closures', {
         method: 'POST',
-        body: JSON.stringify({ date: h.date, reason: h.label ?? undefined }),
+        body: { date: h.date, reason: h.label ?? undefined },
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QK });
+      void qc.invalidateQueries({ queryKey: QK });
       toast.success('Holiday added');
       setDate('');
       setLabel('');
     },
+    onError: () => toast.error('Failed to add holiday'),
   });
   const remove = useMutation({
     mutationFn: (target: string) =>
       api(`/retailer/store/holiday-closures/${target}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: QK }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: QK }),
+    onError: () => toast.error('Failed to remove holiday'),
   });
 
   return (
@@ -82,14 +92,30 @@ export default function RetailerHolidayCalendar() {
 
         <Card>
           <CardContent className="p-6">
-            <SectionHeading kicker="Upcoming" title={`${list.length} closed date${list.length === 1 ? '' : 's'}`} />
+            <div className="mb-4 flex items-center justify-between">
+              <SectionHeading kicker={view === 'upcoming' ? 'Next 30 days' : 'All upcoming'} title={`${displayList.length} closed date${displayList.length === 1 ? '' : 's'}`} />
+              <div className="flex gap-1">
+                {(['upcoming', 'all'] as const).map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => setView(v)}
+                    className={
+                      'rounded-full border px-3 py-1 text-[12px] capitalize transition-colors ' +
+                      (view === v ? 'border-ink bg-ink text-bg' : 'border-line bg-bg text-ink-2 hover:border-line-2')
+                    }
+                  >
+                    {v === 'upcoming' ? 'Next 30 days' : 'All'}
+                  </button>
+                ))}
+              </div>
+            </div>
             {isLoading ? (
               <Skeleton className="h-32" />
-            ) : list.length === 0 ? (
-              <Empty kicker="Empty" title="No closed dates marked." />
+            ) : displayList.length === 0 ? (
+              <Empty kicker="Empty" title={view === 'upcoming' ? 'No closures in the next 30 days.' : 'No closed dates marked.'} />
             ) : (
               <ul className="space-y-2">
-                {[...list].sort((a, b) => a.date.localeCompare(b.date)).map((h) => (
+                {displayList.map((h) => (
                   <li key={h.date} className="flex items-center justify-between rounded-md border border-line bg-bg-2/30 px-3 py-2">
                     <div>
                       <div className="text-[13.5px] font-medium text-ink">
@@ -108,6 +134,23 @@ export default function RetailerHolidayCalendar() {
                   </li>
                 ))}
               </ul>
+            )}
+            {view === 'all' && past.length > 0 && (
+              <div className="mt-6">
+                <div className="text-[12px] text-ink-3 font-medium mb-2">Past dates</div>
+                <ul className="space-y-1 opacity-60">
+                  {[...past].sort((a, b) => b.date.localeCompare(a.date)).map((h) => (
+                    <li key={h.date} className="flex items-center justify-between rounded-md border border-line bg-bg-2/20 px-3 py-2">
+                      <div>
+                        <div className="text-[13px] text-ink-2">
+                          {new Date(h.date).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                        </div>
+                        {h.label && <div className="text-[11.5px] text-ink-3">{h.label}</div>}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </CardContent>
         </Card>

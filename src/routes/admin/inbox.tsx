@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowUpRight, Check, Coins, Inbox as InboxIcon, Receipt, ShieldCheck, Wrench } from 'lucide-react';
+import { ArrowUpRight, Check, Coins, Inbox as InboxIcon, Receipt, ShieldAlert, ShieldCheck, Tag, Wrench } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatAge } from '@/lib/status';
 import type { Notification, NotificationKind } from '@/lib/types';
@@ -20,6 +20,8 @@ const KIND_ICON: Record<NotificationKind, typeof InboxIcon> = {
   system: Wrench,
   issue: InboxIcon,
   payout: Coins,
+  promotion: Tag,
+  compliance: ShieldAlert,
 };
 
 const QK = ['admin', 'inbox'];

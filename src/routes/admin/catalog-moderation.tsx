@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUpRight, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatAge } from '@/lib/status';
-import type { CatalogFlag } from '@/lib/types';
+import type { AdminTeamMember, CatalogFlag } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -12,8 +12,16 @@ import { Empty } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CopyableId } from '@/components/ui/copyable-id';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function AdminCatalogModeration() {
+  const qc = useQueryClient();
+
+  const adminTeam = useQuery({
+    queryKey: ['admin', 'team'],
+    queryFn: () => api<AdminTeamMember[]>('/admin/team'),
+  });
+
   const automation = useQuery({
     queryKey: ['admin', 'catalog-moderation', 'automation'],
     queryFn: () => api<CatalogFlag[]>('/admin/catalog/moderation?source=automation'),
@@ -26,6 +34,16 @@ export default function AdminCatalogModeration() {
     queryKey: ['admin', 'catalog-moderation', 'under_appeal'],
     queryFn: () => api<CatalogFlag[]>('/admin/catalog/moderation?status=under_appeal'),
   });
+
+  const assign = useMutation({
+    mutationFn: ({ flagId, adminId }: { flagId: string; adminId: string | null }) =>
+      api(`/admin/catalog/moderation/${flagId}/assign`, { method: 'PATCH', body: { adminId } }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'catalog-moderation'] });
+    },
+  });
+
+  const admins = adminTeam.data ?? [];
 
   return (
     <Page>
@@ -43,20 +61,30 @@ export default function AdminCatalogModeration() {
         </TabsList>
 
         <TabsContent value="automation">
-          <FlagList loading={automation.isLoading} list={automation.data ?? []} />
+          <FlagList loading={automation.isLoading} list={automation.data ?? []} admins={admins} onAssign={assign.mutate} />
         </TabsContent>
         <TabsContent value="user_report">
-          <FlagList loading={userReport.isLoading} list={userReport.data ?? []} />
+          <FlagList loading={userReport.isLoading} list={userReport.data ?? []} admins={admins} onAssign={assign.mutate} />
         </TabsContent>
         <TabsContent value="under_appeal">
-          <FlagList loading={appeal.isLoading} list={appeal.data ?? []} />
+          <FlagList loading={appeal.isLoading} list={appeal.data ?? []} admins={admins} onAssign={assign.mutate} />
         </TabsContent>
       </Tabs>
     </Page>
   );
 }
 
-function FlagList({ loading, list }: { loading: boolean; list: CatalogFlag[] }) {
+function FlagList({
+  loading,
+  list,
+  admins,
+  onAssign,
+}: {
+  loading: boolean;
+  list: CatalogFlag[];
+  admins: AdminTeamMember[];
+  onAssign: (args: { flagId: string; adminId: string | null }) => void;
+}) {
   if (loading) return <div className="space-y-2">{[0, 1].map((i) => <Skeleton key={i} className="h-20" />)}</div>;
   if (list.length === 0) return <Empty kicker="All clear" title="No open flags in this bucket." />;
   return (
@@ -80,9 +108,27 @@ function FlagList({ loading, list }: { loading: boolean; list: CatalogFlag[] }) 
                 <p className="mt-1 text-[12.5px] italic text-ink-2">{f.details}</p>
               )}
             </div>
-            <Button asChild variant="outline" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
-              <Link to={`/admin/listings/${f.listingId}`}>Review</Link>
-            </Button>
+            <div className="flex items-center gap-2">
+              {admins.length > 0 && (
+                <Select
+                  value={f.assignedAdminId ?? 'unassigned'}
+                  onValueChange={(v) => onAssign({ flagId: f.id, adminId: v === 'unassigned' ? null : v })}
+                >
+                  <SelectTrigger className="h-8 w-40 text-[12px]">
+                    <SelectValue placeholder="Assign to…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {admins.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>{a.name ?? a.email}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Button asChild variant="outline" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
+                <Link to={`/admin/listings/${f.listingId}`}>Review</Link>
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ))}

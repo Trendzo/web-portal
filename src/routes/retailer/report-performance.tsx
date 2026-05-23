@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { Download } from 'lucide-react';
 import { api } from '@/lib/api';
-import { useCsvExport } from '@/lib/csv';
+import { useServerCsv } from '@/lib/csv';
+import { unwrapMeta, unwrapRows } from '@/lib/report';
+import { FreshnessLabel } from '@/components/ui/freshness-label';
 import type { FulfilmentMetricRow } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,18 +26,11 @@ function fmtMs(ms: number): string {
 export default function RetailerReportPerformance() {
   const { data, isLoading } = useQuery({
     queryKey: ['retailer', 'reports', 'performance'],
-    queryFn: () => api<FulfilmentMetricRow[]>('/retailer/reports/performance'),
+    queryFn: () => api<unknown>('/retailer/reports/performance'),
   });
-  const rows = data ?? [];
-
-  const exportCsv = useCsvExport<FulfilmentMetricRow>('performance_report', [
-    { key: 'bucket', header: 'Date', accessor: (r) => r.bucket },
-    { key: 'acceptance', header: 'Acceptance %', accessor: (r) => pctFromBp(r.acceptanceRateBp) },
-    { key: 'accept', header: 'Time to accept', accessor: (r) => fmtMs(r.avgTimeToAcceptMs) },
-    { key: 'pack', header: 'Time to pack', accessor: (r) => fmtMs(r.avgTimeToPackMs) },
-    { key: 'handover', header: 'Time to handover', accessor: (r) => fmtMs(r.avgTimeToHandoverMs) },
-    { key: 'e2e', header: 'End-to-end', accessor: (r) => fmtMs(r.avgEndToEndMs) },
-  ]);
+  const rows = unwrapRows<FulfilmentMetricRow>(data);
+  const meta = unwrapMeta(data);
+  const exportCsv = useServerCsv('performance_report', '/retailer/reports/performance');
 
   return (
     <Page>
@@ -44,7 +39,10 @@ export default function RetailerReportPerformance() {
         title="Performance report"
         description="Acceptance rate and fulfilment timings vs the Performance Floor. Drives Compliance escalation."
         actions={
-          <Button variant="outline" size="sm" iconLeft={<Download className="size-3.5" />} onClick={() => exportCsv(rows)}>Export CSV</Button>
+          <>
+            <FreshnessLabel generatedAtIst={meta?.generatedAtIst} />
+            <Button variant="outline" size="sm" iconLeft={<Download className="size-3.5" />} onClick={() => exportCsv()}>Export CSV</Button>
+          </>
         }
       />
 

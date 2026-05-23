@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Minus, Plus, Sparkles, Trash2, UserPlus } from 'lucide-react';
@@ -7,12 +7,25 @@ import { api, ApiError } from '@/lib/api';
 import { formatPaise } from '@/lib/status';
 import type {
   AdminRetailerView,
+  ConsumerSummary,
   PlaceOrderResult,
   Store,
   TestConsumerCreated,
   Variant,
   Listing,
 } from '@/lib/types';
+
+type AdminAddress = {
+  id: string;
+  consumerId: string;
+  label: string | null;
+  line1: string;
+  line2: string | null;
+  city: string;
+  pincode: string;
+  stateCode: string;
+  isDefault: boolean;
+};
 import { Page, PageHeader } from '@/components/ui/page';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -71,6 +84,9 @@ function PlaceTestOrderInner() {
   const [items, setItems] = useState<CartLine[]>([]);
   const [deliveryMethod, setDeliveryMethod] = useState<'standard' | 'express' | 'pickup' | 'try_and_buy'>('standard');
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'cod' | 'wallet'>('upi');
+  useEffect(() => {
+    if (deliveryMethod === 'try_and_buy' && paymentMethod === 'cod') setPaymentMethod('upi');
+  }, [deliveryMethod, paymentMethod]);
   const [paymentOutcome, setPaymentOutcome] = useState<'succeeded' | 'failed' | 'pending'>('succeeded');
   const [couponCode, setCouponCode] = useState<string>('');
 
@@ -92,6 +108,18 @@ function PlaceTestOrderInner() {
     queryKey: ['admin', 'place-order', 'catalog', storeId],
     queryFn: () => api<Listing[]>(`/admin/stores/${storeId}/catalog`),
     enabled: !!storeId,
+  });
+
+  // Existing consumers — searchable picker for the dev tool.
+  const consumerList = useQuery({
+    queryKey: ['admin', 'consumers', 'place-order'],
+    queryFn: () => api<ConsumerSummary[]>('/admin/consumers?limit=200'),
+  });
+  // Addresses for the selected consumer.
+  const addressList = useQuery({
+    queryKey: ['admin', 'consumers', consumerId, 'addresses'],
+    queryFn: () => api<AdminAddress[]>(`/admin/consumers/${consumerId}/addresses`),
+    enabled: Boolean(consumerId),
   });
 
   // Mint test consumer mutation.
@@ -247,25 +275,50 @@ function PlaceTestOrderInner() {
                 </div>
               )}
               <div>
-                <Label htmlFor="cid">Or paste an existing consumer id</Label>
-                <Input
-                  id="cid"
-                  mono
+                <Label htmlFor="cid">Or pick an existing consumer</Label>
+                <Select
                   value={consumerId}
-                  onChange={(e) => setConsumerId(e.target.value)}
-                  placeholder="cns_…"
-                />
+                  onValueChange={(v) => {
+                    setConsumerId(v);
+                    const c = (consumerList.data ?? []).find((x) => x.id === v);
+                    setConsumerName(c?.name ?? '');
+                    setAddressId('');
+                  }}
+                  disabled={consumerList.isLoading}
+                >
+                  <SelectTrigger id="cid">
+                    <SelectValue placeholder={consumerList.isLoading ? 'Loading consumers…' : 'Pick a consumer'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(consumerList.data ?? []).map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        <span className="font-medium">{c.name || c.email}</span>
+                        <span className="ml-2 font-mono text-[11px] text-ink-3">{c.email}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               {deliveryMethod !== 'pickup' && (
                 <div>
-                  <Label htmlFor="aid">Address id</Label>
-                  <Input
-                    id="aid"
-                    mono
+                  <Label htmlFor="aid">Address</Label>
+                  <Select
                     value={addressId}
-                    onChange={(e) => setAddressId(e.target.value)}
-                    placeholder="addr_…"
-                  />
+                    onValueChange={setAddressId}
+                    disabled={!consumerId || addressList.isLoading}
+                  >
+                    <SelectTrigger id="aid">
+                      <SelectValue placeholder={!consumerId ? 'Pick a consumer first' : addressList.isLoading ? 'Loading…' : (addressList.data ?? []).length === 0 ? 'No addresses on file' : 'Pick an address'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(addressList.data ?? []).map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          <span className="font-medium">{a.label ?? 'Address'}</span>
+                          <span className="ml-2 text-[11.5px] text-ink-3">{a.line1}, {a.city} {a.pincode}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
             </CardContent>
@@ -353,14 +406,25 @@ function PlaceTestOrderInner() {
               <RadioRow
                 label="Payment method"
                 value={paymentMethod}
-                options={[
-                  ['upi', 'UPI'],
-                  ['card', 'Card'],
-                  ['cod', 'Cash on delivery'],
-                  ['wallet', 'Wallet'],
-                ]}
+                options={
+                  deliveryMethod === 'try_and_buy'
+                    ? [
+                        ['upi', 'UPI'],
+                        ['card', 'Card'],
+                        ['wallet', 'Wallet'],
+                      ]
+                    : [
+                        ['upi', 'UPI'],
+                        ['card', 'Card'],
+                        ['cod', 'Cash on delivery'],
+                        ['wallet', 'Wallet'],
+                      ]
+                }
                 onChange={(v) => setPaymentMethod(v as typeof paymentMethod)}
               />
+              {deliveryMethod === 'try_and_buy' && (
+                <p className="text-[12px] text-ink-3">Try-and-Buy is prepaid only — COD is not available.</p>
+              )}
               <RadioRow
                 label="Payment outcome (test)"
                 value={paymentOutcome}

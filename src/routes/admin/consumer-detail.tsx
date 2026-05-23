@@ -236,7 +236,10 @@ export default function AdminConsumerDetail() {
           </div>
         </TabsContent>
         <TabsContent value="bans">
-          <BanFlagsCard consumerId={id} />
+          <div className="space-y-6">
+            <AbuseFlagsCard consumerId={id} />
+            <BanFlagsCard consumerId={id} />
+          </div>
         </TabsContent>
         <TabsContent value="audit">
           <SectionHeading title="Wallet transactions" hint={`${wallet.data?.transactions.length ?? 0} recent`} />
@@ -301,6 +304,179 @@ function RelatedLink({ title, href }: { title: string; href: string }) {
         <span className="text-ink-2">{title}</span>
         <Link to={href} className="text-accent hover:underline">Open →</Link>
       </CardContent>
+    </Card>
+  );
+}
+
+type ConsumerFlag = {
+  id: string;
+  consumerId: string;
+  kind: 'promo_abuse' | 'dispute_pattern' | 'rewards_ban' | 'other';
+  reason: string;
+  createdByAdminId: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+  resolvedByAdminId: string | null;
+  resolvedNote: string | null;
+};
+
+function AbuseFlagsCard({ consumerId }: { consumerId: string }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<ConsumerFlag['kind']>('promo_abuse');
+  const [reason, setReason] = useState('');
+
+  const flagsQuery = useQuery({
+    queryKey: ['admin', 'consumer-flags', consumerId, 'all'],
+    queryFn: () => api<ConsumerFlag[]>(`/admin/consumers/${consumerId}/flags?includeResolved=true`),
+  });
+
+  const create = useMutation({
+    mutationFn: () =>
+      api<ConsumerFlag>(`/admin/consumers/${consumerId}/flags`, {
+        method: 'POST',
+        body: { kind, reason: reason.trim() },
+      }),
+    onSuccess: () => {
+      toast.success('Flag recorded');
+      setOpen(false);
+      setReason('');
+      setKind('promo_abuse');
+      void qc.invalidateQueries({ queryKey: ['admin', 'consumer-flags', consumerId] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Failed to record flag'),
+  });
+
+  const resolve = useMutation({
+    mutationFn: (flagId: string) =>
+      api(`/admin/consumers/${consumerId}/flags/${flagId}/resolve`, { method: 'POST', body: {} }),
+    onSuccess: () => {
+      toast.success('Flag resolved');
+      void qc.invalidateQueries({ queryKey: ['admin', 'consumer-flags', consumerId] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Failed to resolve'),
+  });
+
+  const flags = flagsQuery.data ?? [];
+  const openFlags = flags.filter((f) => !f.resolvedAt);
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            Abuse flags
+            {openFlags.length > 0 && (
+              <Badge tone="danger" pulse>
+                {openFlags.length} open
+              </Badge>
+            )}
+          </CardTitle>
+          <p className="mt-0.5 text-[12px] text-ink-3">
+            Recorded notes about promo abuse / dispute patterns. Surface in future dispute reviews.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          Flag consumer
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {flagsQuery.isLoading ? (
+          <Skeleton className="h-20" />
+        ) : flags.length === 0 ? (
+          <p className="text-[12.5px] text-ink-3 italic">No flags yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {flags.map((f) => (
+              <li
+                key={f.id}
+                className="flex items-start justify-between gap-3 rounded-md border border-line bg-bg-2/30 px-3 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={f.resolvedAt ? 'neutral' : 'danger'} flat>
+                      {f.kind.replace(/_/g, ' ')}
+                    </Badge>
+                    {f.resolvedAt && (
+                      <Badge tone="success" flat>
+                        resolved
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="mt-1 text-[13px] text-ink">{f.reason}</div>
+                  <div className="mt-0.5 text-[11px] text-ink-4">
+                    {new Date(f.createdAt).toLocaleString('en-IN')}
+                    {f.resolvedAt && ` · resolved ${new Date(f.resolvedAt).toLocaleDateString('en-IN')}`}
+                  </div>
+                </div>
+                {!f.resolvedAt && (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    loading={resolve.isPending && resolve.variables === f.id}
+                    onClick={() => resolve.mutate(f.id)}
+                  >
+                    Resolve
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+
+      <Dialog open={open} onOpenChange={(o) => !create.isPending && setOpen(o)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Flag consumer</DialogTitle>
+            <DialogDescription>
+              Recorded on the audit log + surfaced in future dispute reviews. Choose a kind and
+              describe the abuse pattern.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="flag-kind" required>Kind</Label>
+              <select
+                id="flag-kind"
+                value={kind}
+                onChange={(e) => setKind(e.target.value as ConsumerFlag['kind'])}
+                className="mt-1 w-full rounded border border-line-2 bg-bg px-2 py-1.5 text-[13px]"
+              >
+                <option value="promo_abuse">Promo abuse</option>
+                <option value="dispute_pattern">Dispute pattern</option>
+                <option value="rewards_ban">Rewards ban</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="flag-reason" required>Reason</Label>
+              <textarea
+                id="flag-reason"
+                rows={4}
+                maxLength={500}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="e.g. used 6 burner accounts on FIRST50 coupon"
+                className="mt-1 w-full rounded border border-line-2 bg-bg px-2 py-1 text-[13px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setOpen(false)} disabled={create.isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={create.isPending}
+              disabled={reason.trim().length < 3}
+              onClick={() => create.mutate()}
+            >
+              Record flag
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

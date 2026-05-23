@@ -13,14 +13,12 @@ import { z } from 'zod';
 
 export const RetailerStatusSchema = z.enum([
   'pending_approval',
-  'under_review',
   'approved_no_store',
   'onboarding',
   'active',
   'paused',
   'suspended',
   'terminated',
-  'deactivated',
 ]);
 
 export const RetailerSubRoleSchema = z.enum(['owner', 'manager', 'staff']);
@@ -35,6 +33,8 @@ export const AdminRetailerViewSchema = z.object({
   storeId: z.string().nullable(),
   subRole: RetailerSubRoleSchema,
   createdAt: z.string(),
+  permanentSuspend: z.boolean().optional(),
+  suspendReason: z.string().nullable().optional(),
 });
 
 export type AdminRetailerView = z.infer<typeof AdminRetailerViewSchema>;

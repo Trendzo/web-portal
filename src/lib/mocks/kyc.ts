@@ -63,7 +63,8 @@ const FIELDS: ChangeRequestField[] = ['legal_name', 'address', 'bank_account', '
 export function mockChangeRequests(): ChangeRequest[] {
   return FIELDS.slice(0, 3).map((field, i) => ({
     id: `cr_${field}`,
-    retailerId: 'retailer_self',
+    storeId: 'store_aurora',
+    storeName: 'Aurora Boutique',
     field,
     currentValue:
       field === 'legal_name'
@@ -78,9 +79,11 @@ export function mockChangeRequests(): ChangeRequest[] {
           ? '14 Linking Road, Mumbai 400050'
           : 'ICICI ••••9988',
     reason: 'Updated incorporation document',
+    evidenceUrl: null,
     status: i === 0 ? 'pending' : i === 1 ? 'under_review' : 'approved',
     submittedAt: new Date(now() - DAY * (i + 1)).toISOString(),
     decidedAt: i === 2 ? new Date(now() - 1000 * 60 * 60 * 6).toISOString() : null,
+    decidedByAccountId: i === 2 ? 'admin_super' : null,
     decisionNote: i === 2 ? 'Validated against new incorporation cert' : null,
   }));
 }

@@ -5,8 +5,8 @@ import type { AdminProfile, RetailerProfile } from './types';
 /** localStorage key for the persisted auth slice. Exported so account-switch
  *  and sign-out flows can write directly without round-tripping through the
  *  React-visible store (see `prepareAccountChangeForReload`). */
-export const AUTH_STORAGE_KEY = 'closetx-dashboard.auth';
-const AUTH_STORAGE_VERSION = 3;
+export const AUTH_STORAGE_KEY = 'trendzo-dashboard.auth';
+const AUTH_STORAGE_VERSION = 4;
 
 /** Admin viewing the platform as a specific store — every action audit-logged
  *  against both the admin id and the impersonated store. */
@@ -17,15 +17,45 @@ export type ImpersonationContext = {
   since: number;
 };
 
+/** Reverse mapping: a retailer session that was minted by admin impersonation.
+ *  The retailer SPA reads this to render the banner + exit affordance. */
+export type ImpersonatorContext = {
+  adminAccountId: AccountId;
+  sessionId: string;
+  /** Unix ms when impersonation started. */
+  since: number;
+  /** Cached human-readable store label for the banner. */
+  storeName?: string;
+};
+
 /**
  * One signed-in identity (admin OR retailer). The store can hold many of these and
  * switch between them — the *active* one is what `session` points at.
  *
  * `impersonating` only applies to the admin variant; retailers never impersonate.
  */
+/** Effective permission map for the active sub-role. Keys are `<resource>.<verb>` action strings;
+ *  values are true when the sub-role is granted that action. Fetched once on sign-in from
+ *  `GET /<kind>/me/permissions`. */
+export type PermissionMap = Record<string, boolean>;
+
 export type Session =
-  | { kind: 'admin'; token: string; admin: AdminProfile; impersonating?: ImpersonationContext }
-  | { kind: 'retailer'; token: string; retailer: RetailerProfile };
+  | {
+      kind: 'admin';
+      token: string;
+      admin: AdminProfile;
+      permissions: PermissionMap;
+      impersonating?: ImpersonationContext;
+    }
+  | {
+      kind: 'retailer';
+      token: string;
+      retailer: RetailerProfile;
+      permissions: PermissionMap;
+      /** Set only when this retailer session was minted by admin impersonation.
+       *  Drives the impersonation banner + Exit button on the retailer SPA. */
+      impersonator?: ImpersonatorContext;
+    };
 
 export type AccountId = string;
 
@@ -68,6 +98,9 @@ type AuthStore = {
   switchTo: (id: AccountId) => void;
   /** Patch fields on the currently-active retailer profile (e.g. after creating a store). */
   patchRetailer: (patch: Partial<RetailerProfile>) => void;
+  /** Replace the active session's permission map. Used after login + on demand
+   *  to refresh permissions if the admin matrix changes. */
+  setPermissions: (permissions: PermissionMap) => void;
   /** Internal: flipped to `true` once `persist` finishes rehydrating from localStorage. */
   setHasHydrated: (v: boolean) => void;
 };
@@ -122,6 +155,15 @@ export const useAuth = create<AuthStore>()(
         set({ accounts, ...setActive(accounts, id) });
       },
 
+      setPermissions: (permissions) => {
+        const cur = get().session;
+        if (!cur) return;
+        const id = accountIdOf(cur);
+        const updated: Session = { ...cur, permissions };
+        const accounts = get().accounts.map((a) => (accountIdOf(a) === id ? updated : a));
+        set({ accounts, ...setActive(accounts, id) });
+      },
+
       setHasHydrated: (v) => set({ hasHydrated: v }),
     }),
     {
@@ -142,20 +184,36 @@ export const useAuth = create<AuthStore>()(
       // anyone who signed in before the upgrade keeps their session.
       // v2 → v3 added the optional `impersonating` field on admin sessions —
       // absent on every existing record, so the v2 shape passes through unchanged.
+      // v3 → v4 added the required `permissions` map on every session — backfill
+      // with `{}`; runtime fetch will fill it on the next refresh.
       migrate: (persisted, fromVersion) => {
+        let state: Partial<AuthStore> = persisted as Partial<AuthStore>;
         if (fromVersion < 2 && persisted && typeof persisted === 'object') {
           const old = persisted as { session?: Session | null };
           if (old.session) {
             const id = accountIdOf(old.session);
-            return {
+            state = {
               accounts: [old.session],
               activeId: id,
               session: old.session,
-            } as Partial<AuthStore>;
+            };
+          } else {
+            state = { accounts: [], activeId: null, session: null };
           }
-          return { accounts: [], activeId: null, session: null } as Partial<AuthStore>;
         }
-        return persisted as Partial<AuthStore>;
+        if (fromVersion < 4 && state && state.accounts) {
+          const withPerms = state.accounts.map(
+            (a) => ({ ...a, permissions: (a as Session).permissions ?? {} }) as Session,
+          );
+          state = {
+            ...state,
+            accounts: withPerms,
+            session: state.activeId
+              ? withPerms.find((a) => accountIdOf(a) === state.activeId) ?? null
+              : null,
+          };
+        }
+        return state;
       },
     },
   ),
@@ -166,32 +224,66 @@ export function getToken(): string | null {
   return useAuth.getState().session?.token ?? null;
 }
 
-/** Subscribe to the active session's impersonation context. Returns null when
- *  the active session is a retailer or when no impersonation is in flight. */
-export function useImpersonation(): ImpersonationContext | null {
-  return useAuth((s) => (s.session?.kind === 'admin' ? (s.session.impersonating ?? null) : null));
+/** Subscribe to the active session's impersonation context. Returns the
+ *  impersonator on a retailer session that was minted by admin impersonation,
+ *  otherwise null. */
+export function useImpersonation(): ImpersonatorContext | null {
+  return useAuth((s) =>
+    s.session?.kind === 'retailer' ? (s.session.impersonator ?? null) : null,
+  );
 }
 
-/** Mutate the active admin session's impersonation context and reload to the
- *  given home path without a login flash. No-op if active session is not admin. */
-export function startImpersonationAndReload(ctx: ImpersonationContext, redirectTo = '/retailer/dashboard'): void {
+/** Install a retailer impersonation session minted by `POST /admin/impersonation/start`.
+ *  Keeps the originating admin session in the accounts list so Exit can swap
+ *  back without re-login. Reloads to the retailer dashboard to flush mounted
+ *  admin-portal components and run the retailer SPA shell cleanly. */
+export function installImpersonationSessionAndReload(args: {
+  retailer: RetailerProfile;
+  token: string;
+  sessionId: string;
+  storeName?: string;
+  permissions?: PermissionMap;
+  redirectTo?: string;
+}): void {
   const { accounts, activeId, session } = useAuth.getState();
   if (!session || session.kind !== 'admin' || !activeId) return;
-  const updated: Session = { ...session, impersonating: ctx };
-  const nextAccounts = accounts.map((a) => (accountIdOf(a) === activeId ? updated : a));
-  prepareAccountChangeForReload({ accounts: nextAccounts, activeId });
-  window.location.assign(redirectTo);
+  const retailerSession: Session = {
+    kind: 'retailer',
+    token: args.token,
+    retailer: args.retailer,
+    permissions: args.permissions ?? {},
+    impersonator: {
+      adminAccountId: activeId,
+      sessionId: args.sessionId,
+      since: Date.now(),
+      ...(args.storeName ? { storeName: args.storeName } : {}),
+    },
+  };
+  const retailerAccountId = accountIdOf(retailerSession);
+  // Replace any existing retailer session for the same retailer (re-impersonation).
+  const nextAccounts = [
+    ...accounts.filter((a) => accountIdOf(a) !== retailerAccountId),
+    retailerSession,
+  ];
+  prepareAccountChangeForReload({ accounts: nextAccounts, activeId: retailerAccountId });
+  window.location.assign(args.redirectTo ?? '/retailer/dashboard');
 }
 
-/** Clear impersonation on the active admin session and reload to admin home
- *  without a login flash. */
+/** Tear down an impersonation retailer session and switch back to the admin
+ *  account that started it. Caller is responsible for calling
+ *  `POST /admin/impersonation/stop` with the admin token BEFORE invoking this. */
 export function exitImpersonationAndReload(redirectTo = '/admin/dashboard'): void {
-  const { accounts, activeId, session } = useAuth.getState();
-  if (!session || session.kind !== 'admin' || !activeId) return;
-  const { impersonating: _drop, ...rest } = session;
-  const updated: Session = rest;
-  const nextAccounts = accounts.map((a) => (accountIdOf(a) === activeId ? updated : a));
-  prepareAccountChangeForReload({ accounts: nextAccounts, activeId });
+  const { accounts, session } = useAuth.getState();
+  if (!session || session.kind !== 'retailer' || !session.impersonator) return;
+  const adminId = session.impersonator.adminAccountId;
+  const retailerId = accountIdOf(session);
+  const nextAccounts = accounts.filter((a) => accountIdOf(a) !== retailerId);
+  if (!nextAccounts.some((a) => accountIdOf(a) === adminId)) {
+    // Admin session was evicted somehow — fall back to clearing impersonation
+    // metadata on the retailer session and staying signed in as retailer.
+    return;
+  }
+  prepareAccountChangeForReload({ accounts: nextAccounts, activeId: adminId });
   window.location.assign(redirectTo);
 }
 

@@ -22,7 +22,7 @@ export default function RetailerCommissionInvoices() {
       <PageHeader
         kicker="Settlement"
         title="Commission invoices"
-        description="ClosetX issues a commission invoice per order. Each is GST-compliant and feeds your monthly billing statement."
+        description="Trendzo issues a commission invoice per order. Each is GST-compliant and feeds your monthly billing statement."
       />
       {isLoading ? <Skeleton className="h-32" /> : list.length === 0 ? (
         <Empty kicker="None" title="No commission invoices yet." />
@@ -56,7 +56,7 @@ export default function RetailerCommissionInvoices() {
                       </td>
                       <td className="px-3 py-1.5 text-right">
                         <Button asChild size="sm" variant="outline" iconLeft={<Download className="size-3.5" />} disabled={!ci.pdfUrl}>
-                          <a href={ci.pdfUrl ?? '#'}>PDF</a>
+                          <a href={ci.pdfUrl ?? '#'} download={`${ci.number}.pdf`}>PDF</a>
                         </Button>
                       </td>
                     </tr>

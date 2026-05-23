@@ -60,6 +60,9 @@ export default function AdminOrderDetail() {
   const [cancelReason, setCancelReason] = useState('');
   const [doorOpen, setDoorOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
+  const [feeOverrideOpen, setFeeOverrideOpen] = useState(false);
+  const [feeOverrideRupees, setFeeOverrideRupees] = useState('');
+  const [feeOverrideReason, setFeeOverrideReason] = useState('');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin', 'orders', id],
@@ -67,6 +70,26 @@ export default function AdminOrderDetail() {
     enabled: !!id,
     refetchInterval: 4000,
   });
+
+  type OrderInvoice = {
+    id: string;
+    number: string;
+    kind: string;
+    status: string;
+    totalPaise: number;
+    pdfUrl: string | null;
+    issuedAt: string | null;
+    createdAt: string;
+  };
+  const invoicesQ = useQuery({
+    queryKey: ['admin', 'orders', id, 'invoices'],
+    queryFn: () => api<OrderInvoice[]>(`/admin/orders/${id}/invoices`),
+    enabled: !!id,
+    staleTime: 30_000,
+  });
+  const taxInvoice = (invoicesQ.data ?? []).find(
+    (i) => i.kind === 'tax_invoice' || i.kind === 'bill_of_supply',
+  ) ?? null;
 
   const cancel = useMutation({
     mutationFn: (reason: string) =>
@@ -88,6 +111,19 @@ export default function AdminOrderDetail() {
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Open door failed'),
   });
+
+  // Delivery-agent impersonation verbs (admin acts as the in-the-wild agent for testing).
+  const agentVerb = useMutation({
+    mutationFn: ({ storeId, verb, body }: { storeId: string; verb: string; body?: Record<string, unknown> }) =>
+      api(`/admin/stores/${storeId}/orders/${id}/${verb}`, { method: 'POST', body: body ?? {} }),
+    onSuccess: (_d, vars) => {
+      toast.success(`Agent ${vars.verb}`);
+      void qc.invalidateQueries({ queryKey: ['admin', 'orders', id] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Agent action failed'),
+  });
+  const [undelOpen, setUndelOpen] = useState(false);
+  const [undelReason, setUndelReason] = useState('');
 
   const verify = useMutation({
     mutationFn: ({ returnId, decision }: { returnId: string; decision: 'accepted' | 'rejected' }) =>
@@ -122,6 +158,19 @@ export default function AdminOrderDetail() {
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Retry failed'),
   });
 
+  const feeOverride = useMutation({
+    mutationFn: (body: { overridePaise: number; reason: string }) =>
+      api(`/admin/orders/${id}/fee-override`, { method: 'POST', body }),
+    onSuccess: () => {
+      toast.success('Platform fee override recorded');
+      setFeeOverrideOpen(false);
+      setFeeOverrideRupees('');
+      setFeeOverrideReason('');
+      void qc.invalidateQueries({ queryKey: ['admin', 'orders', id] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Override failed'),
+  });
+
   if (!id) return null;
 
   const order = data;
@@ -150,7 +199,121 @@ export default function AdminOrderDetail() {
         <p className="text-[13px] text-danger">Couldn't load order.</p>
       ) : (
         <>
-          <Detail order={data} onCancelClick={() => setCancelOpen(true)} />
+          <Detail
+            order={data}
+            taxInvoice={taxInvoice}
+            onCancelClick={() => setCancelOpen(true)}
+          />
+
+          {/* Order action simulator — admin acts on behalf of retailer staff + delivery agent */}
+          {['pending', 'routing', 'accepted', 'packed', 'picked_up', 'out_for_delivery', 'undelivered', 'returned_to_store'].includes(order!.status) && (
+            <Card className="mt-4 border-warning/40">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Truck className="size-4" /> Order action simulator
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-[12.5px] text-ink-3">
+                  Drive the order through every state on behalf of the retailer / delivery agent.
+                  Current status: <span className="font-mono text-ink">{order!.status}</span>
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(order!.status === 'pending' || order!.status === 'routing') && (
+                    <Button
+                      variant="ink"
+                      size="sm"
+                      loading={agentVerb.isPending}
+                      onClick={() => agentVerb.mutate({ storeId: order!.storeId, verb: 'accept' })}
+                    >
+                      Accept (as retailer)
+                    </Button>
+                  )}
+                  {order!.status === 'accepted' && (
+                    <Button
+                      variant="ink"
+                      size="sm"
+                      loading={agentVerb.isPending}
+                      onClick={() => agentVerb.mutate({ storeId: order!.storeId, verb: 'pack' })}
+                    >
+                      Pack (as retailer)
+                    </Button>
+                  )}
+                  {order!.status === 'packed' && (
+                    <>
+                      <Button
+                        variant="ink"
+                        size="sm"
+                        loading={agentVerb.isPending}
+                        onClick={() => agentVerb.mutate({ storeId: order!.storeId, verb: 'handover' })}
+                      >
+                        Handover to agent
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        loading={agentVerb.isPending}
+                        onClick={() => agentVerb.mutate({ storeId: order!.storeId, verb: 'mark-delivered' })}
+                      >
+                        Mark delivered (pickup)
+                      </Button>
+                    </>
+                  )}
+                  {order!.status === 'picked_up' && (
+                    <Button
+                      variant="ink"
+                      size="sm"
+                      loading={agentVerb.isPending}
+                      onClick={() => agentVerb.mutate({ storeId: order!.storeId, verb: 'depart' })}
+                    >
+                      Depart for delivery
+                    </Button>
+                  )}
+                  {order!.status === 'out_for_delivery' && (
+                    <>
+                      {!isTnB && (
+                        <Button
+                          variant="ink"
+                          size="sm"
+                          loading={agentVerb.isPending}
+                          onClick={() => agentVerb.mutate({ storeId: order!.storeId, verb: 'mark-delivered' })}
+                        >
+                          Mark delivered (as agent)
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setUndelOpen(true)}
+                      >
+                        Mark undelivered (as agent)
+                      </Button>
+                    </>
+                  )}
+                  {order!.status === 'undelivered' && (
+                    <Button
+                      variant="ink"
+                      size="sm"
+                      loading={agentVerb.isPending}
+                      onClick={() => agentVerb.mutate({ storeId: order!.storeId, verb: 'depart' })}
+                    >
+                      Retry out for delivery
+                    </Button>
+                  )}
+                  {order!.status === 'returned_to_store' && (
+                    <Button
+                      variant="ink"
+                      size="sm"
+                      loading={agentVerb.isPending}
+                      onClick={() => agentVerb.mutate({ storeId: order!.storeId, verb: 'mark-delivered' })}
+                    >
+                      Mark delivered (counter pickup)
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Try-and-Buy door panel */}
           {(canOpenDoor || canCloseDoor) && (
@@ -193,6 +356,34 @@ export default function AdminOrderDetail() {
               </CardContent>
             </Card>
           )}
+
+          {/* §12 F3b — Platform fee override */}
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Coins className="size-4" /> Platform fee override
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {data.platformFeeOverridePaise && data.platformFeeOverridePaise > 0 ? (
+                <>
+                  <div className="text-[13px]">
+                    Override: <strong className="font-mono">{formatPaise(data.platformFeeOverridePaise)}</strong>
+                  </div>
+                  {data.platformFeeOverrideReason && (
+                    <div className="rounded border border-line bg-bg-2/30 p-2 text-[12.5px] text-ink-2">
+                      Reason: {data.platformFeeOverrideReason}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-[12.5px] text-ink-3">No override applied. Fee is computed from the store rate snapshot ({(data.platformFeeBpSnap / 100).toFixed(2)}%).</p>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setFeeOverrideOpen(true)}>
+                Override fee
+              </Button>
+            </CardContent>
+          </Card>
 
           {/* Returns + held + refunds related to this order */}
           {((data.returns?.length ?? 0) > 0 ||
@@ -258,11 +449,54 @@ export default function AdminOrderDetail() {
             </div>
           )}
 
+          {/* Mark undelivered dialog */}
+          <Dialog open={undelOpen} onOpenChange={setUndelOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Mark undelivered</DialogTitle>
+                <DialogDescription>
+                  Records an undelivered attempt. Order moves to undelivered → retry or returning_to_store.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2">
+                <Label htmlFor="undel-reason">Reason</Label>
+                <Input
+                  id="undel-reason"
+                  value={undelReason}
+                  onChange={(e) => setUndelReason(e.target.value)}
+                  placeholder="Consumer not at door / wrong address / refused"
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setUndelOpen(false)}>Cancel</Button>
+                <Button
+                  variant="danger"
+                  loading={agentVerb.isPending}
+                  onClick={() => {
+                    agentVerb.mutate(
+                      { storeId: order!.storeId, verb: 'mark-undelivered', body: { reason: undelReason.trim() || 'unspecified' } },
+                      {
+                        onSuccess: () => {
+                          setUndelOpen(false);
+                          setUndelReason('');
+                        },
+                      },
+                    );
+                  }}
+                >
+                  Confirm
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           {/* Door visit dialog */}
           {data && (
             <DoorVisitDialog
               orderId={data.id}
               items={data.items}
+              doorWindowExpiresAt={data.doorWindowExpiresAt ?? null}
+              doorWindowExtendedAt={data.doorWindowExtendedAt ?? null}
               open={doorOpen}
               onOpenChange={setDoorOpen}
               onClosed={() => {
@@ -288,6 +522,65 @@ export default function AdminOrderDetail() {
         </>
       )}
 
+      <Dialog open={feeOverrideOpen} onOpenChange={(o) => !feeOverride.isPending && setFeeOverrideOpen(o)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Override platform fee</DialogTitle>
+            <DialogDescription>
+              Enter the override amount (₹) and the reason. The decision is recorded and audited.
+              Settlement math will pick up the override once integrated.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="fee-override-amt" required>Override amount (₹)</Label>
+              <Input
+                id="fee-override-amt"
+                type="number"
+                min="0"
+                step="1"
+                value={feeOverrideRupees}
+                onChange={(e) => setFeeOverrideRupees(e.target.value)}
+                placeholder="0 to clear the override"
+              />
+            </div>
+            <div>
+              <Label htmlFor="fee-override-reason" required>Reason</Label>
+              <textarea
+                id="fee-override-reason"
+                rows={3}
+                maxLength={500}
+                value={feeOverrideReason}
+                onChange={(e) => setFeeOverrideReason(e.target.value)}
+                placeholder="e.g. goodwill — repeated stockouts"
+                className="mt-1 w-full rounded border border-line-2 bg-bg px-2 py-1 text-[13px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setFeeOverrideOpen(false)} disabled={feeOverride.isPending}>Cancel</Button>
+            <Button
+              variant="ink"
+              loading={feeOverride.isPending}
+              disabled={feeOverrideReason.trim().length < 3 || feeOverrideRupees.trim() === ''}
+              onClick={() => {
+                const rupees = Number(feeOverrideRupees);
+                if (!Number.isFinite(rupees) || rupees < 0) {
+                  toast.error('Enter a non-negative amount.');
+                  return;
+                }
+                feeOverride.mutate({
+                  overridePaise: Math.round(rupees * 100),
+                  reason: feeOverrideReason.trim(),
+                });
+              }}
+            >
+              Save override
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent>
           <DialogHeader>
@@ -296,13 +589,20 @@ export default function AdminOrderDetail() {
               Reserved stock will be released. The audit log records the reason.
             </DialogDescription>
           </DialogHeader>
+          {data?.status === 'delivered' && (
+            <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-[12.5px] text-danger">
+              <strong className="block text-danger-strong">Order already delivered.</strong>
+              Cancelling now triggers a refund to the original tender and may require a pickup
+              from the customer. The reason is recorded against the order.
+            </div>
+          )}
           <div>
             <Label htmlFor="reason" required>Reason</Label>
             <Input
               id="reason"
               value={cancelReason}
               onChange={(e) => setCancelReason(e.target.value)}
-              placeholder="e.g. Stockout at store"
+              placeholder={data?.status === 'delivered' ? 'e.g. Fraud confirmed' : 'e.g. Stockout at store'}
             />
           </div>
           <DialogFooter>
@@ -323,10 +623,29 @@ export default function AdminOrderDetail() {
   );
 }
 
-function Detail({ order, onCancelClick }: { order: OrderDetail; onCancelClick: () => void }) {
+type TaxInvoiceLite = {
+  id: string;
+  number: string;
+  kind: string;
+  status: string;
+  pdfUrl: string | null;
+} | null;
+
+function Detail({
+  order,
+  taxInvoice,
+  onCancelClick,
+}: {
+  order: OrderDetail;
+  taxInvoice: TaxInvoiceLite;
+  onCancelClick: () => void;
+}) {
   const meta = orderStatusMeta(order.status);
   const groupMeta = orderGroupStatusMeta(order.group.status);
-  const canCancel = !['cancelled', 'closed', 'delivered'].includes(order.status);
+  // §8 story 10 — ops-admin can cancel at any non-terminal stage, including
+  // delivered orders (force-refund path). Only fully-terminal cancelled/closed
+  // orders block the button.
+  const canCancel = !['cancelled', 'closed'].includes(order.status);
 
   return (
     <>
@@ -347,8 +666,23 @@ function Detail({ order, onCancelClick }: { order: OrderDetail; onCancelClick: (
         }
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button asChild variant="outline" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
-              <Link to={`/retailer/tax-invoices?orderId=${order.id}`}>Tax invoice</Link>
+            <Button
+              variant="outline"
+              size="sm"
+              iconRight={<ArrowUpRight className="size-3.5" />}
+              disabled={!taxInvoice?.pdfUrl}
+              title={
+                !taxInvoice
+                  ? 'Tax invoice not generated yet'
+                  : !taxInvoice.pdfUrl
+                    ? 'PDF not ready yet'
+                    : `Open ${taxInvoice.number}`
+              }
+              onClick={() => {
+                if (taxInvoice?.pdfUrl) window.open(taxInvoice.pdfUrl, '_blank', 'noopener');
+              }}
+            >
+              Tax invoice
             </Button>
             <Button asChild variant="outline" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
               <Link to={`/admin/payouts-pipeline?orderId=${order.id}`}>Payout</Link>
@@ -368,6 +702,7 @@ function Detail({ order, onCancelClick }: { order: OrderDetail; onCancelClick: (
             groupId={order.group.id}
             status={order.group.status}
             placedAt={order.group.placedAt}
+            combinedTotalPaise={order.group.combinedTotalPaise}
             orders={[orderDetailToListRow(order), ...order.group.siblingOrders]}
           />
         </div>

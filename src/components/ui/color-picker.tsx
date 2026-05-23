@@ -76,10 +76,10 @@ export function ColorPicker({
       </PopoverTrigger>
 
       <PopoverContent className="w-[260px] p-0" align="start">
-        {/* Picker canvas — the .closetx-colorful CSS in index.css trims rounding,
+        {/* Picker canvas — the .trendzo-colorful CSS in index.css trims rounding,
             sizes the canvas to popover width, and recolours the hue/alpha pointers
             so they read against our paper palette. */}
-        <div className="closetx-colorful px-3 pt-3">
+        <div className="trendzo-colorful px-3 pt-3">
           <HexColorPicker color={isValidHex ? draft : '#000000'} onChange={setDraft} />
         </div>
 

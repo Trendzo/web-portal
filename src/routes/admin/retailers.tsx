@@ -29,21 +29,25 @@ import {
 } from '@/components/ui/dialog';
 import { FieldError, Label } from '@/components/ui/label';
 
+const SUB_ROLE_LABEL: Record<string, string> = {
+  owner: 'Owner',
+  manager: 'Manager',
+  staff: 'Floor staff',
+};
+
 const STATUS_OPTIONS: ReadonlyArray<{ value: RetailerStatus | 'all'; label: string }> = [
   { value: 'pending_approval', label: 'Pending approval' },
-  { value: 'under_review', label: 'Under review' },
   { value: 'approved_no_store', label: 'Approved · awaiting store' },
   { value: 'onboarding', label: 'Onboarding' },
   { value: 'active', label: 'Active' },
   { value: 'paused', label: 'Paused' },
   { value: 'suspended', label: 'Suspended' },
   { value: 'terminated', label: 'Terminated' },
-  { value: 'deactivated', label: 'Deactivated' },
   { value: 'all', label: 'All retailers' },
 ];
 
 export default function AdminRetailers() {
-  const [status, setStatus] = useState<RetailerStatus | 'all'>('pending_approval');
+  const [status, setStatus] = useState<RetailerStatus | 'all'>('active');
   const [q, setQ] = useState('');
   const [rejecting, setRejecting] = useState<AdminRetailerView | null>(null);
   const [suspending, setSuspending] = useState<AdminRetailerView | null>(null);
@@ -121,6 +125,11 @@ export default function AdminRetailers() {
       <PageHeader
         title="Retailers"
         description="Approve to admit, reject with cause to log a refusal. A store is provisioned automatically on approval."
+        actions={
+          <Button asChild variant="ink" size="sm">
+            <Link to="/admin/retailers/new">+ New retailer</Link>
+          </Button>
+        }
       />
 
       {/* Toolbar */}
@@ -175,6 +184,7 @@ export default function AdminRetailers() {
             <thead className="bg-bg-2 border-b border-line">
               <tr>
                 <Th>Retailer</Th>
+                <Th>Role</Th>
                 <Th>Contact</Th>
                 <Th>GSTIN</Th>
                 <Th>Status</Th>
@@ -193,6 +203,9 @@ export default function AdminRetailers() {
                       <div className="text-[11px] text-ink-4 font-mono mt-0.5 truncate max-w-[180px]">
                         {r.id}
                       </div>
+                    </Td>
+                    <Td>
+                      <Badge tone="info" flat>{SUB_ROLE_LABEL[r.subRole] ?? r.subRole}</Badge>
                     </Td>
                     <Td>
                       <div className="text-ink-2">{r.email}</div>
@@ -277,7 +290,11 @@ export default function AdminRetailers() {
                       {meta.label}
                     </Badge>
                   </div>
-                  <div className="text-[12px] text-ink-3 font-mono">{r.gstin}</div>
+                  <div className="flex items-center gap-2 text-[12px] text-ink-3 font-mono">
+                    <Badge tone="info" flat>{SUB_ROLE_LABEL[r.subRole] ?? r.subRole}</Badge>
+                    <span>·</span>
+                    <span>{r.gstin}</span>
+                  </div>
                   {r.status === 'pending_approval' && (
                     <div className="flex gap-2 pt-1">
                       <Button
@@ -343,7 +360,7 @@ export default function AdminRetailers() {
       />
       <ReasonActionDialog
         title="Terminate retailer"
-        description="This permanently deactivates the retailer and terminates their store. It cannot be undone."
+        description="This permanently terminates the retailer and their store. It cannot be undone."
         confirmLabel="Terminate"
         danger
         target={terminating}
@@ -399,7 +416,7 @@ function RejectDialog({
         <DialogHeader>
           <DialogTitle>Reject this retailer?</DialogTitle>
           <DialogDescription>
-            They'll be marked deactivated and won't be able to onboard further. The reason is logged.
+            They'll be marked terminated and won't be able to onboard further. The reason is logged.
           </DialogDescription>
         </DialogHeader>
         <div>

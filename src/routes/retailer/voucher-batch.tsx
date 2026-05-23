@@ -21,11 +21,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+type Mode = 'anonymous' | 'targeted';
+type GeneratedCode = { code: string; assignedConsumerId: string | null };
+
 export default function RetailerVoucherBatch() {
   const [promoId, setPromoId] = useState('');
+  const [mode, setMode] = useState<Mode>('anonymous');
   const [count, setCount] = useState('100');
   const [prefix, setPrefix] = useState('');
-  const [codes, setCodes] = useState<string[]>([]);
+  const [consumerIdsText, setConsumerIdsText] = useState('');
+  const [codes, setCodes] = useState<GeneratedCode[]>([]);
   const [error, setError] = useState('');
 
   const promos = useQuery({
@@ -35,26 +40,49 @@ export default function RetailerVoucherBatch() {
 
   const vouchers = (promos.data ?? []).filter((p) => p.mechanism === 'voucher');
 
+  function parseConsumerIds(): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const line of consumerIdsText.split(/[\n,]/)) {
+      const t = line.trim();
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      out.push(t);
+      if (out.length >= 10_000) break;
+    }
+    return out;
+  }
+
   const generate = useMutation({
     mutationFn: () => {
       setError('');
-      const n = Number(count);
-      if (!Number.isInteger(n) || n < 1 || n > 10_000) {
-        setError('Count must be between 1 and 10,000');
-        return Promise.reject(new Error('invalid count'));
-      }
       if (!promoId) {
         setError('Select a promotion');
         return Promise.reject(new Error('no promo'));
       }
-      return api<{ codes: string[] }>('/retailer/voucher-codes/generate', {
-        method: 'POST',
-        body: {
-          promotionId: promoId,
-          count: n,
-          ...(prefix.trim() ? { prefix: prefix.trim().toUpperCase() } : {}),
-        },
-      });
+      const body: Record<string, unknown> = {
+        promotionId: promoId,
+        ...(prefix.trim() ? { prefix: prefix.trim().toUpperCase() } : {}),
+      };
+      if (mode === 'anonymous') {
+        const n = Number(count);
+        if (!Number.isInteger(n) || n < 1 || n > 10_000) {
+          setError('Count must be between 1 and 10,000');
+          return Promise.reject(new Error('invalid count'));
+        }
+        body.count = n;
+      } else {
+        const ids = parseConsumerIds();
+        if (ids.length === 0) {
+          setError('Paste at least one consumer ID');
+          return Promise.reject(new Error('no consumer ids'));
+        }
+        body.consumerIds = ids;
+      }
+      return api<{ generated: number; codes: GeneratedCode[] }>(
+        '/retailer/promotions/voucher-codes/generate',
+        { method: 'POST', body },
+      );
     },
     onSuccess: (data) => {
       setCodes(data.codes);
@@ -67,7 +95,7 @@ export default function RetailerVoucherBatch() {
 
   function downloadCsv() {
     const token = getToken();
-    const url = `${BASE}/retailer/voucher-codes/export?promotionId=${promoId}`;
+    const url = `${BASE}/retailer/promotions/voucher-codes/export?promotionId=${promoId}`;
     fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then((r) => r.blob())
       .then((blob) => {
@@ -81,7 +109,10 @@ export default function RetailerVoucherBatch() {
   }
 
   function copyAll() {
-    void navigator.clipboard.writeText(codes.join('\n'));
+    const text = codes
+      .map((c) => (c.assignedConsumerId ? `${c.code}\t${c.assignedConsumerId}` : c.code))
+      .join('\n');
+    void navigator.clipboard.writeText(text);
     toast.success(`Copied ${codes.length} codes`);
   }
 
@@ -90,7 +121,7 @@ export default function RetailerVoucherBatch() {
       <PageHeader
         kicker="Vouchers"
         title="Bulk voucher batch"
-        description="Generate single-use voucher codes for a promotion. Each code redeems once globally. Download CSV for distribution."
+        description="Generate single-use voucher codes. Anonymous codes redeem for any consumer; targeted codes are reserved per consumer."
         actions={
           <Button asChild variant="ghost" size="sm" iconLeft={<ArrowLeft className="size-3.5" />}>
             <Link to="/retailer/promotions">Back to promotions</Link>
@@ -123,15 +154,50 @@ export default function RetailerVoucherBatch() {
               )}
             </div>
             <div>
-              <Label required hint="1 to 10,000">Count</Label>
-              <Input
-                type="number"
-                min="1"
-                max="10000"
-                value={count}
-                onChange={(e) => setCount(e.target.value)}
-              />
+              <Label>Mode</Label>
+              <div className="mt-1 inline-flex rounded border border-line p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setMode('anonymous')}
+                  className={`px-3 py-1 text-[12.5px] rounded ${mode === 'anonymous' ? 'bg-ink text-bg' : 'text-ink-3'}`}
+                >
+                  Anonymous bulk
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('targeted')}
+                  className={`px-3 py-1 text-[12.5px] rounded ${mode === 'targeted' ? 'bg-ink text-bg' : 'text-ink-3'}`}
+                >
+                  Target consumers
+                </button>
+              </div>
             </div>
+            {mode === 'anonymous' ? (
+              <div>
+                <Label required hint="1 to 10,000">Count</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="10000"
+                  value={count}
+                  onChange={(e) => setCount(e.target.value)}
+                />
+              </div>
+            ) : (
+              <div>
+                <Label required hint="Newline-separated consumer IDs (one code per ID)">Consumer IDs</Label>
+                <textarea
+                  rows={6}
+                  value={consumerIdsText}
+                  onChange={(e) => setConsumerIdsText(e.target.value)}
+                  placeholder="cnsr_abc&#10;cnsr_xyz&#10;cnsr_..."
+                  className="w-full rounded border border-line-2 bg-bg px-2 py-1 font-mono text-[12.5px]"
+                />
+                <p className="mt-1 text-[11px] text-ink-4">
+                  {parseConsumerIds().length} unique ID{parseConsumerIds().length === 1 ? '' : 's'} parsed.
+                </p>
+              </div>
+            )}
             <div>
               <Label hint="Optional — prepended to each code, A–Z and 0–9 only">Prefix</Label>
               <Input
@@ -171,10 +237,18 @@ export default function RetailerVoucherBatch() {
             {codes.length === 0 ? (
               <Empty kicker="Empty" title="No codes yet." description="Fill in the form and click Generate." />
             ) : (
-              <ul className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 max-h-[480px] overflow-y-auto pr-1">
+              <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 max-h-[480px] overflow-y-auto pr-1">
                 {codes.slice(0, 300).map((c) => (
-                  <li key={c} className="rounded border border-line bg-bg-2/30 px-2 py-1 font-mono text-[11.5px] text-ink">
-                    {c}
+                  <li
+                    key={c.code}
+                    className="flex items-center justify-between gap-2 rounded border border-line bg-bg-2/30 px-2 py-1 font-mono text-[11.5px] text-ink"
+                  >
+                    <span>{c.code}</span>
+                    {c.assignedConsumerId && (
+                      <span className="text-[10.5px] text-ink-3 truncate" title={c.assignedConsumerId}>
+                        → {c.assignedConsumerId}
+                      </span>
+                    )}
                   </li>
                 ))}
                 {codes.length > 300 && (

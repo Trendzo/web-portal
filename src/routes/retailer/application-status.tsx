@@ -1,9 +1,21 @@
-import { Link, useSearchParams } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Clock, XCircle, FileText } from 'lucide-react';
+import { CheckCircle2, Clock, RefreshCcw, XCircle, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CopyableId } from '@/components/ui/copyable-id';
-import { api } from '@/lib/api';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { PasswordInput } from '@/components/ui/password-input';
+import { FieldError, Label } from '@/components/ui/label';
+import { api, ApiError } from '@/lib/api';
+import type { ResubmitSnapshot } from '@/lib/types';
 
 type ApplicationStatusData = {
   id: string;
@@ -15,10 +27,16 @@ type ApplicationStatusData = {
 
 export default function ApplicationStatus() {
   const [params] = useSearchParams();
+  const navigate = useNavigate();
   const appId = params.get('id') ?? '';
   const email = params.get('email') ?? '';
   const status = params.get('status') === 'rejected' ? 'rejected' : 'pending';
   const rejected = status === 'rejected';
+
+  const [reapplyOpen, setReapplyOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [reapplyError, setReapplyError] = useState('');
+  const [reapplyLoading, setReapplyLoading] = useState(false);
 
   const { data: appData } = useQuery<ApplicationStatusData>({
     queryKey: ['application-status', appId, email],
@@ -27,6 +45,32 @@ export default function ApplicationStatus() {
     enabled: Boolean(appId && email),
     retry: false,
   });
+
+  async function handleReapply() {
+    setReapplyError('');
+    setReapplyLoading(true);
+    try {
+      const snap = await api<ResubmitSnapshot>(`/applications/${appId}/fetch-for-resubmit`, {
+        method: 'POST',
+        body: { email, password },
+      });
+      sessionStorage.setItem(`reapply:${appId}`, JSON.stringify(snap));
+      // Carry the password forward — the resubmit endpoint needs it again. Keep it only
+      // in sessionStorage so a hard reload doesn't lose the flow; cleared on resubmit.
+      sessionStorage.setItem(`reapply-pw:${appId}`, password);
+      setReapplyOpen(false);
+      setPassword('');
+      navigate(`/retailer/application?reapply=${encodeURIComponent(appId)}`);
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setReapplyError(e.message || 'Could not start re-application.');
+      } else {
+        setReapplyError(e instanceof Error ? e.message : 'Could not start re-application.');
+      }
+    } finally {
+      setReapplyLoading(false);
+    }
+  }
 
   function fmt(iso: string) {
     return new Date(iso).toLocaleDateString('en-IN', {
@@ -52,7 +96,7 @@ export default function ApplicationStatus() {
         <p className="mt-4 text-center text-[14px] text-ink-2 leading-relaxed">
           {rejected
             ? 'Your application did not meet our current criteria. Contact support if you believe this is a mistake.'
-            : <>The ClosetX compliance team is reviewing your documents and will reach out to{email && <> <strong>{email}</strong></>} within 2–3 business days.</>}
+            : <>The Trendzo compliance team is reviewing your documents and will reach out to{email && <> <strong>{email}</strong></>} within 2–3 business days.</>}
         </p>
 
         {/* Application reference */}
@@ -73,8 +117,8 @@ export default function ApplicationStatus() {
                 'You may receive a clarification request via email if anything needs correction.',
                 'Once approved, your account is activated and you can log in with the password you set.',
                 appId
-                  ? `Quote your reference ID (${appId}) when contacting ClosetX support or admin.`
-                  : 'Keep your application reference ID handy when contacting ClosetX support or admin.',
+                  ? `Quote your reference ID (${appId}) when contacting Trendzo support or admin.`
+                  : 'Keep your application reference ID handy when contacting Trendzo support or admin.',
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2.5 text-[13px] text-ink-2">
                   <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-success" />
@@ -87,13 +131,22 @@ export default function ApplicationStatus() {
 
         {/* Actions */}
         <div className="mt-8 flex flex-col items-center gap-3">
+          {rejected && appId && email && (
+            <Button
+              variant="ink"
+              iconLeft={<RefreshCcw className="size-3.5" />}
+              onClick={() => setReapplyOpen(true)}
+            >
+              Re-apply with updated details
+            </Button>
+          )}
           <Button asChild variant="ghost" size="sm">
             <Link to="/retailer/login">← Back to sign in</Link>
           </Button>
         </div>
 
         <p className="mt-8 text-center text-[11px] uppercase tracking-[0.14em] text-ink-4">
-          ClosetX Partner Portal
+          Trendzo Partner Portal
         </p>
 
         {/* Submission summary — always shown when appId present */}
@@ -138,6 +191,50 @@ export default function ApplicationStatus() {
           </div>
         )}
       </div>
+
+      <Dialog
+        open={reapplyOpen}
+        onOpenChange={(o) => {
+          if (!o) {
+            setReapplyOpen(false);
+            setPassword('');
+            setReapplyError('');
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Re-apply on the same application</DialogTitle>
+            <DialogDescription>
+              We'll open your prior submission pre-filled. Re-enter your password to continue.
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label htmlFor="reapply-pw" required>Password</Label>
+            <PasswordInput
+              id="reapply-pw"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && password.length > 0) handleReapply();
+              }}
+            />
+            {reapplyError && <FieldError>{reapplyError}</FieldError>}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setReapplyOpen(false)}>Cancel</Button>
+            <Button
+              variant="ink"
+              onClick={handleReapply}
+              loading={reapplyLoading}
+              disabled={password.length === 0 || reapplyLoading}
+            >
+              Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

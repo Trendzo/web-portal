@@ -37,6 +37,22 @@ type Props = {
   uploadFolder?: string;
   /** Show a busy state on operations triggered externally (e.g. parent's PATCH). */
   busy?: boolean;
+  /**
+   * Max number of images. Defaults to no limit. Pass 10 for listing galleries (US-5.2.4).
+   */
+  maxImages?: number;
+  /**
+   * Caller declares this gallery is a listing gallery — enables backend's 5 MB / JPEG-PNG-WebP
+   * filter. Client side also enforces the size + mime restrictions before upload.
+   */
+  purpose?: 'listing-gallery';
+};
+
+const LISTING_GALLERY_MAX_BYTES = 5 * 1024 * 1024;
+const LISTING_GALLERY_MIMES: Record<string, string[]> = {
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/webp': ['.webp'],
 };
 
 /**
@@ -49,17 +65,23 @@ type Props = {
  * Reordering and removal both fire `onChange` with the new full array; the parent
  * is responsible for persisting (PATCH /retailer/listings/:id { galleryUrls }).
  */
-export function MediaGallery({ urls, onChange, uploadFolder, busy }: Props) {
+export function MediaGallery({ urls, onChange, uploadFolder, busy, maxImages, purpose }: Props) {
   const [pickedFile, setPickedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [urlError, setUrlError] = useState<string | null>(null);
 
+  const atCapacity = maxImages !== undefined && urls.length >= maxImages;
+  const isListingGallery = purpose === 'listing-gallery';
+  const maxSize = isListingGallery ? LISTING_GALLERY_MAX_BYTES : 25 * 1024 * 1024;
+  const accept = isListingGallery ? LISTING_GALLERY_MIMES : { 'image/*': [] };
+
   const { getRootProps, getInputProps, isDragActive, isDragReject, open } = useDropzone({
-    accept: { 'image/*': [] },
+    accept,
     multiple: false,
-    maxSize: 25 * 1024 * 1024,
+    maxSize,
     noClick: false,
+    disabled: atCapacity,
     onDrop: (accepted, rejected) => {
       if (rejected.length > 0) {
         const first = rejected[0]?.errors?.[0];
@@ -67,15 +89,31 @@ export function MediaGallery({ urls, onChange, uploadFolder, busy }: Props) {
         return;
       }
       const file = accepted[0];
-      if (file) setPickedFile(file);
+      if (!file) return;
+      if (atCapacity) {
+        toast.error(`At most ${maxImages} images allowed`);
+        return;
+      }
+      setPickedFile(file);
     },
   });
 
   const handleCropConfirm = async (blob: Blob, originalName: string) => {
+    if (atCapacity) {
+      toast.error(`At most ${maxImages} images allowed`);
+      return;
+    }
+    if (isListingGallery && blob.size > LISTING_GALLERY_MAX_BYTES) {
+      toast.error('Image too large after crop — keep it under 5 MB');
+      return;
+    }
     setUploading(true);
     try {
       const file = new File([blob], originalName, { type: blob.type || 'image/jpeg' });
-      const result = await uploadMedia(file, uploadFolder ? { folder: uploadFolder } : {});
+      const result = await uploadMedia(file, {
+        ...(uploadFolder && { folder: uploadFolder }),
+        ...(purpose && { purpose }),
+      });
       onChange([...urls, result.url]);
       setPickedFile(null);
       toast.success('Image added');
@@ -90,6 +128,10 @@ export function MediaGallery({ urls, onChange, uploadFolder, busy }: Props) {
     const url = newUrl.trim();
     if (!url) {
       setUrlError('Paste an image URL first.');
+      return;
+    }
+    if (atCapacity) {
+      setUrlError(`At most ${maxImages} images allowed`);
       return;
     }
     try {
@@ -130,7 +172,9 @@ export function MediaGallery({ urls, onChange, uploadFolder, busy }: Props) {
       {urls.length > 0 ? (
         <div>
           <div className="kicker mb-2 text-ink-3 flex items-center justify-between">
-            <span>Gallery · {urls.length} {urls.length === 1 ? 'image' : 'images'}</span>
+            <span>
+              Gallery · {urls.length}{maxImages !== undefined ? `/${maxImages}` : ''} {urls.length === 1 ? 'image' : 'images'}
+            </span>
             <span className="normal-case tracking-normal text-[11px] text-ink-4">
               Drag to reorder · first is the cover
             </span>
@@ -183,14 +227,16 @@ export function MediaGallery({ urls, onChange, uploadFolder, busy }: Props) {
                 <Upload className="size-4" />
               </span>
               <p className="text-[14px] text-ink">
-                {isDragActive
-                  ? isDragReject
-                    ? 'That file type isn\'t supported'
-                    : 'Drop to upload'
-                  : <><span className="font-medium">Drop an image here</span> or click to choose</>}
+                {atCapacity
+                  ? `At capacity — remove one to add another`
+                  : isDragActive
+                    ? isDragReject
+                      ? 'That file type isn\'t supported'
+                      : 'Drop to upload'
+                    : <><span className="font-medium">Drop an image here</span> or click to choose</>}
               </p>
               <p className="text-[11.5px] uppercase tracking-[0.14em] text-ink-3">
-                JPG, PNG, WebP · up to 25 MB · crop before upload
+                JPG, PNG, WebP · up to {isListingGallery ? '5 MB' : '25 MB'} · crop before upload
               </p>
             </>
           )}
@@ -240,7 +286,7 @@ export function MediaGallery({ urls, onChange, uploadFolder, busy }: Props) {
             size="sm"
             iconLeft={<Plus className="size-3.5" />}
             onClick={handleAddUrl}
-            disabled={!newUrl.trim()}
+            disabled={!newUrl.trim() || atCapacity}
           >
             Add
           </Button>

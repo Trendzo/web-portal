@@ -17,7 +17,7 @@ export default function Landing() {
         <div className="mx-auto flex max-w-[1400px] items-center justify-between px-5 py-4 sm:px-8">
           <Mark size="md" />
           <div className="hidden text-right text-[12px] text-ink-3 md:block">
-            ClosetX dashboard · India
+            Trendzo dashboard · India
           </div>
         </div>
       </header>
@@ -28,7 +28,7 @@ export default function Landing() {
             Pick how you want to sign in
           </h1>
           <p className="text-[14px] sm:text-[15px] text-ink-3 max-w-xl mx-auto leading-relaxed">
-            ClosetX runs marketplace operations and a self-serve store manager from
+            Trendzo runs marketplace operations and a self-serve store manager from
             one place. Each role has its own area; you can switch between accounts later.
           </p>
         </div>
@@ -54,7 +54,7 @@ export default function Landing() {
 
       <footer className="border-t border-line bg-bg-2/50">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between px-5 sm:px-8 py-4 text-[11.5px] text-ink-3">
-          <span>Closet<span className="text-accent">X</span> · 2026</span>
+          <span>Trendzo · 2026</span>
           <span>Quick-commerce marketplace · India</span>
         </div>
       </footer>

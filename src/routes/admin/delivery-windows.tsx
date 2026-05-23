@@ -48,7 +48,7 @@ function Inner() {
         description="Service area, surge hook, and per-method fee table. Super-admin only — fee changes take effect on the next checkout."
         actions={
           <div className="flex items-center gap-2">
-            <MockDataBadge label="MOCKED — pending backend §9/§12" />
+            <MockDataBadge label="Mock data · backend wiring pending" />
             <Button variant="accent" onClick={() => toast.info('Config saving not yet wired')}>Save</Button>
           </div>
         }

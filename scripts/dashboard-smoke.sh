@@ -30,7 +30,7 @@ BRAND_ID=$(jq -r '.data[0].id' </tmp/.dbody)
 echo "  brand=$BRAND_ID  category=$CAT_ID"
 
 say '1. Admin login'
-hit POST /auth/admin/login '{"email":"admin@closetx.local","password":"admin1234"}'
+hit POST /auth/admin/login '{"email":"admin@trendzo.local","password":"admin1234"}'
 expect 200 'admin login'
 ADMIN=$(jq -r '.data.token' </tmp/.dbody)
 

@@ -86,8 +86,6 @@ export function retailerStatusMeta(s: RetailerStatus): { label: string; tone: To
   switch (s) {
     case 'pending_approval':
       return { label: 'Pending approval', tone: 'warning' };
-    case 'under_review':
-      return { label: 'Under review', tone: 'info' };
     case 'approved_no_store':
       return { label: 'Approved · awaiting store', tone: 'info' };
     case 'onboarding':
@@ -100,8 +98,6 @@ export function retailerStatusMeta(s: RetailerStatus): { label: string; tone: To
       return { label: 'Suspended', tone: 'danger' };
     case 'terminated':
       return { label: 'Terminated', tone: 'danger' };
-    case 'deactivated':
-      return { label: 'Deactivated', tone: 'danger' };
   }
 }
 
@@ -128,6 +124,8 @@ export function listingStatusMeta(s: ListingStatus): { label: string; tone: Tone
       return { label: 'Active', tone: 'success' };
     case 'retired':
       return { label: 'Retired', tone: 'neutral' };
+    case 'taken_down':
+      return { label: 'Taken down', tone: 'warning' };
   }
 }
 
@@ -154,6 +152,8 @@ export function collectionKindLabel(k: CollectionKind): string {
       return 'Edit';
     case 'trend':
       return 'Trend';
+    case 'brand':
+      return 'Brand';
   }
 }
 
@@ -353,6 +353,25 @@ export function deliveryMethodLabel(m: DeliveryMethod): string {
   }
 }
 
+/** §9 — scannable method chip metadata for the orders queue. Tones distinct
+ *  enough that retailer staff can spot pickup vs try-and-buy at a glance. */
+export function deliveryMethodMeta(m: DeliveryMethod): {
+  label: string;
+  short: string;
+  tone: Tone;
+} {
+  switch (m) {
+    case 'express':
+      return { label: deliveryMethodLabel(m), short: 'Express', tone: 'warning' };
+    case 'standard':
+      return { label: deliveryMethodLabel(m), short: 'Standard', tone: 'neutral' };
+    case 'pickup':
+      return { label: deliveryMethodLabel(m), short: 'Pickup', tone: 'info' };
+    case 'try_and_buy':
+      return { label: deliveryMethodLabel(m), short: 'Try & buy', tone: 'success' };
+  }
+}
+
 export function paymentMethodLabel(m: PaymentMethod): string {
   switch (m) {
     case 'upi':
@@ -467,8 +486,6 @@ export function applicationStatusMeta(s: ApplicationStatus): { label: string; to
   switch (s) {
     case 'pending':
       return { label: 'Pending review', tone: 'warning' };
-    case 'under_review':
-      return { label: 'Under review', tone: 'info' };
     case 'docs_requested':
       return { label: 'Docs requested', tone: 'warning' };
     case 'approved':

@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, ArrowUpRight } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Plus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { formatAge, issueDecisionLabel, issueStatusMeta } from '@/lib/status';
-import type { IssueListRow, IssueStatus } from '@/lib/types';
+import type { AwaitingParty, IssueListRow, IssueStatus } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Empty } from '@/components/ui/empty';
@@ -27,14 +28,25 @@ const STATUS_OPTIONS: ReadonlyArray<{ value: IssueStatus | 'all'; label: string 
   { value: 'decided', label: 'Decided' },
 ];
 
+const AWAITING_OPTIONS: ReadonlyArray<{ value: AwaitingParty | 'all'; label: string }> = [
+  { value: 'all', label: 'All parties' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'retailer', label: 'Retailer' },
+  { value: 'consumer', label: 'Consumer' },
+];
+
 export default function RetailerIssues() {
   const [status, setStatus] = useState<IssueStatus | 'all'>('all');
+  const [awaiting, setAwaiting] = useState<AwaitingParty | 'all'>('all');
 
   const { data, isLoading } = useQuery({
-    queryKey: ['retailer', 'issues', status],
+    queryKey: ['retailer', 'issues', status, awaiting],
     queryFn: () => {
-      const qs = status === 'all' ? '' : `?status=${status}`;
-      return api<IssueListRow[]>(`/retailer/disputes${qs}`);
+      const params: string[] = [];
+      if (status !== 'all') params.push(`status=${status}`);
+      if (awaiting !== 'all') params.push(`awaitingParty=${awaiting}`);
+      const qs = params.length ? `?${params.join('&')}` : '';
+      return api<IssueListRow[]>(`/retailer/issues${qs}`);
     },
     refetchInterval: 10000,
   });
@@ -46,6 +58,11 @@ export default function RetailerIssues() {
       <PageHeader
         title="Issues"
         description="Issues linked to your store's orders and returns. Contact platform admin to respond."
+        actions={
+          <Button asChild variant="accent" size="sm" iconLeft={<Plus className="size-3.5" />}>
+            <Link to="/retailer/orders">New issue</Link>
+          </Button>
+        }
       />
 
       <div className="mb-4 flex items-center gap-2">
@@ -53,6 +70,14 @@ export default function RetailerIssues() {
           <SelectTrigger className="sm:w-56"><SelectValue /></SelectTrigger>
           <SelectContent>
             {STATUS_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={awaiting} onValueChange={(v) => setAwaiting(v as typeof awaiting)}>
+          <SelectTrigger className="sm:w-48"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {AWAITING_OPTIONS.map((o) => (
               <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
@@ -85,7 +110,7 @@ export default function RetailerIssues() {
                         {needsResponse && <Badge tone="warning" pulse>Needs your response</Badge>}
                         <Badge tone="info" flat>{d.kind ?? 'dispute'}</Badge>
                         <CopyableId value={d.id} label="issue id" />
-                        <span className="text-[11.5px] text-ink-3">{formatAge(d.openedAt)}</span>
+                        <span className="text-[11.5px] text-ink-3">{formatAge(d.createdAt)}</span>
                       </div>
 
                       <div className="mt-2 flex items-center gap-1 text-[12px] text-ink-3">

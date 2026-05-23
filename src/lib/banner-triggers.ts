@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useBannerStack } from '@/lib/banners';
-import type { ComplianceFloorRow, KycReverification, Notification } from '@/lib/types';
+import type { ComplianceFloorRow, KycReverification, Notification, RetailerProfile, Store } from '@/lib/types';
 
 export function useKycBanner() {
   const pushBanner = useBannerStack((s) => s.pushBanner);
@@ -14,20 +14,23 @@ export function useKycBanner() {
   });
 
   useEffect(() => {
-    if (!data) return;
+    if (!data) {
+      clearByKind('kyc');
+      return;
+    }
     const dueAt = new Date(data.dueAt).getTime();
     const graceEndsAt = new Date(data.gracePeriodEndsAt).getTime();
     const now = Date.now();
 
-    if (data.status === 'approved') {
+    // Approved / submitted: nothing for the retailer to do right now.
+    if (data.status === 'approved' || data.status === 'submitted') {
       clearByKind('kyc');
       return;
     }
 
     const gracePassed = now > graceEndsAt;
-    const dueSoon = now > dueAt - 1000 * 60 * 60 * 24 * 7;
 
-    if (gracePassed) {
+    if (gracePassed || data.status === 'overdue') {
       pushBanner({
         id: 'kyc-overdue',
         kind: 'kyc',
@@ -40,13 +43,15 @@ export function useKycBanner() {
       });
       return;
     }
-    if (dueSoon) {
+
+    // Any open pending cycle (admin-triggered or annual) gets a warning.
+    if (data.status === 'pending') {
       pushBanner({
         id: 'kyc-due-soon',
         kind: 'kyc',
         tone: 'warning',
-        title: 'KYC re-verification due soon',
-        body: `Submit refreshed documents before ${new Date(graceEndsAt).toLocaleDateString()} to avoid auto-pause.`,
+        title: 'KYC re-verification required',
+        body: `Submit refreshed documents before ${new Date(dueAt).toLocaleDateString()} (grace ends ${new Date(graceEndsAt).toLocaleDateString()}).`,
         cta: { label: 'Open KYC checklist', href: '/retailer/kyc' },
         dismissible: true,
         portal: 'retailer',
@@ -166,7 +171,7 @@ export function useAdminFloorBreachBanner() {
         kind: 'suspended',
         tone: 'warning',
         title: `${data.length} retailer${data.length === 1 ? '' : 's'} below performance floor`,
-        body: 'Trigger §3 enforcement to warn or suspend.',
+        body: 'Issue a warning or suspend the store from the policy enforcement screen.',
         cta: { label: 'Open compliance report', href: '/admin/reports/compliance' },
         dismissible: true,
         portal: 'admin',
@@ -182,6 +187,78 @@ export function useAdminBanActivityBanner() {
 }
 
 /**
+ * Surfaces admin-driven account/store state changes (ban / suspend / pause)
+ * as a top-of-screen banner the retailer cannot miss. Hits the same
+ * `/retailer/me` payload every layout already polls so this adds no extra
+ * round-trip beyond what react-query dedups.
+ */
+export function useAdminActionBanner() {
+  const pushBanner = useBannerStack((s) => s.pushBanner);
+  const clearByKind = useBannerStack((s) => s.clearByKind);
+  const { data } = useQuery({
+    queryKey: ['retailer', 'me'],
+    queryFn: () => api<{ retailer: RetailerProfile; store: Store | null }>('/retailer/me'),
+    refetchInterval: 60_000,
+  });
+  useEffect(() => {
+    if (!data) return;
+    const { retailer, store } = data;
+    const accountBanned = Boolean(retailer.permanentSuspend);
+    const storeBanned = Boolean(store?.permanentSuspend);
+    const suspended = store?.status === 'suspended' && !storeBanned;
+    const paused = store?.status === 'paused';
+
+    if (accountBanned || storeBanned) {
+      pushBanner({
+        id: 'admin-ban',
+        kind: 'banned',
+        tone: 'danger',
+        title: 'Account permanently banned',
+        body:
+          retailer.suspendReason ??
+          store?.suspendReason ??
+          'Your account has been banned by Trendzo admin. Contact support to appeal.',
+        dismissible: false,
+        portal: 'retailer',
+      });
+      clearByKind('suspended');
+      clearByKind('paused_by_admin');
+      return;
+    }
+    clearByKind('banned');
+
+    if (suspended) {
+      pushBanner({
+        id: 'admin-suspend',
+        kind: 'suspended',
+        tone: 'danger',
+        title: 'Store suspended by admin',
+        body: store?.suspendReason ?? 'Fulfilment is paused. Contact Trendzo support.',
+        dismissible: false,
+        portal: 'retailer',
+      });
+    } else {
+      clearByKind('suspended');
+    }
+
+    if (paused) {
+      pushBanner({
+        id: 'admin-paused',
+        kind: 'paused_by_admin',
+        tone: 'warning',
+        title: 'Store paused',
+        body: store?.pauseReason ?? 'Your store is paused.',
+        cta: { label: 'Open store settings', href: '/retailer/store' },
+        dismissible: true,
+        portal: 'retailer',
+      });
+    } else {
+      clearByKind('paused_by_admin');
+    }
+  }, [data, pushBanner, clearByKind]);
+}
+
+/**
  * Composite mount points for layouts. Each clears the other portal's banners
  * on mount so stale cross-portal banners never bleed through.
  */
@@ -192,6 +269,7 @@ export function useRetailerBanners() {
   useHolidayBanner();
   useOrderSlaBanner();
   useRetailerPayoutBanner();
+  useAdminActionBanner();
 }
 
 export function useAdminBanners() {

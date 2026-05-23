@@ -35,7 +35,7 @@ export function mockApplications(): Application[] {
   });
   return [
     mk('app_1', 'pending', 2),
-    mk('app_2', 'under_review', 14),
+    mk('app_2', 'pending', 14),
     mk('app_3', 'docs_requested', 36),
     mk('app_4', 'approved', 96),
     mk('app_5', 'rejected', 240),

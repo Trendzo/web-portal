@@ -27,6 +27,8 @@ type Props = {
   open: boolean;
   title?: string;
   description?: string;
+  questionLabel?: string;
+  questionPlaceholder?: string;
   fields: ClarificationFieldOption[];
   loading?: boolean;
   onClose: () => void;
@@ -42,6 +44,8 @@ export function ClarificationRequestDialog({
   open,
   title = 'Request clarification',
   description = 'Send a question to the retailer. They will see it on their dashboard alongside the relevant field.',
+  questionLabel = 'Question',
+  questionPlaceholder = 'What would you like the retailer to clarify?',
   fields,
   loading,
   onClose,
@@ -81,13 +85,13 @@ export function ClarificationRequestDialog({
             </Select>
           </div>
           <div>
-            <Label htmlFor="clarification-question" required>Question</Label>
+            <Label htmlFor="clarification-question" required>{questionLabel}</Label>
             <Textarea
               id="clarification-question"
               rows={3}
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
-              placeholder="What would you like the retailer to clarify?"
+              placeholder={questionPlaceholder}
             />
             <FieldError>{questionError}</FieldError>
           </div>

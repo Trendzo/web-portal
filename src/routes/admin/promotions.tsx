@@ -11,7 +11,7 @@ import {
   mechanismLabel,
   promotionStatusMeta,
 } from '@/lib/status';
-import type { Mechanism, Promotion, PromotionAnomaly, PromotionPerformance, PromotionStatus, TargetedDrop } from '@/lib/types';
+import type { AdminStoreView, DiscountType, Mechanism, Promotion, PromotionAnomaly, PromotionPerformance, PromotionStatus, TargetedDrop } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -39,6 +39,18 @@ const STATUS_OPTIONS: ReadonlyArray<{ value: PromotionStatus | 'all'; label: str
   { value: 'revoked', label: 'Revoked' },
 ];
 
+const DISCOUNT_TYPE_OPTIONS: ReadonlyArray<{ value: DiscountType | 'all'; label: string }> = [
+  { value: 'all', label: 'All discount types' },
+  { value: 'flat_amount', label: 'Flat amount' },
+  { value: 'percent', label: 'Percent' },
+  { value: 'percent_upto', label: 'Percent up to' },
+  { value: 'bogo', label: 'BOGO' },
+  { value: 'bxgy', label: 'BXGY' },
+  { value: 'bundle', label: 'Bundle' },
+  { value: 'tiered_cart', label: 'Tiered cart' },
+  { value: 'free_shipping', label: 'Free shipping' },
+];
+
 export default function AdminPromotions() {
   return (
     <Page>
@@ -64,6 +76,7 @@ export default function AdminPromotions() {
           <TabsTrigger value="vouchers">Vouchers</TabsTrigger>
           <TabsTrigger value="drops">Targeted drops</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
+          <TabsTrigger value="comparison">Comparison</TabsTrigger>
           <TabsTrigger value="anomalies">Anomalies</TabsTrigger>
         </TabsList>
 
@@ -72,6 +85,7 @@ export default function AdminPromotions() {
         <TabsContent value="vouchers"><MechanismList mechanism="voucher" /></TabsContent>
         <TabsContent value="drops"><DropsTab /></TabsContent>
         <TabsContent value="performance"><PerformanceTab /></TabsContent>
+        <TabsContent value="comparison"><ComparisonTab /></TabsContent>
         <TabsContent value="anomalies"><AnomaliesTab /></TabsContent>
       </Tabs>
     </Page>
@@ -80,13 +94,23 @@ export default function AdminPromotions() {
 
 function MechanismList({ mechanism }: { mechanism: Mechanism }) {
   const [status, setStatus] = useState<PromotionStatus | 'all'>('all');
+  const [discountType, setDiscountType] = useState<DiscountType | 'all'>('all');
+  const [storeId, setStoreId] = useState<string>('all');
   const [q, setQ] = useState('');
 
+  const stores = useQuery({
+    queryKey: ['admin', 'stores', 'all'],
+    queryFn: () => api<AdminStoreView[]>('/admin/stores'),
+  });
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'promotions', status, mechanism],
+    queryKey: ['admin', 'promotions', mechanism, status, discountType, storeId],
     queryFn: () => {
       const params = new URLSearchParams({ mechanism });
       if (status !== 'all') params.set('status', status);
+      if (discountType !== 'all') params.set('discountType', discountType);
+      if (storeId === '__platform__') params.set('platformOnly', 'true');
+      else if (storeId !== 'all') params.set('storeId', storeId);
       return api<Promotion[]>(`/admin/promotions?${params.toString()}`);
     },
   });
@@ -97,19 +121,39 @@ function MechanismList({ mechanism }: { mechanism: Mechanism }) {
 
   return (
     <>
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
         <div className="relative max-w-md flex-1">
           <Search className="pointer-events-none absolute left-1 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
           <Input placeholder="Search by name or ID…" value={q} onChange={(e) => setQ(e.target.value)} className="!pl-7" />
         </div>
-        <Select value={status} onValueChange={(v) => setStatus(v as PromotionStatus | 'all')}>
-          <SelectTrigger className="sm:w-44"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {STATUS_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-wrap gap-2">
+          <Select value={status} onValueChange={(v) => setStatus(v as PromotionStatus | 'all')}>
+            <SelectTrigger className="sm:w-44"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={discountType} onValueChange={(v) => setDiscountType(v as DiscountType | 'all')}>
+            <SelectTrigger className="sm:w-48"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {DISCOUNT_TYPE_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={storeId} onValueChange={setStoreId} disabled={stores.isLoading}>
+            <SelectTrigger className="sm:w-56"><SelectValue placeholder={stores.isLoading ? 'Loading…' : 'All retailers'} /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All retailers</SelectItem>
+              <SelectItem value="__platform__">Platform-wide only</SelectItem>
+              {(stores.data ?? []).map((s) => (
+                <SelectItem key={s.id} value={s.id}>{s.legalName}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {isLoading ? (
@@ -198,7 +242,10 @@ function PerformanceTab() {
                     <td className="px-3 py-2 text-ink">{m.name}</td>
                     <td className="px-3 py-2 text-right font-mono">{m.redemptions.toLocaleString('en-IN')}</td>
                     <td className="px-3 py-2 text-right font-mono">{formatPaise(m.gmvInfluencePaise)}</td>
-                    <td className="px-3 py-2 text-right font-mono">+{(m.aovLiftBp / 100).toFixed(2)}%</td>
+                    <td className={`px-3 py-2 text-right font-mono ${m.aovLiftBp > 0 ? 'text-success' : m.aovLiftBp < 0 ? 'text-danger' : 'text-ink-3'}`}>
+                      {m.aovLiftBp > 0 ? '+' : ''}
+                      {(m.aovLiftBp / 100).toFixed(2)}%
+                    </td>
                     <td className="px-3 py-2 text-right font-mono">{(m.refundRateBp / 100).toFixed(2)}%</td>
                     <td className="px-3 py-2 text-center">
                       {m.anomalyFlagged ? <Badge tone="danger" pulse><Sparkles className="size-3 mr-1 inline" />Flagged</Badge> : <span className="text-ink-4">—</span>}
@@ -211,6 +258,72 @@ function PerformanceTab() {
         </Card>
       )}
     </div>
+  );
+}
+
+type ComparisonRow = {
+  key: string;
+  promoCount: number;
+  redemptions: number;
+  totalDiscountPaise: number;
+  gmvInfluencedPaise: number;
+  uniqueConsumers: number;
+};
+
+function ComparisonTab() {
+  const byMech = useQuery({
+    queryKey: ['admin', 'promotions', 'performance', 'by-mechanism'],
+    queryFn: () => api<ComparisonRow[]>('/admin/promotions/performance/by-mechanism'),
+  });
+  const byType = useQuery({
+    queryKey: ['admin', 'promotions', 'performance', 'by-discount-type'],
+    queryFn: () => api<ComparisonRow[]>('/admin/promotions/performance/by-discount-type'),
+  });
+  return (
+    <div className="space-y-6">
+      <ComparisonGrid title="By mechanism" rows={byMech.data ?? []} loading={byMech.isLoading} />
+      <ComparisonGrid title="By discount type" rows={byType.data ?? []} loading={byType.isLoading} />
+    </div>
+  );
+}
+
+function ComparisonGrid({ title, rows, loading }: { title: string; rows: ComparisonRow[]; loading: boolean }) {
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <div className="border-b border-line bg-bg-2/40 px-3 py-2 text-[12.5px] font-medium text-ink-3">{title}</div>
+        {loading ? (
+          <Skeleton className="h-32" />
+        ) : rows.length === 0 ? (
+          <Empty kicker="No data" title="No redemptions yet." />
+        ) : (
+          <table className="w-full text-[12.5px]">
+            <thead className="bg-bg-2/20">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium text-ink-3">{title.toLowerCase().includes('mechanism') ? 'Mechanism' : 'Discount type'}</th>
+                <th className="px-3 py-2 text-right font-medium text-ink-3">Promos</th>
+                <th className="px-3 py-2 text-right font-medium text-ink-3">Redemptions</th>
+                <th className="px-3 py-2 text-right font-medium text-ink-3">Unique consumers</th>
+                <th className="px-3 py-2 text-right font-medium text-ink-3">Discount given</th>
+                <th className="px-3 py-2 text-right font-medium text-ink-3">GMV influenced</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.key} className="border-t border-line">
+                  <td className="px-3 py-2 text-ink">{r.key.replace(/_/g, ' ')}</td>
+                  <td className="px-3 py-2 text-right font-mono">{r.promoCount.toLocaleString('en-IN')}</td>
+                  <td className="px-3 py-2 text-right font-mono">{r.redemptions.toLocaleString('en-IN')}</td>
+                  <td className="px-3 py-2 text-right font-mono">{r.uniqueConsumers.toLocaleString('en-IN')}</td>
+                  <td className="px-3 py-2 text-right font-mono">{formatPaise(r.totalDiscountPaise)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{formatPaise(r.gmvInfluencedPaise)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -14,7 +14,8 @@ import { Empty } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CopyableId } from '@/components/ui/copyable-id';
-import { ReasonActionDialog } from '@/components/admin/reason-action-dialog';
+import { RejectApplicationDialog } from '@/components/admin/reject-application-dialog';
+import type { ApplicationDocumentKind } from '@/lib/types';
 import {
   Select,
   SelectContent,
@@ -25,7 +26,6 @@ import {
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: ApplicationStatus | 'all'; label: string }> = [
   { value: 'pending', label: 'Pending' },
-  { value: 'under_review', label: 'Under review' },
   { value: 'docs_requested', label: 'Docs requested' },
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Rejected' },
@@ -48,8 +48,19 @@ export default function AdminApplications() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
-      api(`/admin/applications/${id}/reject`, { method: 'POST', body: { reason } }),
+    mutationFn: ({
+      id,
+      reason,
+      mustReuploadDocKinds,
+    }: {
+      id: string;
+      reason: string;
+      mustReuploadDocKinds: ApplicationDocumentKind[];
+    }) =>
+      api(`/admin/applications/${id}/reject`, {
+        method: 'POST',
+        body: { reason, mustReuploadDocKinds },
+      }),
     onSuccess: () => {
       toast.success('Application rejected.');
       setRejectTarget(null);
@@ -121,7 +132,7 @@ export default function AdminApplications() {
         <ul className="space-y-2">
           {filtered.map((a) => {
             const meta = applicationStatusMeta(a.status);
-            const canAct = a.status === 'pending' || a.status === 'under_review' || a.status === 'docs_requested';
+            const canAct = a.status === 'pending' || a.status === 'docs_requested';
             return (
               <Card key={a.id}>
                 <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
@@ -178,15 +189,13 @@ export default function AdminApplications() {
           })}
         </ul>
       )}
-      <ReasonActionDialog
+      <RejectApplicationDialog
         open={rejectTarget !== null}
-        title="Reject application"
-        description="Provide a reason for rejection. This is recorded in the audit log and may be shared with the applicant."
-        confirmLabel="Reject"
-        danger
         loading={rejectMutation.isPending}
         onClose={() => setRejectTarget(null)}
-        onConfirm={(reason) => rejectTarget && rejectMutation.mutate({ id: rejectTarget, reason })}
+        onConfirm={({ reason, mustReuploadDocKinds }) =>
+          rejectTarget && rejectMutation.mutate({ id: rejectTarget, reason, mustReuploadDocKinds })
+        }
       />
     </Page>
   );

@@ -1,7 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Lock, Play } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { formatAge, formatPaise } from '@/lib/status';
 import type { BillingMonthSummary } from '@/lib/types';
 import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
@@ -26,6 +26,7 @@ export default function AdminBillingConsole() {
 }
 
 function Inner() {
+  const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'billing-console'],
     queryFn: () => api<BillingMonthSummary[]>('/admin/billing-console'),
@@ -33,6 +34,16 @@ function Inner() {
   const months = data ?? [];
   const current = months.find((m) => m.status === 'open');
   const closing = months.find((m) => m.status === 'closing');
+
+  const close = useMutation({
+    mutationFn: (period: string) =>
+      api('/admin/billing/close', { method: 'POST', body: { period } }),
+    onSuccess: () => {
+      toast.success('Month close started');
+      void qc.invalidateQueries({ queryKey: ['admin', 'billing-console'] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Close failed'),
+  });
 
   return (
     <Page>
@@ -58,7 +69,11 @@ function Inner() {
                 <Button
                   variant="accent"
                   iconLeft={<Play className="size-3.5" />}
-                  onClick={() => toast.info(`Month close not yet wired for ${current.period}`)}
+                  loading={close.isPending}
+                  onClick={() => {
+                    if (!confirm(`Close billing for ${current.period}? This is irreversible.`)) return;
+                    close.mutate(current.period);
+                  }}
                 >
                   Trigger month close
                 </Button>

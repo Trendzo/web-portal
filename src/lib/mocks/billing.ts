@@ -76,7 +76,7 @@ export function mockPayoutCycles(): PayoutCycle[] {
       { kind: 'commission', label: 'Platform commission', amountPaise: 3_67_500_00 - i * 60_000_00 },
       { kind: 'tcs', label: 'TCS', amountPaise: 24_500_00 - i * 4_000_00 },
       { kind: 'refunds', label: 'Refunds debited', amountPaise: 1_20_000_00 - i * 20_000_00 },
-      ...(i === 1 ? [{ kind: 'liability', label: 'Liability bookings (§19)', amountPaise: 50_500_00 }] : []),
+      ...(i === 1 ? [{ kind: 'liability', label: 'Liability bookings', amountPaise: 50_500_00 }] : []),
     ],
   })) as unknown as PayoutCycle[]);
 }

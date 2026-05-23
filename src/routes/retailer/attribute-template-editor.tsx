@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import type { AttributeAxisType, AttributeTemplate } from '@/lib/types';
 import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
@@ -13,12 +13,22 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+
+type AffectedListing = { listingId: string; listingName: string; variantCount: number };
 
 const AXIS_TYPES: AttributeAxisType[] = ['enum', 'free_text', 'numeric', 'color'];
 
@@ -40,17 +50,58 @@ export default function AttributeTemplateEditor() {
     updatedAt: null,
   });
   const [saving, setSaving] = useState(false);
+  const [orphanPrompt, setOrphanPrompt] = useState<AffectedListing[] | null>(null);
+  const initialAxes = useRef<AttributeTemplate['axes'] | null>(null);
+
+  const allTemplatesQ = useQuery({
+    queryKey: ['retailer', 'attribute-templates'],
+    queryFn: () => api<AttributeTemplate[]>('/retailer/attribute-templates'),
+  });
 
   useEffect(() => {
-    if (data) setDraft(data);
+    if (data) {
+      setDraft(data);
+      initialAxes.current ??= data.axes;
+    }
   }, [data]);
 
   if (!isNew && isLoading) return <Page><Skeleton className="h-72" /></Page>;
   if (!isNew && !data) return <Page><PageHeader title="Template not found" /></Page>;
 
-  const orphanWarning = (data?.usedByListingCount ?? 0) > 0;
+  // Show orphan warning only when removing/renaming axes or removing values — not just adding
+  const orphanWarning = (() => {
+    if ((data?.usedByListingCount ?? 0) === 0) return false;
+    if (!initialAxes.current) return false;
+    const init = initialAxes.current;
+    const curr = draft.axes;
+    // Axis removed
+    if (curr.length < init.length) return true;
+    // Axis renamed (by name match position)
+    for (let i = 0; i < Math.min(init.length, curr.length); i++) {
+      if (init[i]!.name && curr[i]!.name !== init[i]!.name) return true;
+      const initVals = new Set(init[i]!.allowedValues);
+      const currVals = new Set(curr[i]!.allowedValues);
+      for (const v of initVals) {
+        if (!currVals.has(v)) return true; // value removed
+      }
+    }
+    return false;
+  })();
 
-  async function save() {
+  // Client-side fast-fail on dupe name. Backend also enforces — this just avoids
+  // a round-trip when the user can see the clash from current data.
+  function clientDupeName(): boolean {
+    const existingNames = (allTemplatesQ.data ?? [])
+      .filter((t) => t.id !== (isNew ? '' : id))
+      .map((t) => t.name.toLowerCase());
+    if (existingNames.includes(draft.name.trim().toLowerCase())) {
+      toast.error(`A template named "${draft.name.trim()}" already exists`);
+      return true;
+    }
+    return false;
+  }
+
+  async function attemptSave(force: boolean) {
     setSaving(true);
     try {
       if (isNew) {
@@ -62,18 +113,43 @@ export default function AttributeTemplateEditor() {
         toast.success('Template created');
         navigate(`/retailer/attribute-templates/${r.id}`);
       } else {
-        await api(`/retailer/attribute-templates/${id}`, {
+        const body: Record<string, unknown> = { name: draft.name, axes: draft.axes };
+        if (force) body.force = true;
+        const result = await api<{ orphansFlagged?: number }>(`/retailer/attribute-templates/${id}`, {
           method: 'PATCH',
-          body: { name: draft.name, axes: draft.axes },
+          body,
         });
         await qc.invalidateQueries({ queryKey: ['retailer', 'attribute-templates'] });
-        toast.success('Template saved');
+        if (force && result.orphansFlagged && result.orphansFlagged > 0) {
+          toast.success(`Template saved · ${result.orphansFlagged} variant(s) flagged for review`);
+        } else {
+          toast.success('Template saved');
+        }
+        // Reset baseline so the orphan check doesn't re-trigger on next edit
+        initialAxes.current = draft.axes;
+        setOrphanPrompt(null);
       }
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Save failed');
+      if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        err.details &&
+        typeof err.details === 'object' &&
+        'affected' in (err.details as object) &&
+        Array.isArray((err.details as { affected: unknown }).affected)
+      ) {
+        setOrphanPrompt((err.details as { affected: AffectedListing[] }).affected);
+      } else {
+        toast.error(err instanceof ApiError ? err.message : 'Save failed');
+      }
     } finally {
       setSaving(false);
     }
+  }
+
+  function save() {
+    if (clientDupeName()) return;
+    void attemptSave(false);
   }
 
   return (
@@ -187,6 +263,51 @@ export default function AttributeTemplateEditor() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={orphanPrompt !== null} onOpenChange={(o) => { if (!o) setOrphanPrompt(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="size-4 text-warning" />
+              This edit will orphan existing variants
+            </DialogTitle>
+            <DialogDescription>
+              You're removing an axis or an allowed value that some variants depend on.
+              These variants stay in place but get flagged for review so you can decide
+              whether to retire or re-tag them.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-warning/30 bg-warning-soft/20 px-3 py-2 text-[12.5px] text-ink-2">
+            <p className="mb-2 font-medium text-warning">
+              Affected: {orphanPrompt?.reduce((s, a) => s + a.variantCount, 0) ?? 0} variant{(orphanPrompt?.reduce((s, a) => s + a.variantCount, 0) ?? 0) === 1 ? '' : 's'}
+              {' '}across {orphanPrompt?.length ?? 0} listing{(orphanPrompt?.length ?? 0) === 1 ? '' : 's'}
+            </p>
+            <ul className="space-y-1">
+              {(orphanPrompt ?? []).map((a) => (
+                <li key={a.listingId} className="flex items-center justify-between gap-2">
+                  <Link
+                    to={`/retailer/listings/${a.listingId}`}
+                    className="truncate text-ink hover:underline"
+                  >
+                    {a.listingName}
+                  </Link>
+                  <span className="font-mono text-[11.5px] text-ink-3">
+                    {a.variantCount} variant{a.variantCount === 1 ? '' : 's'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setOrphanPrompt(null)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button variant="danger" loading={saving} onClick={() => void attemptSave(true)}>
+              Save anyway & flag variants
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Page>
   );
 

@@ -134,7 +134,7 @@ function PermissionGrid<R extends string>({
           {dirty ? <span className="text-warning">Unsaved changes</span> : 'Tick or untick to grant or revoke an action for that sub-role.'}
         </div>
         <Button size="sm" variant="accent" disabled={!dirty || saving} onClick={handleSave}>
-          {saving ? 'Saving…' : 'Save (mock)'}
+          {saving ? 'Saving…' : 'Save'}
         </Button>
       </div>
       <CardContent className="overflow-x-auto p-0">

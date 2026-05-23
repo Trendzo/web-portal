@@ -64,14 +64,14 @@ export default function RetailerNotificationPrefs() {
     mutationFn: (next: NotificationPrefs) =>
       api('/retailer/notification-prefs', {
         method: 'PUT',
-        body: JSON.stringify({
+        body: {
           pushEnabled: next.channels.push,
           emailEnabled: next.channels.email,
           smsEnabled: next.channels.sms,
           dailyDigestEnabled: next.dailyDigest,
           language: next.language,
           dashboardTiles: next.enabledDashboardTiles,
-        }),
+        },
       }),
     onSuccess: () => {
       qc.setQueryData(QK, draft);
@@ -84,6 +84,9 @@ export default function RetailerNotificationPrefs() {
   }
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(data);
+  const noExternalChannel = !draft.channels.push && !draft.channels.email && !draft.channels.sms;
+  const noTiles = draft.enabledDashboardTiles.length === 0;
+  const canSave = dirty && !noExternalChannel && !noTiles;
 
   function toggleChannel(c: NotificationChannel) {
     setDraft((d) => d && { ...d, channels: { ...d.channels, [c]: !d.channels[c] } });
@@ -108,11 +111,22 @@ export default function RetailerNotificationPrefs() {
         title="Notification preferences"
         description="Choose which channels deliver alerts, opt into the daily digest, set your language, and pick which dashboard tiles you see."
         actions={
-          <Button variant="accent" disabled={!dirty} loading={save.isPending} onClick={() => save.mutate(draft)}>
+          <Button variant="accent" disabled={!canSave} loading={save.isPending} onClick={() => save.mutate(draft)}>
             Save changes
           </Button>
         }
       />
+
+      {noExternalChannel && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] text-amber-800">
+          At least one channel (Push, Email, or SMS) must stay enabled.
+        </div>
+      )}
+      {noTiles && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] text-amber-800">
+          Select at least one dashboard tile.
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

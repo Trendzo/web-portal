@@ -20,6 +20,7 @@ export function mockFeesConfig(): FeesConfig {
       { retailerId: 'retailer_aurora', retailerName: 'Aurora Boutique', platformFeeBp: 1200, reason: 'Tier-1 launch promo' },
       { retailerId: 'retailer_indigo', retailerName: 'Indigo Threads', platformFeeBp: 1800, reason: 'High dispute rate' },
     ],
+    lastChanged: {},
   };
 }
 

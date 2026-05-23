@@ -1,54 +1,19 @@
-import { useEffect, useState } from 'react';
-
-export type Theme = 'light' | 'dark';
-
-const STORAGE_KEY = 'closetx.theme';
-
-function readStoredTheme(): Theme | null {
-  try {
-    const v = localStorage.getItem(STORAGE_KEY);
-    return v === 'light' || v === 'dark' ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-function applyTheme(t: Theme): void {
-  const root = document.documentElement;
-  if (t === 'dark') root.classList.add('dark');
-  else root.classList.remove('dark');
-}
+import { useEffect } from 'react';
 
 /**
- * Read + persist + sync the dark/light theme. Initial value is set in index.html
- * before paint; this hook only matters once React mounts.
+ * Theme is fixed to light. Dark mode toggle removed; this hook only ensures the
+ * `dark` class is stripped from <html> in case it was set by a legacy stored pref.
  */
-export function useTheme(): {
-  theme: Theme;
-  setTheme: (t: Theme) => void;
-  toggleTheme: () => void;
-} {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof window === 'undefined') return 'light';
-    if (readStoredTheme()) return readStoredTheme()!;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
+export type Theme = 'light';
 
-  // Keep DOM in sync if state changes via setTheme.
+export function useTheme(): { theme: Theme } {
   useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
-
-  const setTheme = (t: Theme) => {
+    document.documentElement.classList.remove('dark');
     try {
-      localStorage.setItem(STORAGE_KEY, t);
+      localStorage.removeItem('trendzo.theme');
     } catch {
-      // ignore quota / privacy mode
+      // ignore
     }
-    setThemeState(t);
-  };
-
-  const toggleTheme = () => setTheme(theme === 'dark' ? 'light' : 'dark');
-
-  return { theme, setTheme, toggleTheme };
+  }, []);
+  return { theme: 'light' };
 }

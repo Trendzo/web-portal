@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { Download } from 'lucide-react';
 import { api } from '@/lib/api';
-import { useCsvExport } from '@/lib/csv';
+import { useServerCsv } from '@/lib/csv';
+import { unwrapMeta, unwrapRows } from '@/lib/report';
+import { FreshnessLabel } from '@/components/ui/freshness-label';
 import type { InventoryHealthRow } from '@/lib/types';
 import { formatAge } from '@/lib/status';
 import { Page, PageHeader } from '@/components/ui/page';
@@ -20,17 +22,11 @@ const STATUS_META: Record<InventoryHealthRow['status'], { label: string; tone: '
 export default function RetailerReportInventory() {
   const { data, isLoading } = useQuery({
     queryKey: ['retailer', 'reports', 'inventory-health'],
-    queryFn: () => api<InventoryHealthRow[]>('/retailer/reports/inventory-health'),
+    queryFn: () => api<unknown>('/retailer/reports/inventory-health'),
   });
-  const rows = data ?? [];
-
-  const exportCsv = useCsvExport<InventoryHealthRow>('inventory_health', [
-    { key: 'sku', header: 'SKU', accessor: (r) => r.variantSku ?? '—' },
-    { key: 'name', header: 'Listing', accessor: (r) => r.listingName },
-    { key: 'stock', header: 'Stock', accessor: (r) => r.stock },
-    { key: 'status', header: 'Status', accessor: (r) => STATUS_META[r.status].label },
-    { key: 'lastSold', header: 'Last sold', accessor: (r) => r.lastSoldAt ?? '—' },
-  ]);
+  const rows = unwrapRows<InventoryHealthRow>(data);
+  const meta = unwrapMeta(data);
+  const exportCsv = useServerCsv('inventory_health', '/retailer/reports/inventory-health');
 
   return (
     <Page>
@@ -39,7 +35,10 @@ export default function RetailerReportInventory() {
         title="Inventory health"
         description="Low / out / overstock / aged SKUs. Triage stock issues before they affect rank or fulfilment."
         actions={
-          <Button variant="outline" size="sm" iconLeft={<Download className="size-3.5" />} onClick={() => exportCsv(rows)}>Export CSV</Button>
+          <>
+            <FreshnessLabel generatedAtIst={meta?.generatedAtIst} />
+            <Button variant="outline" size="sm" iconLeft={<Download className="size-3.5" />} onClick={() => exportCsv()}>Export CSV</Button>
+          </>
         }
       />
 

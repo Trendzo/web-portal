@@ -21,6 +21,7 @@ type ReturnRow = {
   reasonText: string | null;
   storeDecision: StoreReturnDecision;
   verificationWindowExpiresAt: string | null;
+  agentDisposition: 'kept' | 'returned' | 'refused' | null;
   orderItem: {
     orderId: string;
     listingNameSnap: string;
@@ -81,6 +82,19 @@ function ReturnList({ loading, list }: { loading: boolean; list: ReturnRow[] }) 
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[14px] font-semibold text-ink">{r.orderItem.listingNameSnap}</span>
                     <Badge tone={meta.tone} pulse={r.storeDecision === 'pending'}>{meta.label}</Badge>
+                    {r.agentDisposition && (
+                      <Badge
+                        tone={
+                          r.agentDisposition === 'refused'
+                            ? 'danger'
+                            : r.agentDisposition === 'returned'
+                              ? 'warning'
+                              : 'info'
+                        }
+                      >
+                        Agent: {r.agentDisposition}
+                      </Badge>
+                    )}
                     <CopyableId value={r.id} label="return id" />
                   </div>
                   <div className="mt-1 text-[12.5px] text-ink-2">

@@ -18,14 +18,12 @@ import { test as base, type Page, type Route } from '@playwright/test';
 
 export type RetailerStatus =
   | 'pending_approval'
-  | 'under_review'
   | 'approved_no_store'
   | 'onboarding'
   | 'active'
   | 'paused'
   | 'suspended'
-  | 'terminated'
-  | 'deactivated';
+  | 'terminated';
 
 type StoreStatus = 'onboarding' | 'active' | 'paused' | 'suspended' | 'terminated';
 
@@ -388,7 +386,7 @@ export class MockBackend {
       return { payload: { retailer: this.selfRetailer, store: this.selfStore } };
     }
     if (method === 'GET' && path === '/admin/me') {
-      return { payload: { id: 'admin_super', email: 'super@closetx.local', subRole: 'super_admin' } };
+      return { payload: { id: 'admin_super', email: 'super@trendzo.local', subRole: 'super_admin' } };
     }
 
     // Catalog seed
@@ -420,14 +418,14 @@ export class MockBackend {
     if (method === 'POST' && retailerReject) {
       const r = this.retailers.get(retailerReject[1]);
       if (!r) return { status: 404, payload: { code: 'not_found' } };
-      r.status = 'deactivated';
+      r.status = 'terminated';
       return { payload: r };
     }
-    const retailerSuspend = path.match(/^\/admin\/retailers\/([^/]+)\/(suspend|terminate|deactivate)$/);
+    const retailerSuspend = path.match(/^\/admin\/retailers\/([^/]+)\/(suspend|terminate)$/);
     if (method === 'POST' && retailerSuspend) {
       const r = this.retailers.get(retailerSuspend[1]);
       if (!r) return { status: 404, payload: { code: 'not_found' } };
-      r.status = retailerSuspend[2] === 'terminate' ? 'terminated' : retailerSuspend[2] === 'suspend' ? 'suspended' : 'deactivated';
+      r.status = retailerSuspend[2] === 'terminate' ? 'terminated' : 'suspended';
       return { payload: r };
     }
 
@@ -696,7 +694,7 @@ export class MockBackend {
 const ADMIN_SESSION = {
   kind: 'admin' as const,
   token: 'test-admin-token',
-  admin: { id: 'admin_super', email: 'super@closetx.local', subRole: 'super_admin' as const },
+  admin: { id: 'admin_super', email: 'super@trendzo.local', subRole: 'super_admin' as const },
 };
 
 function buildSession(role: Role, retailer: AdminRetailerView | null) {
@@ -724,7 +722,7 @@ async function seedSession(page: Page, role: Role, retailer: AdminRetailerView |
   const accountId = session.kind === 'admin' ? `admin:${session.admin.id}` : `retailer:${session.retailer.id}`;
   const wrapper = { state: { accounts: [session], activeId: accountId, session }, version: 3 };
   await page.addInitScript((data) => {
-    localStorage.setItem('closetx-dashboard.auth', data);
+    localStorage.setItem('trendzo-dashboard.auth', data);
     // Tell mockFetch to route through real fetch so page.route catches it.
     (window as unknown as { __MOCK_BACKEND_LIVE: boolean }).__MOCK_BACKEND_LIVE = true;
   }, JSON.stringify(wrapper));

@@ -1,25 +1,49 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, RefreshCcw, Upload } from 'lucide-react';
-import { api } from '@/lib/api';
+import { ArrowLeft, CheckCircle2, Lock, RefreshCcw, Sliders } from 'lucide-react';
+import { api, ApiError } from '@/lib/api';
 import { formatAge, formatPaise } from '@/lib/status';
 import type { PayoutCycle } from '@/lib/types';
 import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MetaList } from '@/components/ui/meta-list';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label, FieldError } from '@/components/ui/label';
 
 type AdminPayout = PayoutCycle & { storeName: string };
 
 export default function AdminPayoutDetail() {
   const { id } = useParams<{ id: string }>();
+  const qc = useQueryClient();
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [holdOpen, setHoldOpen] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
+
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'payouts-pipeline', id],
     queryFn: () => api<AdminPayout>(`/admin/payouts/${id}`),
     enabled: Boolean(id),
+  });
+
+  const retry = useMutation({
+    mutationFn: () => api(`/admin/payouts/${id}/retry`, { method: 'POST' }),
+    onSuccess: () => {
+      toast.success('Retry queued');
+      void qc.invalidateQueries({ queryKey: ['admin', 'payouts-pipeline'] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Retry failed'),
   });
 
   if (isLoading) return <Page><Skeleton className="h-72" /></Page>;
@@ -62,17 +86,28 @@ export default function AdminPayoutDetail() {
               ]}
             />
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button variant="outline" iconLeft={<RefreshCcw className="size-3.5" />} onClick={() => toast.info('Retry queued (not yet wired)')}>
+              <Button
+                variant="outline"
+                iconLeft={<RefreshCcw className="size-3.5" />}
+                disabled={data.status !== 'failed' || retry.isPending}
+                loading={retry.isPending}
+                onClick={() => retry.mutate()}
+              >
                 Retry payout
               </Button>
-              <Button variant="outline" iconLeft={<Upload className="size-3.5" />} onClick={() => toast.info('Bank confirmation upload not yet wired')}>
-                Upload bank confirmation
+              <Button
+                variant="accent"
+                iconLeft={<CheckCircle2 className="size-3.5" />}
+                disabled={data.status === 'paid'}
+                onClick={() => setReconcileOpen(true)}
+              >
+                Mark reconciled
               </Button>
-              <Button variant="ghost" onClick={() => toast.info('Hold action not yet wired')}>
-                Hold payout
+              <Button variant="ghost" iconLeft={<Lock className="size-3.5" />} onClick={() => setHoldOpen(true)}>
+                Hold against dispute
               </Button>
-              <Button variant="ghost" onClick={() => toast.info('Override not yet wired')}>
-                Override amount
+              <Button variant="ghost" iconLeft={<Sliders className="size-3.5" />} onClick={() => setAdjustOpen(true)}>
+                Adjust next cycle
               </Button>
             </div>
           </CardContent>
@@ -100,6 +135,254 @@ export default function AdminPayoutDetail() {
           </CardContent>
         </Card>
       </div>
+
+      <ReconcileDialog
+        open={reconcileOpen}
+        onClose={() => setReconcileOpen(false)}
+        payoutId={id ?? ''}
+      />
+      <HoldDialog
+        open={holdOpen}
+        onClose={() => setHoldOpen(false)}
+        storeId={data.storeId}
+        defaultAmount={data.netPaise}
+      />
+      <AdjustmentDialog
+        open={adjustOpen}
+        onClose={() => setAdjustOpen(false)}
+        storeId={data.storeId}
+      />
     </Page>
+  );
+}
+
+function ReconcileDialog({
+  open,
+  onClose,
+  payoutId,
+}: { open: boolean; onClose: () => void; payoutId: string }) {
+  const qc = useQueryClient();
+  const [ref, setRef] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = useMutation({
+    mutationFn: () =>
+      api(`/admin/payouts/${payoutId}/mark-complete`, {
+        method: 'POST',
+        body: { bankConfirmationRef: ref.trim() },
+      }),
+    onSuccess: () => {
+      toast.success('Payout marked reconciled');
+      void qc.invalidateQueries({ queryKey: ['admin', 'payouts-pipeline'] });
+      onClose();
+      setRef('');
+    },
+    onError: (e) => {
+      const msg = e instanceof ApiError ? e.message : 'Mark complete failed';
+      setError(msg);
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Mark payout reconciled</DialogTitle></DialogHeader>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setError(null);
+            if (!ref.trim()) return setError('Bank confirmation reference is required.');
+            submit.mutate();
+          }}
+          noValidate
+        >
+          <div>
+            <Label htmlFor="bank-ref" required>Bank confirmation reference (UTR)</Label>
+            <Input
+              id="bank-ref"
+              value={ref}
+              onChange={(e) => setRef(e.target.value)}
+              placeholder="HDFCN10000123456"
+              maxLength={80}
+            />
+          </div>
+          <FieldError>{error}</FieldError>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="submit" variant="ink" caps loading={submit.isPending}>Mark reconciled</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function HoldDialog({
+  open,
+  onClose,
+  storeId,
+  defaultAmount,
+}: { open: boolean; onClose: () => void; storeId: string; defaultAmount: number }) {
+  const qc = useQueryClient();
+  const [disputeId, setDisputeId] = useState('');
+  const [amount, setAmount] = useState(String(Math.round(defaultAmount / 100)));
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = useMutation({
+    mutationFn: () =>
+      api('/admin/payout-holds', {
+        method: 'POST',
+        body: {
+          storeId,
+          disputeId: disputeId.trim(),
+          amountPaise: Math.round(parseFloat(amount) * 100),
+          reason: reason.trim(),
+        },
+      }),
+    onSuccess: () => {
+      toast.success('Hold placed');
+      void qc.invalidateQueries({ queryKey: ['admin', 'payout-holds'] });
+      onClose();
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Hold failed'),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Hold payout against dispute</DialogTitle></DialogHeader>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setError(null);
+            if (!disputeId.trim()) return setError('Dispute ID required.');
+            if (!reason.trim()) return setError('Reason required.');
+            if (!(parseFloat(amount) > 0)) return setError('Amount must be positive.');
+            submit.mutate();
+          }}
+          noValidate
+        >
+          <div>
+            <Label htmlFor="hold-dispute" required>Dispute ID</Label>
+            <Input id="hold-dispute" value={disputeId} onChange={(e) => setDisputeId(e.target.value)} />
+          </div>
+          <div>
+            <Label htmlFor="hold-amount" required>Amount (₹)</Label>
+            <Input id="hold-amount" type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+          <div>
+            <Label htmlFor="hold-reason" required>Reason</Label>
+            <textarea
+              id="hold-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+              maxLength={500}
+              className="mt-1 w-full resize-none rounded-md border border-line bg-transparent px-3 py-2 text-[13.5px] text-ink focus:outline-none focus:ring-1 focus:ring-ink/30"
+            />
+          </div>
+          <FieldError>{error}</FieldError>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="submit" variant="ink" caps loading={submit.isPending}>Place hold</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AdjustmentDialog({
+  open,
+  onClose,
+  storeId,
+}: { open: boolean; onClose: () => void; storeId: string }) {
+  const qc = useQueryClient();
+  const [direction, setDirection] = useState<'debit' | 'credit'>('debit');
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = useMutation({
+    mutationFn: () =>
+      api('/admin/payout-adjustments', {
+        method: 'POST',
+        body: {
+          storeId,
+          direction,
+          amountPaise: Math.round(parseFloat(amount) * 100),
+          reason: reason.trim(),
+        },
+      }),
+    onSuccess: () => {
+      toast.success('Adjustment recorded');
+      void qc.invalidateQueries({ queryKey: ['admin', 'payout-adjustments'] });
+      onClose();
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Adjustment failed'),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Adjust next payout</DialogTitle></DialogHeader>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setError(null);
+            if (!reason.trim()) return setError('Reason required.');
+            if (!(parseFloat(amount) > 0)) return setError('Amount must be positive.');
+            submit.mutate();
+          }}
+          noValidate
+        >
+          <div>
+            <Label required>Direction</Label>
+            <div className="mt-1 flex gap-2">
+              <Button
+                type="button"
+                variant={direction === 'debit' ? 'ink' : 'outline'}
+                size="sm"
+                onClick={() => setDirection('debit')}
+              >
+                Debit (recover)
+              </Button>
+              <Button
+                type="button"
+                variant={direction === 'credit' ? 'ink' : 'outline'}
+                size="sm"
+                onClick={() => setDirection('credit')}
+              >
+                Credit (goodwill)
+              </Button>
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="adj-amount" required>Amount (₹)</Label>
+            <Input id="adj-amount" type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+          <div>
+            <Label htmlFor="adj-reason" required>Reason</Label>
+            <textarea
+              id="adj-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+              maxLength={500}
+              className="mt-1 w-full resize-none rounded-md border border-line bg-transparent px-3 py-2 text-[13.5px] text-ink focus:outline-none focus:ring-1 focus:ring-ink/30"
+            />
+          </div>
+          <FieldError>{error}</FieldError>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="submit" variant="ink" caps loading={submit.isPending}>Record adjustment</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

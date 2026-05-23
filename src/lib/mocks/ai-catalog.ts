@@ -1,6 +1,6 @@
-// MOCK_DEPENDENCY: §7 AI Catalog Generation — shapes updated to match real backend schema
+// MOCK_DEPENDENCY: §7 AI Catalog Generation — shapes match the real backend schema.
 
-import type { AiQuota, AiSubmission } from '@/lib/types';
+import type { AiListingQuota, AiSubmission } from '@/lib/types';
 
 const HOUR = 1000 * 60 * 60;
 const now = () => Date.now();
@@ -13,14 +13,15 @@ export function mockAiSubmissions(): AiSubmission[] {
       id: 'ai_001',
       storeId: 'store_aurora',
       listingId: 'lst_aurora_kurta',
+      targetVariantId: null,
       status: 'ready_for_review',
       mode: 'with_model',
-      rawPhotos: [`${PLACEHOLDER}input+1`, `${PLACEHOLDER}input+2`],
-      outputUrls: [
-        `${PLACEHOLDER}out+front`,
-        `${PLACEHOLDER}out+3q`,
-        `${PLACEHOLDER}out+back`,
-      ],
+      prompt: 'Studio shot, neutral grey background, three-quarter pose.',
+      referenceImageUrls: [`${PLACEHOLDER}input+1`],
+      revisionNotes: null,
+      rawPhotos: [`${PLACEHOLDER}input+1`],
+      outputUrls: [`${PLACEHOLDER}out+front`],
+      errorMessage: null,
       costPaise: null,
       parentSubmissionId: null,
       thirdPartyRequestId: null,
@@ -29,11 +30,16 @@ export function mockAiSubmissions(): AiSubmission[] {
     {
       id: 'ai_002',
       storeId: 'store_aurora',
-      listingId: null,
+      listingId: 'lst_aurora_kurta',
+      targetVariantId: null,
       status: 'processing',
       mode: 'without_model',
+      prompt: 'Flat-lay on cream linen.',
+      referenceImageUrls: [`${PLACEHOLDER}input+flat`],
+      revisionNotes: null,
       rawPhotos: [`${PLACEHOLDER}input+flat`],
       outputUrls: [],
+      errorMessage: null,
       costPaise: null,
       parentSubmissionId: null,
       thirdPartyRequestId: null,
@@ -43,11 +49,16 @@ export function mockAiSubmissions(): AiSubmission[] {
       id: 'ai_003',
       storeId: 'store_aurora',
       listingId: 'lst_saffron_lehenga',
+      targetVariantId: null,
       status: 'accepted',
       mode: 'with_model',
+      prompt: 'Saffron lehenga on virtual model, front view.',
+      referenceImageUrls: [`${PLACEHOLDER}input+lehenga`],
+      revisionNotes: null,
       rawPhotos: [`${PLACEHOLDER}input+lehenga`],
-      outputUrls: [`${PLACEHOLDER}out+lehenga+front`, `${PLACEHOLDER}out+lehenga+side`],
-      costPaise: 500,
+      outputUrls: [`${PLACEHOLDER}out+lehenga+front`],
+      errorMessage: null,
+      costPaise: null,
       parentSubmissionId: null,
       thirdPartyRequestId: null,
       at: new Date(now() - HOUR * 24).toISOString(),
@@ -55,10 +66,6 @@ export function mockAiSubmissions(): AiSubmission[] {
   ];
 }
 
-export function mockAiQuota(): AiQuota {
-  return {
-    used: 14,
-    total: 50,
-    remaining: 36,
-  };
+export function mockAiListingQuota(): AiListingQuota {
+  return { listingId: 'lst_aurora_kurta', variantCount: 3, usedAttempts: 1, remaining: 2 };
 }

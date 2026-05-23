@@ -4,6 +4,8 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SectionHeading } from '@/components/ui/page';
+import { MultiSelect, type MultiSelectOption } from '@/components/ui/multi-select';
+import type { ListingPickerItem } from '@/components/promotion/DiscountConfigForm';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 const TIERS = [
@@ -12,13 +14,77 @@ const TIERS = [
   { key: 'loyaltySilver', label: 'Silver' },
   { key: 'loyaltyPlatinum', label: 'Platinum' },
 ] as const;
+const DELIVERY_METHODS = [
+  { key: 'deliveryExpress', label: 'Express' },
+  { key: 'deliveryStandard', label: 'Standard' },
+  { key: 'deliveryPickup', label: 'Pickup' },
+  { key: 'deliveryTryAndBuy', label: 'Try & buy' },
+] as const;
+const PAYMENT_METHODS = [
+  { key: 'paymentUpi', label: 'UPI' },
+  { key: 'paymentCard', label: 'Card' },
+  { key: 'paymentCod', label: 'COD' },
+  { key: 'paymentWallet', label: 'Wallet' },
+  { key: 'paymentGiftCard', label: 'Gift card' },
+] as const;
+
+export type CategoryPickerItem = { id: string; label: string };
+export type BrandPickerItem = { id: string; name: string };
+export type StorePickerItem = { id: string; name: string };
 
 /** Eligibility / scope section for promotion create and edit forms.
  *  Reads/writes to the react-hook-form context under a `scope.*` namespace.
- *  Pass `adminMode` to show item-scope (listingIds / categoryIds / brandIds). */
-export function EligibilitySection({ adminMode = false }: { adminMode?: boolean }) {
-  const { register } = useFormContext();
+ *  Listing / category / brand pickers + their exclude counterparts render for any
+ *  caller that supplies the data — both retailer and admin modes. */
+export function EligibilitySection({
+  listings = [],
+  listingsLoading = false,
+  categories = [],
+  categoriesLoading = false,
+  brands = [],
+  brandsLoading = false,
+  stores = [],
+  storesLoading = false,
+}: {
+  listings?: ListingPickerItem[];
+  listingsLoading?: boolean;
+  categories?: CategoryPickerItem[];
+  categoriesLoading?: boolean;
+  brands?: BrandPickerItem[];
+  brandsLoading?: boolean;
+  /** Admin-only — when populated, exposes a retailer-subset target. */
+  stores?: StorePickerItem[];
+  storesLoading?: boolean;
+}) {
+  const { register, watch, setValue } = useFormContext();
   const [open, setOpen] = useState(false);
+
+  const listingOptions: MultiSelectOption[] = listings.map((l) => ({ value: l.id, label: l.name, hint: l.id }));
+  const categoryOptions: MultiSelectOption[] = categories.map((c) => ({ value: c.id, label: c.label, hint: c.id }));
+  const brandOptions: MultiSelectOption[] = brands.map((b) => ({ value: b.id, label: b.name, hint: b.id }));
+  const storeOptions: MultiSelectOption[] = stores.map((s) => ({ value: s.id, label: s.name, hint: s.id }));
+  const selectedStores = toArray(watch('scope.storeIds'));
+
+  const selectedListings = toArray(watch('scope.listingIds'));
+  const selectedVariants = toArray(watch('scope.variantIds'));
+  const selectedCategories = toArray(watch('scope.categoryIds'));
+  const selectedBrands = toArray(watch('scope.brandIds'));
+  const excludedListings = toArray(watch('scope.excludeListingIds'));
+  const excludedVariants = toArray(watch('scope.excludeVariantIds'));
+  const excludedCategories = toArray(watch('scope.excludeCategoryIds'));
+  const excludedBrands = toArray(watch('scope.excludeBrandIds'));
+
+  // Variant picker scoped to selected listings (or all listings if none selected).
+  const variantSourceListings = selectedListings.length > 0
+    ? listings.filter((l) => selectedListings.includes(l.id))
+    : listings;
+  const variantOptions: MultiSelectOption[] = variantSourceListings.flatMap((l) =>
+    (l.variants ?? []).map((v) => ({
+      value: v.id,
+      label: `${l.name} · ${v.label}`,
+      hint: v.id,
+    })),
+  );
 
   return (
     <div className="border border-rule rounded-md">
@@ -27,7 +93,7 @@ export function EligibilitySection({ adminMode = false }: { adminMode?: boolean 
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-bg-2 transition-colors"
       >
-        <SectionHeading title="Eligibility conditions" hint="Cart minimums, shopper filters, time windows — all optional" />
+        <SectionHeading title="Eligibility conditions" hint="Cart minimums, shopper filters, time windows, delivery/payment/region/item scope — all optional" />
         {open ? <ChevronUp className="size-4 text-ink-3 shrink-0" /> : <ChevronDown className="size-4 text-ink-3 shrink-0" />}
       </button>
 
@@ -86,6 +152,26 @@ export function EligibilitySection({ adminMode = false }: { adminMode?: boolean 
                   ))}
                 </div>
               </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label hint="Newline-separated consumer IDs">Specific consumers</Label>
+                  <textarea
+                    rows={2}
+                    placeholder="cnsr_abc&#10;cnsr_xyz"
+                    className="w-full rounded border border-line-2 bg-bg px-2 py-1 text-[12.5px] font-mono"
+                    {...register('scope.specificConsumerIdsText')}
+                  />
+                </div>
+                <div>
+                  <Label hint="Newline-separated consumer IDs">Exclude consumers</Label>
+                  <textarea
+                    rows={2}
+                    placeholder="cnsr_blocked"
+                    className="w-full rounded border border-line-2 bg-bg px-2 py-1 text-[12.5px] font-mono"
+                    {...register('scope.excludeConsumerIdsText')}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
@@ -121,27 +207,160 @@ export function EligibilitySection({ adminMode = false }: { adminMode?: boolean 
             </div>
           </div>
 
-          {/* Item scope — admin only */}
-          {adminMode && (
+          {/* Delivery method */}
+          <div>
+            <p className="kicker text-ink-3 mb-3">Delivery method (leave all unchecked for any method)</p>
+            <div className="flex flex-wrap gap-3">
+              {DELIVERY_METHODS.map(({ key, label }) => (
+                <label key={key} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded accent-ink"
+                    {...register(`scope.${key}`)}
+                  />
+                  <span className="text-[13px] text-ink">{label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Payment method */}
+          <div>
+            <p className="kicker text-ink-3 mb-3">Payment method (leave all unchecked for any method)</p>
+            <div className="flex flex-wrap gap-3">
+              {PAYMENT_METHODS.map(({ key, label }) => (
+                <label key={key} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded accent-ink"
+                    {...register(`scope.${key}`)}
+                  />
+                  <span className="text-[13px] text-ink">{label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Region */}
+          <div>
+            <p className="kicker text-ink-3 mb-3">Region (state codes)</p>
+            <Input
+              placeholder="e.g. MH, KA, DL — comma-separated"
+              {...register('scope.allowedStateCodesText')}
+            />
+          </div>
+
+          {/* Retailer subset — admin only (callers without store data omit this section). */}
+          {(stores.length > 0 || storesLoading) && (
+            <div>
+              <p className="kicker text-ink-3 mb-3">Retailer subset</p>
+              <MultiSelect
+                options={storeOptions}
+                value={selectedStores}
+                onChange={(next) => setValue('scope.storeIds', next)}
+                placeholder={storesLoading ? 'Loading…' : 'Leave blank to apply to all stores'}
+                loading={storesLoading}
+              />
+              <p className="mt-1 text-[11px] text-ink-4">
+                Promotion is dropped at checkout when the order's store is not on this list.
+              </p>
+            </div>
+          )}
+
+          {/* Item scope — listings / categories / brands include + exclude */}
+          {(listings.length > 0 || categories.length > 0 || brands.length > 0 || listingsLoading) && (
             <div>
               <p className="kicker text-ink-3 mb-3">Item scope (leave blank to match all)</p>
               <div className="space-y-3">
                 <div>
-                  <Label hint="Comma-separated listing IDs">Listing IDs</Label>
-                  <Input
-                    mono
-                    placeholder="lst_abc123, lst_def456"
-                    {...register('scope.listingIds')}
+                  <Label>Listings (include)</Label>
+                  <MultiSelect
+                    options={listingOptions}
+                    value={selectedListings}
+                    onChange={(next) => setValue('scope.listingIds', next)}
+                    placeholder={listingsLoading ? 'Loading…' : listings.length === 0 ? 'No listings available' : 'Pick listings'}
+                    disabled={listings.length === 0 && !listingsLoading}
+                    loading={listingsLoading}
                   />
                 </div>
+                <div>
+                  <Label>Listings (exclude)</Label>
+                  <MultiSelect
+                    options={listingOptions}
+                    value={excludedListings}
+                    onChange={(next) => setValue('scope.excludeListingIds', next)}
+                    placeholder={listingsLoading ? 'Loading…' : 'Pick listings to exclude'}
+                    disabled={listings.length === 0 && !listingsLoading}
+                    loading={listingsLoading}
+                  />
+                </div>
+                {variantOptions.length > 0 && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <Label>
+                        Variants (include)
+                        {selectedListings.length > 0 && (
+                          <span className="ml-1 text-[11px] text-ink-3">— from {selectedListings.length} listing{selectedListings.length === 1 ? '' : 's'}</span>
+                        )}
+                      </Label>
+                      <MultiSelect
+                        options={variantOptions}
+                        value={selectedVariants}
+                        onChange={(next) => setValue('scope.variantIds', next)}
+                        placeholder="Pick specific variants"
+                      />
+                    </div>
+                    <div>
+                      <Label>Variants (exclude)</Label>
+                      <MultiSelect
+                        options={variantOptions}
+                        value={excludedVariants}
+                        onChange={(next) => setValue('scope.excludeVariantIds', next)}
+                        placeholder="Pick variants to exclude"
+                      />
+                    </div>
+                  </div>
+                )}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <Label hint="Comma-separated category IDs">Category IDs</Label>
-                    <Input mono placeholder="cat_001, cat_002" {...register('scope.categoryIds')} />
+                    <Label>Categories (include)</Label>
+                    <MultiSelect
+                      options={categoryOptions}
+                      value={selectedCategories}
+                      onChange={(next) => setValue('scope.categoryIds', next)}
+                      placeholder={categoriesLoading ? 'Loading…' : 'Pick categories'}
+                      loading={categoriesLoading}
+                    />
                   </div>
                   <div>
-                    <Label hint="Comma-separated brand IDs">Brand IDs</Label>
-                    <Input mono placeholder="brd_001, brd_002" {...register('scope.brandIds')} />
+                    <Label>Categories (exclude)</Label>
+                    <MultiSelect
+                      options={categoryOptions}
+                      value={excludedCategories}
+                      onChange={(next) => setValue('scope.excludeCategoryIds', next)}
+                      placeholder={categoriesLoading ? 'Loading…' : 'Pick categories to exclude'}
+                      loading={categoriesLoading}
+                    />
+                  </div>
+                  <div>
+                    <Label>Brands (include)</Label>
+                    <MultiSelect
+                      options={brandOptions}
+                      value={selectedBrands}
+                      onChange={(next) => setValue('scope.brandIds', next)}
+                      placeholder={brandsLoading ? 'Loading…' : 'Pick brands'}
+                      loading={brandsLoading}
+                    />
+                  </div>
+                  <div>
+                    <Label>Brands (exclude)</Label>
+                    <MultiSelect
+                      options={brandOptions}
+                      value={excludedBrands}
+                      onChange={(next) => setValue('scope.excludeBrandIds', next)}
+                      placeholder={brandsLoading ? 'Loading…' : 'Pick brands to exclude'}
+                      loading={brandsLoading}
+                    />
                   </div>
                 </div>
               </div>
@@ -151,6 +370,28 @@ export function EligibilitySection({ adminMode = false }: { adminMode?: boolean 
       )}
     </div>
   );
+}
+
+function toArray(v: unknown): string[] {
+  if (Array.isArray(v)) return v as string[];
+  if (typeof v === 'string' && v.trim()) {
+    return v.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function parseLines(v: unknown, max = 1000): string[] {
+  if (typeof v !== 'string' || !v.trim()) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of v.split(/[\n,]/)) {
+    const t = line.trim();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 /** Converts the flat `scope.*` form values into the Scope object for the API payload. */
@@ -182,15 +423,54 @@ export function buildScopePayload(scope: Record<string, unknown>): Record<string
     out.allowedTimesOfDay = [{ from: scope.activeFrom, to: scope.activeTo }];
   }
 
-  if (typeof scope.listingIds === 'string' && scope.listingIds.trim()) {
-    out.listingIds = scope.listingIds.split(',').map((s: string) => s.trim()).filter(Boolean);
+  const delivery: string[] = [];
+  if (scope.deliveryExpress) delivery.push('express');
+  if (scope.deliveryStandard) delivery.push('standard');
+  if (scope.deliveryPickup) delivery.push('pickup');
+  if (scope.deliveryTryAndBuy) delivery.push('try_and_buy');
+  if (delivery.length) out.allowedDeliveryMethods = delivery;
+
+  const payment: string[] = [];
+  if (scope.paymentUpi) payment.push('upi');
+  if (scope.paymentCard) payment.push('card');
+  if (scope.paymentCod) payment.push('cod');
+  if (scope.paymentWallet) payment.push('wallet');
+  if (scope.paymentGiftCard) payment.push('gift_card');
+  if (payment.length) out.allowedPaymentMethods = payment;
+
+  if (typeof scope.allowedStateCodesText === 'string') {
+    const codes = scope.allowedStateCodesText
+      .split(/[\s,]+/)
+      .map((s) => s.trim().toUpperCase())
+      .filter((s) => /^[A-Z]{2,3}$/.test(s));
+    const dedup = Array.from(new Set(codes));
+    if (dedup.length) out.allowedStateCodes = dedup;
   }
-  if (typeof scope.categoryIds === 'string' && scope.categoryIds.trim()) {
-    out.categoryIds = scope.categoryIds.split(',').map((s: string) => s.trim()).filter(Boolean);
-  }
-  if (typeof scope.brandIds === 'string' && scope.brandIds.trim()) {
-    out.brandIds = scope.brandIds.split(',').map((s: string) => s.trim()).filter(Boolean);
-  }
+
+  const specificConsumers = parseLines(scope.specificConsumerIdsText);
+  if (specificConsumers.length) out.specificConsumerIds = specificConsumers;
+  const excludeConsumers = parseLines(scope.excludeConsumerIdsText);
+  if (excludeConsumers.length) out.excludeConsumerIds = excludeConsumers;
+
+  const listingIds = toArray(scope.listingIds);
+  if (listingIds.length) out.listingIds = listingIds;
+  const variantIds = toArray(scope.variantIds);
+  if (variantIds.length) out.variantIds = variantIds;
+  const categoryIds = toArray(scope.categoryIds);
+  if (categoryIds.length) out.categoryIds = categoryIds;
+  const brandIds = toArray(scope.brandIds);
+  if (brandIds.length) out.brandIds = brandIds;
+  const storeIds = toArray(scope.storeIds);
+  if (storeIds.length) out.storeIds = storeIds;
+
+  const excludeListingIds = toArray(scope.excludeListingIds);
+  if (excludeListingIds.length) out.excludeListingIds = excludeListingIds;
+  const excludeVariantIds = toArray(scope.excludeVariantIds);
+  if (excludeVariantIds.length) out.excludeVariantIds = excludeVariantIds;
+  const excludeCategoryIds = toArray(scope.excludeCategoryIds);
+  if (excludeCategoryIds.length) out.excludeCategoryIds = excludeCategoryIds;
+  const excludeBrandIds = toArray(scope.excludeBrandIds);
+  if (excludeBrandIds.length) out.excludeBrandIds = excludeBrandIds;
 
   return out;
 }

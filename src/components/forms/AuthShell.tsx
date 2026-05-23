@@ -24,7 +24,7 @@ export function AuthShell({ kicker, title, blurb, highlights, footer, children }
     <div className="flex min-h-full flex-col bg-bg lg:bg-bg-2">
       <header className="border-b border-line bg-bg">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between px-5 py-4 sm:px-8">
-          <Link to="/" aria-label="ClosetX home">
+          <Link to="/" aria-label="Trendzo home">
             <Mark size="md" />
           </Link>
           <Link

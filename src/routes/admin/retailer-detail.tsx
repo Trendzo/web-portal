@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, ArrowUpRight, Building2, Coins, Eye, Package, Receipt, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Building2, Coins, Eye, Package, Receipt, ShieldAlert, Users } from 'lucide-react';
 import { api, ApiError, apiValidated } from '@/lib/api';
 import { AdminRetailerViewSchema } from '@/lib/schemas';
-import { startImpersonationAndReload } from '@/lib/auth';
+import { installImpersonationSessionAndReload } from '@/lib/auth';
+import type { RetailerProfile } from '@/lib/types';
 import { retailerStatusMeta, formatAge, formatPaise } from '@/lib/status';
 import type { AdminPayoutRow } from '@/lib/types';
 import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
@@ -19,10 +20,50 @@ import { MetaList } from '@/components/ui/meta-list';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CopyableId } from '@/components/ui/copyable-id';
 import { ReasonActionDialog } from '@/components/admin/reason-action-dialog';
+import { AccountsOnStoreCard } from '@/components/admin/accounts-on-store-card';
 
 export default function AdminRetailerDetail() {
   const { id } = useParams<{ id: string }>();
   const [suspending, setSuspending] = useState(false);
+  const [banning, setBanning] = useState(false);
+  const qc = useQueryClient();
+
+  const suspendMut = useMutation({
+    mutationFn: ({ reason }: { reason: string }) =>
+      api(`/admin/retailers/${id}/suspend`, { method: 'POST', body: { reason } }),
+    onSuccess: () => {
+      toast.success('Retailer suspended');
+      setSuspending(false);
+      void qc.invalidateQueries({ queryKey: ['admin', 'retailers', id] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Suspend failed'),
+  });
+  const banMut = useMutation({
+    mutationFn: ({ reason }: { reason: string }) =>
+      api(`/admin/retailers/${id}/ban`, { method: 'POST', body: { reason } }),
+    onSuccess: () => {
+      toast.success('Retailer permanently banned');
+      setBanning(false);
+      void qc.invalidateQueries({ queryKey: ['admin', 'retailers', id] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Ban failed'),
+  });
+  const unbanMut = useMutation({
+    mutationFn: () => api(`/admin/retailers/${id}/unban`, { method: 'POST', body: {} }),
+    onSuccess: () => {
+      toast.success('Ban lifted');
+      void qc.invalidateQueries({ queryKey: ['admin', 'retailers', id] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Unban failed'),
+  });
+  const unsuspendMut = useMutation({
+    mutationFn: () => api(`/admin/retailers/${id}/unsuspend`, { method: 'POST', body: {} }),
+    onSuccess: () => {
+      toast.success('Suspension lifted');
+      void qc.invalidateQueries({ queryKey: ['admin', 'retailers', id] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Unsuspend failed'),
+  });
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['admin', 'retailers', id],
@@ -31,6 +72,44 @@ export default function AdminRetailerDetail() {
     // Don't retry malformed payloads — backend won't fix shape on a retry.
     retry: (failureCount, err) =>
       err instanceof ApiError && err.code === 'invalid_response' ? false : failureCount < 2,
+  });
+
+  const startImpersonation = useMutation({
+    mutationFn: async (storeId: string) => {
+      const impData = await api<{
+        sessionId: string;
+        storeId: string;
+        storeName: string;
+        token: string;
+        retailer: RetailerProfile;
+      }>('/admin/impersonation/start', {
+        method: 'POST',
+        body: { storeId },
+      });
+      let permissions: Record<string, boolean> = {};
+      try {
+        const perms = await api<{ permissions: Record<string, boolean> }>(
+          '/retailer/me/permissions',
+          { token: impData.token },
+        );
+        permissions = perms.permissions;
+      } catch {
+        /* fall through with empty permissions */
+      }
+      return { ...impData, permissions };
+    },
+    onSuccess: (impData) => {
+      installImpersonationSessionAndReload({
+        retailer: impData.retailer,
+        token: impData.token,
+        sessionId: impData.sessionId,
+        storeName: impData.storeName,
+        permissions: impData.permissions,
+      });
+    },
+    onError: (e) => {
+      toast.error(e instanceof ApiError ? e.message : 'Could not start impersonation');
+    },
   });
 
   if (!id) return <Page><PageHeader title="Missing id" /></Page>;
@@ -85,11 +164,7 @@ export default function AdminRetailerDetail() {
       toast.error('Retailer has no storefront yet — impersonation needs a store context.');
       return;
     }
-    startImpersonationAndReload({
-      storeId: r.storeId,
-      retailerId: r.id,
-      since: Date.now(),
-    });
+    startImpersonation.mutate(r.storeId);
   }
 
   return (
@@ -103,7 +178,7 @@ export default function AdminRetailerDetail() {
             <Button asChild variant="ghost" size="sm" iconLeft={<ArrowLeft className="size-3.5" />}>
               <Link to="/admin/retailers">Back to retailers</Link>
             </Button>
-            <Button variant="outline" size="sm" iconLeft={<Eye className="size-3.5" />} onClick={impersonate}>
+            <Button variant="outline" size="sm" iconLeft={<Eye className="size-3.5" />} onClick={impersonate} loading={startImpersonation.isPending}>
               Impersonate
             </Button>
           </div>
@@ -147,12 +222,38 @@ export default function AdminRetailerDetail() {
               />
 
               <div className="mt-6 flex flex-wrap gap-2">
-                <Button variant="outline" iconLeft={<ShieldAlert className="size-3.5" />} className="text-warning border-warning/40 hover:bg-warning/5" onClick={() => setSuspending(true)}>
-                  Suspend
+                {(r as { permanentSuspend?: boolean }).permanentSuspend ? (
+                  <Button variant="outline" onClick={() => unbanMut.mutate()} loading={unbanMut.isPending}>
+                    Lift ban
+                  </Button>
+                ) : (
+                  <>
+                    <Button variant="outline" iconLeft={<ShieldAlert className="size-3.5" />} className="text-warning border-warning/40 hover:bg-warning/5" onClick={() => setSuspending(true)}>
+                      Suspend
+                    </Button>
+                    <Button variant="outline" className="text-danger border-danger/40 hover:bg-danger/5" onClick={() => setBanning(true)}>
+                      Ban (permanent)
+                    </Button>
+                    {r.status === 'suspended' && (
+                      <Button variant="outline" onClick={() => unsuspendMut.mutate()} loading={unsuspendMut.isPending}>
+                        Lift suspension
+                      </Button>
+                    )}
+                  </>
+                )}
+                <Button asChild variant="outline" iconLeft={<Users className="size-3.5" />}>
+                  <Link to={`/admin/retailers/${r.id}/staff`}>Manage staff</Link>
                 </Button>
+                {r.storeId && (
+                  <Button asChild variant="outline" iconLeft={<Building2 className="size-3.5" />}>
+                    <Link to={`/admin/retailers/${r.id}/stores/${r.storeId}`}>Open store</Link>
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
+
+          <AccountsOnStoreCard retailerId={r.id} focusedAccountId={r.id} />
 
           <PlatformFeeOverrideCard retailerId={r.id} retailerName={r.legalName} />
         </TabsContent>
@@ -163,13 +264,18 @@ export default function AdminRetailerDetail() {
               <SectionHeading kicker="Stores" title="Storefronts owned by this retailer" />
               {r.storeId ? (
                 <p className="text-[13px] text-ink-2">
-                  Storefront <span className="font-mono">{r.storeId}</span>. Open the legacy
-                  storefront detail screen for the platform-fee + payout config.
+                  Storefront <span className="font-mono">{r.storeId}</span>. Open the admin
+                  storefront detail screen for catalog, inventory, orders, and ban actions.
                 </p>
               ) : (
                 <p className="text-[13px] text-ink-3 italic">Store will be provisioned automatically on approval.</p>
               )}
               <div className="mt-3 flex gap-2">
+                {r.storeId && (
+                  <Button asChild variant="outline" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
+                    <Link to={`/admin/retailers/${r.id}/stores/${r.storeId}`}>Open store</Link>
+                  </Button>
+                )}
                 <Button asChild variant="outline" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
                   <Link to="/admin/stores">Storefronts queue</Link>
                 </Button>
@@ -201,10 +307,15 @@ export default function AdminRetailerDetail() {
         description="Pauses fulfilment immediately. Account remains so they can sign in and see the notice. Lift the suspension from the same screen."
         confirmLabel="Suspend"
         onClose={() => setSuspending(false)}
-        onConfirm={(reason) => {
-          toast.success(`Suspended (mock): ${reason}`);
-          setSuspending(false);
-        }}
+        onConfirm={(reason) => suspendMut.mutate({ reason })}
+      />
+      <ReasonActionDialog
+        open={banning}
+        title="Ban retailer (permanent)"
+        description="Permanently blocks the account and store. The retailer is signed out and barred from re-entering. The ban can be lifted later by an admin."
+        confirmLabel="Ban"
+        onClose={() => setBanning(false)}
+        onConfirm={(reason) => banMut.mutate({ reason })}
       />
     </Page>
   );
@@ -370,3 +481,7 @@ function RelatedLink({ icon: Icon, title, href }: { icon: typeof Building2; titl
     </Card>
   );
 }
+
+// AccountsOnStoreCard moved to components/admin/accounts-on-store-card.tsx so
+// the admin store-detail page can reuse the same roster + quick actions.
+

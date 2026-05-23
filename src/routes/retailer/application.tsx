@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, Eye, EyeOff, Loader2, MapPin, Paperclip, Search } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, Eye, EyeOff, Loader2, MapPin, Paperclip, Search } from 'lucide-react';
+import type { ResubmitSnapshot } from '@/lib/types';
 import { Page } from '@/components/ui/page';
 import { CopyableId } from '@/components/ui/copyable-id';
 import { Card, CardContent } from '@/components/ui/card';
@@ -80,6 +81,8 @@ type FormState = {
   gstin: string;
   pan: string;
   storeName: string;
+  contactPhone: string;
+  managerName: string;
   hours: HoursConfig;
   address: string;
   pincode: string;
@@ -105,6 +108,8 @@ const initial: FormState = {
   gstin: '',
   pan: '',
   storeName: '',
+  contactPhone: '',
+  managerName: '',
   hours: DEFAULT_HOURS,
   address: '',
   pincode: '',
@@ -140,7 +145,12 @@ const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
 type FieldErrors = Record<string, string>;
 
-function validateStep(step: Step, form: FormState, docs: Partial<Record<DocKind, UploadedDoc>>): FieldErrors {
+function validateStep(
+  step: Step,
+  form: FormState,
+  docs: Partial<Record<DocKind, UploadedDoc>>,
+  isReapply: boolean = false,
+): FieldErrors {
   const e: FieldErrors = {};
   if (step === 'identity') {
     if (!form.legalName.trim() || form.legalName.trim().length < 2)
@@ -153,14 +163,18 @@ function validateStep(step: Step, form: FormState, docs: Partial<Record<DocKind,
       e['phone'] = 'Phone number is required.';
     else if (!PHONE_RE.test(form.phone.trim()))
       e['phone'] = 'Enter a valid 10-digit Indian mobile number.';
-    if (!form.password)
-      e['password'] = 'Password is required.';
-    else if (form.password.length < 8)
-      e['password'] = 'Password must be at least 8 characters.';
-    if (!form.confirmPassword)
-      e['confirmPassword'] = 'Please confirm your password.';
-    else if (form.password !== form.confirmPassword)
-      e['confirmPassword'] = 'Passwords do not match.';
+    // Password fields are only collected on first-time signup. On re-apply, the password
+    // is verified via the status page (re-entered there) and travels via sessionStorage.
+    if (!isReapply) {
+      if (!form.password)
+        e['password'] = 'Password is required.';
+      else if (form.password.length < 8)
+        e['password'] = 'Password must be at least 8 characters.';
+      if (!form.confirmPassword)
+        e['confirmPassword'] = 'Please confirm your password.';
+      else if (form.password !== form.confirmPassword)
+        e['confirmPassword'] = 'Passwords do not match.';
+    }
   }
   if (step === 'business') {
     if (!form.gstin.trim())
@@ -208,6 +222,8 @@ function validateStep(step: Step, form: FormState, docs: Partial<Record<DocKind,
 
 export default function RetailerApplication() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const reapplyId = searchParams.get('reapply');
   const [step, setStep] = useState<Step>('identity');
   const [form, setForm] = useState<FormState>(initial);
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -224,6 +240,78 @@ export default function RetailerApplication() {
   const [pincodeLookup, setPincodeLookup] = useState<PincodeLookup | null>(null);
   const [pincodeLooking, setPincodeLooking] = useState(false);
   const [pincodeErr, setPincodeErr] = useState<string | null>(null);
+  const [storeImages, setStoreImages] = useState<string[]>([]);
+  const [uploadingPhotos, setUploadingPhotos] = useState<{ id: string; name: string; progress: number }[]>([]);
+
+  // ===== Resubmission hydration =====
+  // When `?reapply=<id>` is present we expect a ResubmitSnapshot stashed in sessionStorage
+  // (written by the application-status page after the password prompt). Hydrate the form,
+  // remember the original doc URLs so we can detect "must re-upload" violations on submit,
+  // then drop the snapshot key from storage so a stale reload doesn't re-hydrate later.
+  const [snapshot, setSnapshot] = useState<ResubmitSnapshot | null>(null);
+  const [priorDocUrls, setPriorDocUrls] = useState<Partial<Record<DocKind, string>>>({});
+  const mustReupload = useMemo(() => {
+    return new Set<DocKind>(
+      (snapshot?.application.mustReuploadDocKinds ?? []).filter(
+        (k): k is DocKind => k !== 'storefront_photo',
+      ) as DocKind[],
+    );
+  }, [snapshot]);
+
+  useEffect(() => {
+    if (!reapplyId) return;
+    const raw = sessionStorage.getItem(`reapply:${reapplyId}`);
+    if (!raw) return;
+    try {
+      const snap = JSON.parse(raw) as ResubmitSnapshot;
+      setSnapshot(snap);
+      const a = snap.application;
+      const hoursAsConfig =
+        a.hours && typeof a.hours === 'object'
+          ? (a.hours as unknown as HoursConfig)
+          : DEFAULT_HOURS;
+      setForm({
+        legalName: a.ownerName ?? a.legalName ?? '',
+        email: a.ownerEmail,
+        phone: a.ownerPhone,
+        password: '',
+        confirmPassword: '',
+        gstin: a.gstin,
+        pan: a.pan ?? '',
+        storeName: a.storeName ?? '',
+        contactPhone: '',
+        managerName: '',
+        hours: hoursAsConfig,
+        address: a.addressLine,
+        pincode: a.pincode,
+        city: '',
+        stateCode: a.stateCode,
+        lat: a.lat ? Number(a.lat) : 20.5937,
+        lng: a.lng ? Number(a.lng) : 78.9629,
+        categories: (a.categories ?? []).join(', '),
+        brandsCarried: (a.brands ?? []).join(', '),
+        sampleSkus: '',
+        accountHolderName: a.bankLegalName ?? '',
+        accountNumber: a.bankAccountNumber ?? '',
+        ifsc: a.bankIfsc ?? '',
+        bankName: '',
+      });
+      const seedDocs: Partial<Record<DocKind, UploadedDoc>> = {};
+      const seedPriorUrls: Partial<Record<DocKind, string>> = {};
+      for (const d of snap.documents) {
+        if (d.kind === 'storefront_photo') continue; // not in retailer DOC_SLOTS
+        const k = d.kind as DocKind;
+        seedDocs[k] = { url: d.url, filename: d.url.split('/').pop() ?? 'previously uploaded file' };
+        seedPriorUrls[k] = d.url;
+      }
+      setDocs(seedDocs);
+      setPriorDocUrls(seedPriorUrls);
+      sessionStorage.removeItem(`reapply:${reapplyId}`);
+    } catch {
+      toast.error('Could not load your prior submission. Please re-apply from the status page.');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reapplyId]);
 
   useEffect(() => {
     const pin = form.pincode.trim();
@@ -265,13 +353,62 @@ export default function RetailerApplication() {
     if (errors[key]) setErrors((e) => { const n = { ...e }; delete n[key]; return n; });
   }
 
-  function advance() {
-    const errs = validateStep(step, form, docs);
+  const [checkingIdentity, setCheckingIdentity] = useState(false);
+
+  async function advance() {
+    const errs = validateStep(step, form, docs, Boolean(reapplyId));
     if (Object.keys(errs).length > 0) {
       setErrors(errs);
       toast.error('Please fix the errors before continuing.');
       return;
     }
+
+    // Identity-step pre-check: surface collisions before the user fills out 4 more steps.
+    // Skip on reapply (the row is owned by the applicant already; submit will update in place).
+    if (step === 'identity' && !reapplyId) {
+      setCheckingIdentity(true);
+      try {
+        const params = new URLSearchParams({
+          email: form.email.trim(),
+          phone: form.phone.trim(),
+        });
+        const result = await api<{
+          emailTaken: boolean;
+          phoneTaken: boolean;
+          accountExists: boolean;
+          applicationStatus: string | null;
+          applicationId: string | null;
+        }>(`/applications/check-identity?${params.toString()}`);
+
+        if (result.emailTaken || result.phoneTaken) {
+          const fieldErrs: FieldErrors = {};
+          if (result.accountExists) {
+            const msg = 'An approved retailer account already exists with these details. Sign in instead.';
+            if (result.emailTaken) fieldErrs['email'] = msg;
+            if (result.phoneTaken) fieldErrs['phone'] = msg;
+            toast.error(msg);
+          } else if (result.applicationStatus === 'rejected') {
+            const msg = 'A previous application was rejected. Use the status page to re-apply on the same record.';
+            if (result.emailTaken) fieldErrs['email'] = msg;
+            if (result.phoneTaken) fieldErrs['phone'] = msg;
+            toast.error(msg);
+          } else {
+            const msg = 'An application with this email or phone is already on file. Check your status page.';
+            if (result.emailTaken) fieldErrs['email'] = msg;
+            if (result.phoneTaken) fieldErrs['phone'] = msg;
+            toast.error(msg);
+          }
+          setErrors(fieldErrs);
+          return;
+        }
+      } catch {
+        toast.error('Could not verify email/phone availability. Try again.');
+        return;
+      } finally {
+        setCheckingIdentity(false);
+      }
+    }
+
     setErrors({});
     const next = STEPS[idx + 1];
     if (next) setStep(next.key);
@@ -296,39 +433,83 @@ export default function RetailerApplication() {
       toast.info('Uploads in progress — please wait before submitting.');
       return;
     }
-    const errs = validateStep('docs', form, docs);
+    const errs = validateStep('docs', form, docs, Boolean(reapplyId));
     if (Object.keys(errs).length > 0) {
       setErrors(errs);
       toast.error('Please fix the errors before submitting.');
       return;
     }
+
+    // Resubmission: enforce that flagged kinds have *new* uploads, not the pre-filled prior URLs.
+    if (reapplyId && mustReupload.size > 0) {
+      const stillStale: string[] = [];
+      for (const kind of mustReupload) {
+        const current = docs[kind]?.url;
+        const prior = priorDocUrls[kind];
+        if (!current || (prior && current === prior)) {
+          stillStale.push(DOC_SLOTS.find((s) => s.kind === kind)?.label ?? kind);
+        }
+      }
+      if (stillStale.length > 0) {
+        toast.error(
+          `Admin asked you to replace these documents: ${stillStale.join(', ')}. Upload new files before resubmitting.`,
+        );
+        setStep('docs');
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       const documents = Object.entries(docs).map(([kind, d]) => ({ kind: kind as DocKind, url: d!.url }));
-      const result = await api<{ id: string }>('/applications', {
-        method: 'POST',
-        body: {
-          legalName: form.legalName.trim(),
-          storeName: form.storeName.trim(),
-          gstin: form.gstin.trim(),
-          pan: form.pan.trim(),
-          ownerName: form.legalName.trim(),
-          ownerEmail: form.email.trim(),
-          ownerPhone: form.phone.trim(),
-          addressLine: form.address.trim(),
-          pincode: form.pincode.trim(),
-          stateCode: form.stateCode.trim(),
-          lat: String(form.lat),
-          lng: String(form.lng),
-          hours: hoursConfigToRecord(form.hours),
-          bankLegalName: form.accountHolderName.trim() || undefined,
-          bankAccountNumber: form.accountNumber.trim() || undefined,
-          bankIfsc: form.ifsc.trim() || undefined,
-          documents,
-          password: form.password,
-        },
-      });
-      setSubmitted({ email: form.email.trim(), appId: result.id });
+      const baseBody = {
+        legalName: form.legalName.trim(),
+        storeName: form.storeName.trim(),
+        gstin: form.gstin.trim(),
+        pan: form.pan.trim(),
+        ownerName: form.legalName.trim(),
+        ownerEmail: form.email.trim(),
+        ownerPhone: form.phone.trim(),
+        addressLine: form.address.trim(),
+        pincode: form.pincode.trim(),
+        stateCode: form.stateCode.trim(),
+        lat: String(form.lat),
+        lng: String(form.lng),
+        hours: hoursConfigToRecord(form.hours),
+        ...(form.contactPhone.trim() ? { contactPhone: form.contactPhone.trim() } : {}),
+        ...(form.managerName.trim() ? { managerName: form.managerName.trim() } : {}),
+        bankLegalName: form.accountHolderName.trim() || undefined,
+        bankAccountNumber: form.accountNumber.trim() || undefined,
+        bankIfsc: form.ifsc.trim() || undefined,
+        documents,
+      };
+
+      let appId: string;
+      if (reapplyId) {
+        // Resubmit: identity proved with email+password (stashed by the status page).
+        const password = sessionStorage.getItem(`reapply-pw:${reapplyId}`) ?? '';
+        if (!password) {
+          toast.error('Re-application session expired. Open the status page again to retry.');
+          setSubmitting(false);
+          return;
+        }
+        const result = await api<{ id: string; status: string }>(
+          `/applications/${reapplyId}/resubmit`,
+          {
+            method: 'POST',
+            body: { ...baseBody, email: form.email.trim(), password },
+          },
+        );
+        sessionStorage.removeItem(`reapply-pw:${reapplyId}`);
+        appId = result.id;
+      } else {
+        const result = await api<{ id: string }>('/applications', {
+          method: 'POST',
+          body: { ...baseBody, password: form.password },
+        });
+        appId = result.id;
+      }
+      setSubmitted({ email: form.email.trim(), appId });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Submission failed. Please try again.');
     } finally {
@@ -345,7 +526,7 @@ export default function RetailerApplication() {
           </div>
           <h1 className="font-display italic text-[28px] text-ink">Application submitted</h1>
           <p className="text-[13.5px] text-ink-2">
-            We received your application. The ClosetX compliance team will review your documents
+            We received your application. The Trendzo compliance team will review your documents
             and reach out to <strong>{submitted.email}</strong> within 2–3 business days.
           </p>
           <div className="rounded-lg border border-info/30 bg-info-soft/20 px-4 py-3 text-left space-y-1.5">
@@ -433,11 +614,40 @@ export default function RetailerApplication() {
 
           {/* Decorative vertical rule */}
           <div className="mt-10 h-px w-full bg-gradient-to-r from-ink/10 via-ink/5 to-transparent" />
-          <p className="mt-4 text-[11px] uppercase tracking-[0.16em] text-ink-4">ClosetX Partner Portal</p>
+          <p className="mt-4 text-[11px] uppercase tracking-[0.16em] text-ink-4">Trendzo Partner Portal</p>
         </aside>
 
         {/* ── Right side — the actual form ── */}
         <div>
+      {reapplyId && snapshot && (
+        <div className="mb-5 rounded-md border border-warning/40 bg-warning/5 px-4 py-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+            <div className="space-y-1.5">
+              <div className="text-[13px] font-semibold text-ink">
+                Re-applying — address the issues below before resubmitting
+              </div>
+              {snapshot.application.decisionReason && (
+                <div className="text-[12.5px] text-ink-2 leading-relaxed">
+                  <span className="text-ink-3">Prior rejection: </span>
+                  <em>"{snapshot.application.decisionReason}"</em>
+                </div>
+              )}
+              {mustReupload.size > 0 && (
+                <div className="text-[12px] text-ink-2">
+                  <span className="text-ink-3">Documents to replace: </span>
+                  {Array.from(mustReupload)
+                    .map((k) => DOC_SLOTS.find((s) => s.kind === k)?.label ?? k)
+                    .join(', ')}
+                </div>
+              )}
+              <div className="text-[11.5px] text-ink-3">
+                Submission #{snapshot.application.resubmissionCount + 1} · password not required again
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <Tabs value={step} onValueChange={(v) => setStep(v as Step)}>
         <TabsList className="overflow-x-auto whitespace-nowrap">
           {STEPS.map((s) => <TabsTrigger key={s.key} value={s.key}>{s.label}</TabsTrigger>)}
@@ -460,48 +670,52 @@ export default function RetailerApplication() {
               <Input id="phone" value={form.phone} onChange={(e) => update('phone', e.target.value)} placeholder="9876543210" />
               <FieldError>{errors['phone']}</FieldError>
             </div>
-            <div>
-              <Label htmlFor="password" required hint="min 8 characters">Password</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={form.password}
-                  onChange={(e) => update('password', e.target.value)}
-                  className="pr-9"
-                />
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="absolute inset-y-0 right-0 flex items-center px-2.5 text-ink-3 hover:text-ink-2"
-                >
-                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </button>
-              </div>
-              <FieldError>{errors['password']}</FieldError>
-            </div>
-            <div>
-              <Label htmlFor="confirmPassword" required>Confirm password</Label>
-              <div className="relative">
-                <Input
-                  id="confirmPassword"
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  value={form.confirmPassword}
-                  onChange={(e) => update('confirmPassword', e.target.value)}
-                  className="pr-9"
-                />
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  onClick={() => setShowConfirmPassword((v) => !v)}
-                  className="absolute inset-y-0 right-0 flex items-center px-2.5 text-ink-3 hover:text-ink-2"
-                >
-                  {showConfirmPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </button>
-              </div>
-              <FieldError>{errors['confirmPassword']}</FieldError>
-            </div>
+            {!reapplyId && (
+              <>
+                <div>
+                  <Label htmlFor="password" required hint="min 8 characters">Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      value={form.password}
+                      onChange={(e) => update('password', e.target.value)}
+                      className="pr-9"
+                    />
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute inset-y-0 right-0 flex items-center px-2.5 text-ink-3 hover:text-ink-2"
+                    >
+                      {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
+                  <FieldError>{errors['password']}</FieldError>
+                </div>
+                <div>
+                  <Label htmlFor="confirmPassword" required>Confirm password</Label>
+                  <div className="relative">
+                    <Input
+                      id="confirmPassword"
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      value={form.confirmPassword}
+                      onChange={(e) => update('confirmPassword', e.target.value)}
+                      className="pr-9"
+                    />
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => setShowConfirmPassword((v) => !v)}
+                      className="absolute inset-y-0 right-0 flex items-center px-2.5 text-ink-3 hover:text-ink-2"
+                    >
+                      {showConfirmPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
+                  <FieldError>{errors['confirmPassword']}</FieldError>
+                </div>
+              </>
+            )}
           </StepCard>
         </TabsContent>
 
@@ -590,6 +804,91 @@ export default function RetailerApplication() {
               <Label htmlFor="hours">Operating hours</Label>
               <StoreHoursPicker value={form.hours} onChange={(v) => update('hours', v)} />
             </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <div className="flex items-baseline justify-between gap-2 mb-1">
+                  <Label htmlFor="sf-contact-phone" hint="shown to customers" className="mb-0">Contact phone</Label>
+                  {form.phone && form.contactPhone !== form.phone && (
+                    <button
+                      type="button"
+                      className="shrink-0 text-[11px] text-info hover:underline"
+                      onClick={() => update('contactPhone', form.phone)}
+                    >
+                      Use owner's number
+                    </button>
+                  )}
+                </div>
+                <Input id="sf-contact-phone" value={form.contactPhone} onChange={(e) => update('contactPhone', e.target.value)} placeholder="9876543210" />
+              </div>
+              <div>
+                <Label htmlFor="sf-manager-name" hint="store manager">Manager name</Label>
+                <Input id="sf-manager-name" value={form.managerName} onChange={(e) => update('managerName', e.target.value)} placeholder="Ramesh Patel" />
+              </div>
+            </div>
+            <div className="rounded-md bg-info-soft/30 px-3 py-2 text-[12px] text-info">
+              Contact phone and manager name are optional — you can update them later from the store settings.
+            </div>
+            <div>
+              <Label hint="optional, add up to 5">Store photos</Label>
+              <div className="space-y-2">
+                {storeImages.map((url, i) => (
+                  <div key={i} className="flex items-center gap-2 rounded-md border border-line bg-bg-2/30 px-3 py-2">
+                    <img src={url} alt={`Store photo ${i + 1}`} className="h-10 w-14 rounded object-cover" />
+                    <span className="flex-1 truncate text-[12px] text-ink-2">{url.split('/').pop()}</span>
+                    <button type="button" onClick={() => setStoreImages((imgs) => imgs.filter((_, j) => j !== i))} className="text-[11px] text-danger hover:underline">Remove</button>
+                  </div>
+                ))}
+                {uploadingPhotos.map((u) => (
+                  <div key={u.id} className="rounded-md border border-line bg-bg-2/30 px-3 py-2">
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <div className="h-10 w-14 shrink-0 animate-pulse rounded bg-line" />
+                      <span className="flex-1 truncate text-[12px] text-ink-3">{u.name}</span>
+                      <span className="shrink-0 text-[11px] tabular-nums text-ink-3">{u.progress}%</span>
+                    </div>
+                    <div className="h-[3px] overflow-hidden rounded-full bg-line">
+                      <div
+                        className="h-full rounded-full bg-ink transition-[width] duration-200 ease-out"
+                        style={{ width: `${u.progress}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+                {storeImages.length + uploadingPhotos.length < 5 && (
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-line px-3 py-2.5 text-[13px] text-ink-3 hover:bg-bg-3">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const tempId = crypto.randomUUID();
+                        setUploadingPhotos((prev) => [...prev, { id: tempId, name: file.name, progress: 0 }]);
+                        try {
+                          const { url } = await uploadMedia(file, {
+                            folder: 'store-gallery',
+                            onProgress: (pct) =>
+                              setUploadingPhotos((prev) =>
+                                prev.map((u) => (u.id === tempId ? { ...u, progress: pct } : u)),
+                              ),
+                          });
+                          setStoreImages((imgs) => [...imgs, url]);
+                        } catch {
+                          toast.error('Image upload failed');
+                        } finally {
+                          setUploadingPhotos((prev) => prev.filter((u) => u.id !== tempId));
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+                    <Paperclip className="size-3.5" /> Add photo
+                  </label>
+                )}
+                <p className="text-[11.5px] text-ink-4">
+                  Photos help customers recognize your store. You can add or update them later in Store settings.
+                </p>
+              </div>
+            </div>
           </StepCard>
         </TabsContent>
 
@@ -669,14 +968,36 @@ export default function RetailerApplication() {
               {DOC_SLOTS.map(({ kind, label }) => {
                 const uploaded = docs[kind];
                 const busy = uploading[kind];
+                const flaggedForReplace = mustReupload.has(kind);
+                const stillStale =
+                  flaggedForReplace &&
+                  uploaded != null &&
+                  priorDocUrls[kind] === uploaded.url;
                 return (
-                  <li key={kind} className="flex items-center justify-between rounded-md border border-line bg-bg-2/30 px-3 py-2">
-                    <div className="flex items-center gap-2 min-w-0">
+                  <li
+                    key={kind}
+                    className={`flex items-center justify-between rounded-md border px-3 py-2 ${
+                      flaggedForReplace
+                        ? 'border-warning/50 bg-warning/5'
+                        : 'border-line bg-bg-2/30'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
                       <span className="text-[13px] text-ink-2 shrink-0">{label}</span>
-                      {uploaded && (
+                      {flaggedForReplace && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[10.5px] font-medium uppercase tracking-wide text-warning">
+                          <AlertTriangle className="size-3" /> must replace
+                        </span>
+                      )}
+                      {uploaded && !stillStale && (
                         <span className="flex items-center gap-1 truncate text-[11.5px] text-success">
                           <CheckCircle2 className="size-3 shrink-0" />
                           <span className="truncate">{uploaded.filename}</span>
+                        </span>
+                      )}
+                      {stillStale && (
+                        <span className="text-[11.5px] text-warning">
+                          Old file shown — upload a new one
                         </span>
                       )}
                     </div>
@@ -735,10 +1056,10 @@ export default function RetailerApplication() {
         </Button>
         {isLast ? (
           <Button variant="accent" loading={submitting} iconLeft={<Check className="size-4" />} onClick={() => void submit()}>
-            Submit application
+            {reapplyId ? 'Resubmit application' : 'Submit application'}
           </Button>
         ) : (
-          <Button variant="ink" iconRight={<ArrowRight className="size-3.5" />} onClick={advance}>
+          <Button variant="ink" loading={checkingIdentity} iconRight={<ArrowRight className="size-3.5" />} onClick={() => void advance()}>
             Continue
           </Button>
         )}

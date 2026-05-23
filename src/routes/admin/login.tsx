@@ -7,7 +7,6 @@ import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import type { AdminProfile } from '@/lib/types';
 import { AuthShell } from '@/components/forms/AuthShell';
-import { HardwareKeyChallenge } from '@/components/forms/HardwareKeyChallenge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -30,7 +29,7 @@ export default function AdminLogin() {
   } = useForm({
     resolver: zodResolver(Schema),
     // Prefilled with seeded creds for one-click dev sign-in.
-    defaultValues: { email: 'admin@closetx.local', password: 'admin1234' },
+    defaultValues: { email: 'admin@trendzo.local', password: 'admin1234' },
   });
 
   async function onSubmit(values: FormValues) {
@@ -39,7 +38,18 @@ export default function AdminLogin() {
         '/auth/admin/login',
         { method: 'POST', body: values },
       );
-      signIn({ kind: 'admin', token, admin });
+      // Fetch effective permissions for this sub-role + override matrix so the dashboard
+      // can hide nav items and gate buttons the user can't use.
+      let permissions: Record<string, boolean> = {};
+      try {
+        const me = await api<{ permissions: Record<string, boolean> }>('/admin/me/permissions', {
+          token,
+        });
+        permissions = me.permissions;
+      } catch {
+        // Fall back to empty map — pages will appear locked-down but login still succeeds.
+      }
+      signIn({ kind: 'admin', token, admin, permissions });
       toast.success(`Signed in as ${admin.email}`);
       navigate('/admin/dashboard', { replace: true });
     } catch (e) {
@@ -77,7 +87,6 @@ export default function AdminLogin() {
         <Button type="submit" variant="accent" size="lg" className="w-full" loading={isSubmitting}>
           Sign in
         </Button>
-        <HardwareKeyChallenge />
       </form>
     </AuthShell>
   );

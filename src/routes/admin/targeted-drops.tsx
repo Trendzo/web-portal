@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, Send } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { formatAge, mechanismLabel } from '@/lib/status';
-import type { Promotion, TargetedDrop } from '@/lib/types';
+import type { ConsumerSummary, Promotion, TargetedDrop } from '@/lib/types';
 import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,6 @@ import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -21,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { MultiSelect } from '@/components/ui/multi-select';
 
 type Cohort = 'all' | 'loyalty_gold' | 'loyalty_silver' | 'specific_consumers';
 
@@ -44,20 +44,27 @@ export default function AdminTargetedDrops() {
 
   const [promoId, setPromoId] = useState('');
   const [cohort, setCohort] = useState<Cohort>('all');
-  const [consumerIds, setConsumerIds] = useState('');
+  const [consumerIds, setConsumerIds] = useState<string[]>([]);
+
+  const consumers = useQuery({
+    queryKey: ['admin', 'consumers', 'targeted-drop'],
+    queryFn: () => api<ConsumerSummary[]>('/admin/consumers?limit=200'),
+    enabled: cohort === 'specific_consumers',
+  });
+  const consumerOptions = (consumers.data ?? []).map((c) => ({
+    value: c.id,
+    label: c.name || c.email,
+    hint: c.email,
+  }));
 
   const submit = useMutation({
     mutationFn: () => {
-      const ids = consumerIds
-        .split(/[\s,]+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
       return api('/admin/targeted-drops', {
         method: 'POST',
         body: {
           promotionId: promoId,
           cohort,
-          ...(cohort === 'specific_consumers' && ids.length ? { consumerIds: ids } : {}),
+          ...(cohort === 'specific_consumers' && consumerIds.length ? { consumerIds } : {}),
         },
       });
     },
@@ -65,7 +72,7 @@ export default function AdminTargetedDrops() {
       toast.success('Drop queued — consumers will receive it in their wallets');
       setPromoId('');
       setCohort('all');
-      setConsumerIds('');
+      setConsumerIds([]);
       void qc.invalidateQueries({ queryKey: ['admin', 'promotions', 'drops'] });
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Failed to queue drop'),
@@ -126,12 +133,13 @@ export default function AdminTargetedDrops() {
             </div>
             {cohort === 'specific_consumers' && (
               <div>
-                <Label>Consumer IDs <span className="text-ink-3 font-normal">(comma or newline separated)</span></Label>
-                <Textarea
-                  rows={4}
+                <Label>Consumers</Label>
+                <MultiSelect
+                  options={consumerOptions}
                   value={consumerIds}
-                  onChange={(e) => setConsumerIds(e.target.value)}
-                  placeholder="cns_abc123, cns_def456"
+                  onChange={setConsumerIds}
+                  placeholder={consumers.isLoading ? 'Loading consumers…' : 'Pick consumers'}
+                  loading={consumers.isLoading}
                 />
               </div>
             )}

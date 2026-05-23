@@ -2,10 +2,17 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, BarChart3, Bell, Building2, CalendarDays, FileText, Inbox, LayoutDashboard, Package, PackageX, Pencil, Receipt, ShieldCheck, Sparkles, SlidersHorizontal, Tag, Users, Wallet, Warehouse, Zap } from 'lucide-react';
 import { api } from '@/lib/api';
-import { SidebarShell, type SidebarGroup } from '@/components/shell/SidebarShell';
+import {
+  SidebarShell,
+  filterSidebarGroups,
+  type SidebarGroup,
+} from '@/components/shell/SidebarShell';
 import { RoleGate } from '@/components/shell/RoleGate';
 import { AiQuotaChip } from '@/components/shell/AiQuotaChip';
+import { ImpersonationBanner } from '@/components/shell/ImpersonationBanner';
+import { ComplianceFloorBanner } from '@/components/shell/ComplianceFloorBanner';
 import { useRetailerBanners } from '@/lib/banner-triggers';
+import { useAuth } from '@/lib/auth';
 import type { RetailerProfile, Store } from '@/lib/types';
 
 type MeResponse = { retailer: RetailerProfile; store: Store | null };
@@ -21,13 +28,13 @@ type MeResponse = { retailer: RetailerProfile; store: Store | null };
  */
 function buildGroups(store: Store | null): SidebarGroup[] {
   const showStorefront = !store || store.status !== 'active';
-  const showOrders = store && store.status === 'active';
+  const showOrders = store && (store.status === 'active' || store.status === 'paused');
   return [
     {
       label: 'Workspace',
       items: [
         { to: '/retailer/dashboard', label: 'Overview', end: true, icon: LayoutDashboard },
-        ...(showStorefront ? [{ to: '/retailer/store', label: 'Storefront', end: true, icon: Building2 }] : []),
+        { to: '/retailer/store', label: showStorefront ? 'Storefront' : 'Store settings', end: true, icon: Building2, action: 'store.view_profile' },
       ],
     },
     ...(showOrders
@@ -35,10 +42,10 @@ function buildGroups(store: Store | null): SidebarGroup[] {
           {
             label: 'Orders',
             items: [
-              { to: '/retailer/orders', label: 'Orders', end: false, icon: Receipt },
-              { to: '/retailer/returns', label: 'Returns', end: true, icon: PackageX },
-              { to: '/retailer/held-items', label: 'Held items', end: true, icon: PackageX },
-              { to: '/retailer/issues', label: 'Issues', end: true, icon: AlertTriangle },
+              { to: '/retailer/orders', label: 'Orders', end: false, icon: Receipt, action: 'orders.view' },
+              { to: '/retailer/returns', label: 'Returns', end: true, icon: PackageX, action: 'returns.view' },
+              { to: '/retailer/held-items', label: 'Held items', end: true, icon: PackageX, action: 'held_items.view' },
+              { to: '/retailer/issues', label: 'Issues', end: true, icon: AlertTriangle, action: 'disputes.view' },
             ],
           },
         ]
@@ -46,59 +53,70 @@ function buildGroups(store: Store | null): SidebarGroup[] {
     {
       label: 'Catalog',
       items: [
-        { to: '/retailer/listings', label: 'Products', end: false, icon: Package },
-        { to: '/retailer/inventory', label: 'Inventory', end: true, icon: Warehouse },
-        { to: '/retailer/pricing', label: 'Pricing', end: true, icon: Tag },
-        { to: '/retailer/attribute-templates', label: 'Attribute templates', end: false, icon: SlidersHorizontal },
-        { to: '/retailer/ai-catalog', label: 'AI catalog', end: false, icon: Sparkles },
+        { to: '/retailer/listings', label: 'Products', end: false, icon: Package, action: 'listings.view' },
+        { to: '/retailer/inventory', label: 'Inventory', end: true, icon: Warehouse, action: 'inventory.view' },
+        { to: '/retailer/pricing', label: 'Pricing', end: true, icon: Tag, action: 'listings.view' },
+        { to: '/retailer/attribute-templates', label: 'Attribute templates', end: false, icon: SlidersHorizontal, action: 'attribute_templates.view' },
+        { to: '/retailer/ai-catalog', label: 'AI catalog', end: false, icon: Sparkles, action: 'ai_catalog.generate' },
       ],
     },
     {
       label: 'Marketing',
       items: [
-        { to: '/retailer/promotions', label: 'Promotions', end: false, icon: Tag },
-        { to: '/retailer/voucher-batch', label: 'Voucher batches', end: true, icon: Tag },
+        { to: '/retailer/promotions', label: 'Promotions', end: false, icon: Tag, action: 'promotions.view' },
+        { to: '/retailer/voucher-batch', label: 'Voucher batches', end: true, icon: Tag, action: 'vouchers.view' },
       ],
     },
     {
       label: 'Finance',
       items: [
-        { to: '/retailer/fees', label: 'Fees', end: true, icon: Tag },
-        { to: '/retailer/tax-invoices', label: 'Tax invoices', end: true, icon: FileText },
-        { to: '/retailer/commission-invoices', label: 'Commission invoices', end: true, icon: FileText },
-        { to: '/retailer/billing-statements', label: 'Billing statements', end: true, icon: Receipt },
-        { to: '/retailer/payouts', label: 'Payouts', end: true, icon: Wallet },
-        { to: '/retailer/early-disbursement', label: 'Early disbursement', end: true, icon: Zap },
+        { to: '/retailer/fees', label: 'Fees', end: true, icon: Tag, action: 'fees.view' },
+        { to: '/retailer/tax-invoices', label: 'Tax invoices', end: true, icon: FileText, action: 'invoicing.view' },
+        { to: '/retailer/commission-invoices', label: 'Commission invoices', end: true, icon: FileText, action: 'invoicing.view' },
+        { to: '/retailer/billing-statements', label: 'Billing statements', end: true, icon: Receipt, action: 'invoicing.view' },
+        { to: '/retailer/payouts', label: 'Payouts', end: true, icon: Wallet, action: 'payouts.view' },
+        { to: '/retailer/payouts/upcoming', label: 'Upcoming payout', end: true, icon: Wallet, action: 'payouts.view' },
+        { to: '/retailer/early-disbursement', label: 'Early disbursement', end: true, icon: Zap, action: 'early_disbursement.request' },
       ],
     },
     {
       label: 'Reports',
       items: [
-        { to: '/retailer/reports/sales', label: 'Sales', end: true, icon: BarChart3 },
-        { to: '/retailer/reports/performance', label: 'Performance', end: true, icon: BarChart3 },
-        { to: '/retailer/reports/returns', label: 'Returns', end: true, icon: BarChart3 },
-        { to: '/retailer/reports/inventory-health', label: 'Inventory health', end: true, icon: BarChart3 },
+        { to: '/retailer/reports/sales-detailed', label: 'Sales detail', end: true, icon: BarChart3, action: 'reports.view' },
+        { to: '/retailer/reports/revenue-summary', label: 'Revenue summary', end: true, icon: BarChart3, action: 'reports.view' },
+        { to: '/retailer/reports/listings/revenue', label: 'Listing revenue', end: true, icon: BarChart3, action: 'reports.view' },
+        { to: '/retailer/reports/listings/conversion', label: 'Variant conversion', end: true, icon: BarChart3, action: 'reports.view' },
+        { to: '/retailer/reports/listings/best-sellers', label: 'Best sellers', end: true, icon: BarChart3, action: 'reports.view' },
+        { to: '/retailer/reports/listings/dead-stock', label: 'Dead stock', end: true, icon: BarChart3, action: 'reports.view' },
+        { to: '/retailer/reports/returns/top-listings', label: 'Top returns', end: true, icon: BarChart3, action: 'reports.view' },
+        { to: '/retailer/reports/compliance', label: 'Compliance', end: true, icon: BarChart3, action: 'reports.view' },
+        { to: '/retailer/reports/payouts/cycles', label: 'Payout cycles', end: true, icon: BarChart3, action: 'reports.view' },
+        { to: '/retailer/reports/sales', label: 'Sales (legacy)', end: true, icon: BarChart3, action: 'reports.view' },
+        { to: '/retailer/reports/performance', label: 'Performance (legacy)', end: true, icon: BarChart3, action: 'reports.view' },
+        { to: '/retailer/reports/returns', label: 'Returns (legacy)', end: true, icon: BarChart3, action: 'reports.view' },
+        { to: '/retailer/reports/inventory-health', label: 'Inventory health (legacy)', end: true, icon: BarChart3, action: 'reports.view' },
       ],
     },
     {
       label: 'Workspace tools',
       items: [
-        { to: '/retailer/inbox', label: 'Inbox', end: true, icon: Inbox },
-        { to: '/retailer/notification-prefs', label: 'Notifications', end: true, icon: Bell },
-        { to: '/retailer/holiday-calendar', label: 'Holiday calendar', end: true, icon: CalendarDays },
+        { to: '/retailer/inbox', label: 'Inbox', end: true, icon: Inbox, action: 'notifications.read' },
+        { to: '/retailer/notification-prefs', label: 'Notifications', end: true, icon: Bell, action: 'notifications.read' },
+        { to: '/retailer/holiday-calendar', label: 'Holiday calendar', end: true, icon: CalendarDays, action: 'store.holidays_edit' },
+        { to: '/retailer/pickup-slots', label: 'Pickup slots', end: true, icon: CalendarDays, action: 'store.edit_profile' },
       ],
     },
     {
       label: 'Compliance',
       items: [
-        { to: '/retailer/kyc', label: 'KYC', end: true, icon: ShieldCheck },
-        { to: '/retailer/change-requests', label: 'Change requests', end: true, icon: Pencil },
+        { to: '/retailer/kyc', label: 'KYC', end: true, icon: ShieldCheck, action: 'compliance.view' },
+        { to: '/retailer/change-requests', label: 'Change requests', end: true, icon: Pencil, action: 'change_requests.view' },
       ],
     },
     {
       label: 'Team',
       items: [
-        { to: '/retailer/staff', label: 'Staff', end: true, icon: Users },
+        { to: '/retailer/staff', label: 'Staff', end: true, icon: Users, action: 'staff.list' },
       ],
     },
   ];
@@ -111,11 +129,34 @@ export default function RetailerLayout() {
     queryKey: ['retailer', 'me'],
     queryFn: () => api<MeResponse>('/retailer/me'),
   });
-  const groups = useMemo(() => buildGroups(data?.store ?? null), [data?.store]);
+  const permissions = useAuth((s) =>
+    s.session?.kind === 'retailer' ? s.session.permissions : undefined,
+  );
+  const setPermissions = useAuth((s) => s.setPermissions);
+  // Re-fetch permissions on every layout mount so admin sub-role matrix edits
+  // take effect on the next nav without forcing a fresh sign-in. Login flow
+  // hydrates these once; this query keeps them current with a 5-minute stale
+  // window so we don't hammer the endpoint on tab switches.
+  useQuery({
+    queryKey: ['retailer', 'me', 'permissions'],
+    queryFn: async () => {
+      const res = await api<{ permissions: Record<string, boolean> }>('/retailer/me/permissions');
+      setPermissions(res.permissions);
+      return res.permissions;
+    },
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: 'always',
+  });
+  const groups = useMemo(() => {
+    const built = buildGroups(data?.store ?? null);
+    return filterSidebarGroups(built, permissions);
+  }, [data?.store, permissions]);
   useRetailerBanners();
 
   return (
     <RoleGate kind="retailer">
+      <ImpersonationBanner />
+      <ComplianceFloorBanner />
       <SidebarShell
         kindLabel="Retailer"
         groups={groups}

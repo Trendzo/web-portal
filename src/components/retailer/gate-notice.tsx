@@ -27,11 +27,11 @@ function configFor(gate: Exclude<Gate, { state: 'ready' }>): Config {
         ),
         cta: { label: 'Go to overview', href: '/retailer/dashboard' },
       };
-    case 'retailer_deactivated':
+    case 'retailer_terminated':
       return {
-        kicker: 'Account deactivated',
+        kicker: 'Account terminated',
         kickerTone: 'danger',
-        title: <>This account has been deactivated.</>,
+        title: <>This account has been terminated.</>,
         body: <>Contact admin if you think this is a mistake.</>,
         cta: null,
       };
@@ -42,7 +42,7 @@ function configFor(gate: Exclude<Gate, { state: 'ready' }>): Config {
         title: <>Your store is being set up.</>,
         body: (
           <>
-            Your store is created automatically when ClosetX approves your application.
+            Your store is created automatically when Trendzo approves your application.
             If this persists after approval, contact admin.
           </>
         ),

@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
 
-// Dashboard for ClosetX (admin + retailer). Talks to the backend monolith on :3099.
+// Dashboard for Trendzo (admin + retailer). Talks to the backend monolith on :3099.
 // Path alias `@/*` mirrors the backend convention so imports read consistently.
 export default defineConfig({
   plugins: [react(), tailwindcss()],

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -16,6 +17,15 @@ import { Badge } from '@/components/ui/badge';
 import { Empty } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MetaList } from '@/components/ui/meta-list';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export default function RetailerPromotionDetail() {
   const { id = '' } = useParams<{ id: string }>();
@@ -27,15 +37,23 @@ export default function RetailerPromotionDetail() {
   });
 
   const lifecycle = useMutation({
-    mutationFn: (action: 'pause' | 'resume' | 'revoke' | 'activate') =>
-      api<Promotion>(`/retailer/promotions/${id}/${action}`, { method: 'POST' }),
+    mutationFn: ({ action, reason }: { action: 'pause' | 'resume' | 'revoke' | 'activate'; reason?: string | undefined }) =>
+      api<Promotion>(`/retailer/promotions/${id}/${action}`, {
+        method: 'POST',
+        body: reason ? { reason } : {},
+      }),
     onSuccess: (p) => {
       toast.success(promotionStatusMeta(p.effectiveStatus).label);
+      setReasonDialog(null);
+      setReasonText('');
       void qc.invalidateQueries({ queryKey: ['retailer', 'promotion', id] });
       void qc.invalidateQueries({ queryKey: ['retailer', 'promotions'] });
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Failed'),
   });
+
+  const [reasonDialog, setReasonDialog] = useState<null | 'pause' | 'revoke'>(null);
+  const [reasonText, setReasonText] = useState('');
 
   if (promo.isLoading) {
     return (
@@ -91,8 +109,8 @@ export default function RetailerPromotionDetail() {
             size="sm"
             caps
             iconLeft={<Play className="size-3.5" />}
-            onClick={() => lifecycle.mutate('activate')}
-            loading={lifecycle.isPending && lifecycle.variables === 'activate'}
+            onClick={() => lifecycle.mutate({ action: 'activate' })}
+            loading={lifecycle.isPending && lifecycle.variables?.action === 'activate'}
           >
             Activate
           </Button>
@@ -103,8 +121,8 @@ export default function RetailerPromotionDetail() {
             size="sm"
             caps
             iconLeft={<Pause className="size-3.5" />}
-            onClick={() => lifecycle.mutate('pause')}
-            loading={lifecycle.isPending && lifecycle.variables === 'pause'}
+            onClick={() => setReasonDialog('pause')}
+            loading={lifecycle.isPending && lifecycle.variables?.action === 'pause'}
           >
             Pause
           </Button>
@@ -115,8 +133,8 @@ export default function RetailerPromotionDetail() {
             size="sm"
             caps
             iconLeft={<Play className="size-3.5" />}
-            onClick={() => lifecycle.mutate('resume')}
-            loading={lifecycle.isPending && lifecycle.variables === 'resume'}
+            onClick={() => lifecycle.mutate({ action: 'resume' })}
+            loading={lifecycle.isPending && lifecycle.variables?.action === 'resume'}
           >
             Resume
           </Button>
@@ -127,10 +145,8 @@ export default function RetailerPromotionDetail() {
             size="sm"
             caps
             iconLeft={<X className="size-3.5" />}
-            onClick={() => {
-              if (confirm('Revoke this promotion? This is permanent.')) lifecycle.mutate('revoke');
-            }}
-            loading={lifecycle.isPending && lifecycle.variables === 'revoke'}
+            onClick={() => setReasonDialog('revoke')}
+            loading={lifecycle.isPending && lifecycle.variables?.action === 'revoke'}
           >
             Revoke
           </Button>
@@ -178,6 +194,50 @@ export default function RetailerPromotionDetail() {
           )}
         </div>
       </div>
+
+      <Dialog
+        open={reasonDialog !== null}
+        onOpenChange={(o) => !lifecycle.isPending && !o && setReasonDialog(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{reasonDialog === 'revoke' ? 'Revoke promotion' : 'Pause promotion'}</DialogTitle>
+            <DialogDescription>
+              {reasonDialog === 'revoke'
+                ? 'Revocation is permanent. The reason is recorded on the audit log.'
+                : 'Why are you pausing? Optional, but recorded if provided.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label htmlFor="reason" required={reasonDialog === 'revoke'}>Reason</Label>
+            <textarea
+              id="reason"
+              rows={3}
+              maxLength={500}
+              value={reasonText}
+              onChange={(e) => setReasonText(e.target.value)}
+              placeholder="e.g. stockout — pausing while we restock"
+              className="mt-1 w-full rounded border border-line-2 bg-bg px-2 py-1 text-[13px]"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setReasonDialog(null)} disabled={lifecycle.isPending}>Cancel</Button>
+            <Button
+              variant={reasonDialog === 'revoke' ? 'danger' : 'ink'}
+              loading={lifecycle.isPending}
+              disabled={reasonDialog === 'revoke' && reasonText.trim().length < 3}
+              onClick={() =>
+                lifecycle.mutate({
+                  action: reasonDialog!,
+                  reason: reasonText.trim() ? reasonText.trim() : undefined,
+                })
+              }
+            >
+              {reasonDialog === 'revoke' ? 'Revoke' : 'Pause'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Page>
   );
 }

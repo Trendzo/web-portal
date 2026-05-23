@@ -12,7 +12,7 @@ import {
   mechanismLabel,
   promotionStatusMeta,
 } from '@/lib/status';
-import type { Promotion, VoucherCode } from '@/lib/types';
+import type { AdminStoreView, Brand, Category, Listing, Promotion, VoucherCode } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -41,15 +41,23 @@ export default function AdminPromotionDetail() {
   });
 
   const lifecycle = useMutation({
-    mutationFn: (action: 'pause' | 'resume' | 'revoke' | 'activate') =>
-      api<Promotion>(`/admin/promotions/${id}/${action}`, { method: 'POST' }),
+    mutationFn: ({ action, reason }: { action: 'pause' | 'resume' | 'revoke' | 'activate'; reason?: string | undefined }) =>
+      api<Promotion>(`/admin/promotions/${id}/${action}`, {
+        method: 'POST',
+        body: reason ? { reason } : {},
+      }),
     onSuccess: (p) => {
       toast.success(`${promotionStatusMeta(p.effectiveStatus).label}`);
+      setReasonDialog(null);
+      setReasonText('');
       void qc.invalidateQueries({ queryKey: ['admin', 'promotion', id] });
       void qc.invalidateQueries({ queryKey: ['admin', 'promotions'] });
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Failed'),
   });
+
+  const [reasonDialog, setReasonDialog] = useState<null | 'pause' | 'revoke'>(null);
+  const [reasonText, setReasonText] = useState('');
 
   if (promo.isLoading) {
     return (
@@ -109,8 +117,8 @@ export default function AdminPromotionDetail() {
             size="sm"
             caps
             iconLeft={<Play className="size-3.5" />}
-            onClick={() => lifecycle.mutate('activate')}
-            loading={lifecycle.isPending && lifecycle.variables === 'activate'}
+            onClick={() => lifecycle.mutate({ action: 'activate' })}
+            loading={lifecycle.isPending && lifecycle.variables?.action === 'activate'}
           >
             Activate
           </Button>
@@ -121,8 +129,8 @@ export default function AdminPromotionDetail() {
             size="sm"
             caps
             iconLeft={<Pause className="size-3.5" />}
-            onClick={() => lifecycle.mutate('pause')}
-            loading={lifecycle.isPending && lifecycle.variables === 'pause'}
+            onClick={() => setReasonDialog('pause')}
+            loading={lifecycle.isPending && lifecycle.variables?.action === 'pause'}
           >
             Pause
           </Button>
@@ -133,8 +141,8 @@ export default function AdminPromotionDetail() {
             size="sm"
             caps
             iconLeft={<Play className="size-3.5" />}
-            onClick={() => lifecycle.mutate('resume')}
-            loading={lifecycle.isPending && lifecycle.variables === 'resume'}
+            onClick={() => lifecycle.mutate({ action: 'resume' })}
+            loading={lifecycle.isPending && lifecycle.variables?.action === 'resume'}
           >
             Resume
           </Button>
@@ -145,12 +153,8 @@ export default function AdminPromotionDetail() {
             size="sm"
             caps
             iconLeft={<X className="size-3.5" />}
-            onClick={() => {
-              if (confirm('Revoke this promotion? This is permanent.')) {
-                lifecycle.mutate('revoke');
-              }
-            }}
-            loading={lifecycle.isPending && lifecycle.variables === 'revoke'}
+            onClick={() => setReasonDialog('revoke')}
+            loading={lifecycle.isPending && lifecycle.variables?.action === 'revoke'}
           >
             Revoke
           </Button>
@@ -217,16 +221,60 @@ export default function AdminPromotionDetail() {
         )}
 
         <TabsContent value="settings">
-          <ScopeEditPanel promotionId={p.id} onSaved={() => qc.invalidateQueries({ queryKey: ['admin', 'promotion', id] })} />
+          <ScopeEditPanel promotionId={p.id} storeId={p.storeId ?? null} onSaved={() => qc.invalidateQueries({ queryKey: ['admin', 'promotion', id] })} />
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={reasonDialog !== null}
+        onOpenChange={(o) => !lifecycle.isPending && !o && setReasonDialog(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{reasonDialog === 'revoke' ? 'Revoke promotion' : 'Pause promotion'}</DialogTitle>
+            <DialogDescription>
+              {reasonDialog === 'revoke'
+                ? 'Revocation is permanent. The reason is recorded on the audit log.'
+                : 'Why are you pausing? Optional, but recorded if provided.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label htmlFor="reason" required={reasonDialog === 'revoke'}>Reason</Label>
+            <textarea
+              id="reason"
+              rows={3}
+              maxLength={500}
+              value={reasonText}
+              onChange={(e) => setReasonText(e.target.value)}
+              placeholder="e.g. anomaly detected — investigating"
+              className="mt-1 w-full rounded border border-line-2 bg-bg px-2 py-1 text-[13px]"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setReasonDialog(null)} disabled={lifecycle.isPending}>Cancel</Button>
+            <Button
+              variant={reasonDialog === 'revoke' ? 'danger' : 'ink'}
+              loading={lifecycle.isPending}
+              disabled={reasonDialog === 'revoke' && reasonText.trim().length < 3}
+              onClick={() =>
+                lifecycle.mutate({
+                  action: reasonDialog!,
+                  reason: reasonText.trim() ? reasonText.trim() : undefined,
+                })
+              }
+            >
+              {reasonDialog === 'revoke' ? 'Revoke' : 'Pause'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Page>
   );
 }
 
 // ─── Scope edit panel ───
 
-function ScopeEditPanel({ promotionId, onSaved }: { promotionId: string; onSaved: () => void }) {
+function ScopeEditPanel({ promotionId, storeId, onSaved }: { promotionId: string; storeId: string | null; onSaved: () => void }) {
   const form = useForm({ defaultValues: { scope: {} as Record<string, unknown> } });
 
   const save = useMutation({
@@ -244,6 +292,28 @@ function ScopeEditPanel({ promotionId, onSaved }: { promotionId: string; onSaved
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Save failed'),
   });
 
+  const listings = useQuery({
+    queryKey: ['admin', 'stores', storeId, 'listings'],
+    queryFn: () => api<Listing[]>(`/admin/stores/${storeId}/listings`),
+    enabled: Boolean(storeId),
+  });
+  const brands = useQuery({
+    queryKey: ['catalog', 'brands'],
+    queryFn: () => api<Brand[]>('/catalog/brands'),
+  });
+  const categories = useQuery({
+    queryKey: ['catalog', 'categories'],
+    queryFn: () => api<Category[]>('/catalog/categories'),
+  });
+  const stores = useQuery({
+    queryKey: ['admin', 'stores', 'all'],
+    queryFn: () => api<AdminStoreView[]>('/admin/stores'),
+  });
+  const listingItems = (listings.data ?? []).map((l) => ({ id: l.id, name: l.name }));
+  const brandItems = (brands.data ?? []).map((b) => ({ id: b.id, name: b.name }));
+  const categoryItems = (categories.data ?? []).map((c) => ({ id: c.id, label: c.label }));
+  const storeItems = (stores.data ?? []).map((s) => ({ id: s.id, name: s.legalName }));
+
   return (
     <FormProvider {...form}>
       <form
@@ -255,7 +325,16 @@ function ScopeEditPanel({ promotionId, onSaved }: { promotionId: string; onSaved
           Update eligibility conditions for this promotion. Fields left blank remain unrestricted.
           Saving overwrites the existing scope.
         </p>
-        <EligibilitySection adminMode />
+        <EligibilitySection
+          listings={listingItems}
+          listingsLoading={listings.isLoading}
+          categories={categoryItems}
+          categoriesLoading={categories.isLoading}
+          brands={brandItems}
+          brandsLoading={brands.isLoading}
+          stores={storeItems}
+          storesLoading={stores.isLoading}
+        />
         <div className="flex items-center gap-3 pt-2">
           <Button type="submit" variant="ink" caps loading={save.isPending}>
             Save conditions
@@ -274,11 +353,11 @@ function VoucherCodesPanel({ promotionId }: { promotionId: string }) {
 
   const codes = useQuery({
     queryKey: ['admin', 'voucher-codes', promotionId],
-    queryFn: () => api<VoucherCode[]>(`/admin/promotions/${promotionId}/vouchers`),
+    queryFn: () => api<VoucherCode[]>(`/admin/promotions/${promotionId}/voucher-codes`),
   });
 
   const downloadCsv = () => {
-    const url = `${BASE}/admin/promotions/${promotionId}/vouchers?format=csv`;
+    const url = `${BASE}/admin/promotions/${promotionId}/voucher-codes/export`;
     const token = getToken();
     fetch(url, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -376,20 +455,18 @@ function GenerateDialog({
   onDone: () => void;
 }) {
   const [count, setCount] = useState('25');
-  const [usesAllowed, setUsesAllowed] = useState('1');
   const [prefix, setPrefix] = useState('');
   const [error, setError] = useState('');
 
   const generate = useMutation({
     mutationFn: () =>
       api<{ generated: number }>(
-        `/admin/promotions/${promotionId}/vouchers/bulk-generate`,
+        `/admin/promotions/${promotionId}/voucher-codes/generate`,
         {
           method: 'POST',
           body: {
             count: Number(count),
-            usesAllowed: usesAllowed.trim() ? Number(usesAllowed) : null,
-            prefix: prefix.trim().toUpperCase(),
+            prefix: prefix.trim().toUpperCase() || undefined,
           },
         },
       ),
@@ -413,15 +490,9 @@ function GenerateDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <Label required>Count</Label>
-              <Input mono type="number" min={1} max={10_000} value={count} onChange={(e) => setCount(e.target.value)} />
-            </div>
-            <div>
-              <Label hint="Per-code; leave blank for unlimited">Uses each</Label>
-              <Input mono type="number" min={1} placeholder="1" value={usesAllowed} onChange={(e) => setUsesAllowed(e.target.value)} />
-            </div>
+          <div>
+            <Label required>Count</Label>
+            <Input mono type="number" min={1} max={10_000} value={count} onChange={(e) => setCount(e.target.value)} />
           </div>
           <div>
             <Label hint="Optional, A-Z and 0-9 only">Prefix</Label>

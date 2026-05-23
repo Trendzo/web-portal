@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* ClosetX dashboard — refined monochrome console.
+/* Trendzo dashboard — refined monochrome console.
    Whites, blacks, generous radii, soft shadows. Status colors (success/danger/warning)
    are reserved for pill states and percentage deltas; the rest of the surface stays neutral.
    Inter and JetBrains Mono are loaded via index.html (avoids Tailwind reordering @import). */

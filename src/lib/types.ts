@@ -11,16 +11,14 @@ export type RetailerSubRole = 'owner' | 'manager' | 'staff';
 export type ConsumerStatus = 'active' | 'suspended' | 'closed';
 export type RetailerStatus =
   | 'pending_approval'
-  | 'under_review'
   | 'approved_no_store'
   | 'onboarding'
   | 'active'
   | 'paused'
   | 'suspended'
-  | 'terminated'
-  | 'deactivated';
+  | 'terminated';
 export type StoreStatus = 'onboarding' | 'active' | 'paused' | 'suspended' | 'terminated';
-export type ListingStatus = 'draft' | 'active' | 'retired';
+export type ListingStatus = 'draft' | 'active' | 'retired' | 'taken_down';
 export type Gender = 'her' | 'him' | 'unisex';
 export type ListingBadge = 'new' | 'hot' | 'trending' | 'none';
 export type ListingPolicy = 'return' | 'replace' | 'final_sale';
@@ -39,6 +37,8 @@ export type RetailerProfile = {
   gstin: string;
   status: RetailerStatus;
   storeId: string | null;
+  permanentSuspend?: boolean;
+  suspendReason?: string | null;
 };
 
 export type Store = {
@@ -52,6 +52,13 @@ export type Store = {
   status: StoreStatus;
   platformFeeBp: number;
   payoutCadenceDays: number;
+  delegationModeEnabled: boolean;
+  permanentSuspend?: boolean;
+  suspendReason?: string | null;
+  pauseReason?: string | null;
+  contactPhone?: string | null;
+  managerName?: string | null;
+  galleryImageUrls?: string[] | null;
 };
 
 export type Brand = {
@@ -87,7 +94,12 @@ export type Variant = {
   stock: number;
   reserved: number;
   pricePaise: number;
+  isActive: boolean;
+  /** True when a template edit removed an axis/value this variant was using. */
+  attributesOutOfTemplate: boolean;
 };
+
+export type AgeGroup = 'kids' | 'teens' | 'adults' | 'all';
 
 export type Listing = {
   id: string;
@@ -102,10 +114,15 @@ export type Listing = {
   badge: ListingBadge;
   listingPolicy: ListingPolicy;
   galleryUrls: string[];
+  occasion: string[];
+  ageGroup: AgeGroup | null;
   status: ListingStatus;
+  /** Latest moderation takedown note — only present when status === 'taken_down'. */
+  takedownReason?: string | null;
   ratingAvg: string;
   ratingCount: number;
   createdAt: string;
+  updatedAt: string;
   brand?: Brand;
   category?: Category;
   variants?: Variant[];
@@ -124,14 +141,84 @@ export type InventoryRow = {
   pricePaise: number;
   stock: number;
   reserved: number;
+  isActive: boolean;
 };
 
-/** Shape returned by `POST /retailer/inventory/import`. */
-export type InventoryImportResult = {
-  applied: number;
-  skipped: number;
-  errors: { row: number; sku: string; reason: string }[];
+/** One entry per CSV row in the dry-run plan returned by `/retailer/inventory/import`. */
+export type InventoryImportPlanEntry = {
+  row: number;
+  action: 'stock_update' | 'variant_create' | 'listing_create' | 'no_change' | 'error';
+  identifier: string;
+  stockUpdate?: {
+    variantId: string;
+    sku: string | null;
+    currentStock: number;
+    newStock: number;
+    delta: number;
+    newPricePaise?: number;
+  };
+  variantCreate?: {
+    listingId: string;
+    listingName: string;
+    attributes: Record<string, string>;
+    attributesLabel: string;
+    sku?: string;
+    pricePaise: number;
+    stock: number;
+  };
+  listingCreate?: {
+    listingName: string;
+    brandSlug: string;
+    brandId: string;
+    categoryLabel: string;
+    categoryId: string;
+    gender: Gender;
+    variant: {
+      attributes: Record<string, string>;
+      attributesLabel: string;
+      sku?: string;
+      pricePaise: number;
+      stock: number;
+    };
+  };
+  error?: { reason: string; detail?: string };
 };
+
+export type InventoryImportSummary = {
+  parsed: number;
+  stockUpdates: number;
+  variantCreates: number;
+  listingCreates: number;
+  noChange: number;
+  errors: number;
+};
+
+/** Discriminated union returned by `POST /retailer/inventory/import`.
+ *  Dry-run carries the full plan; apply carries the created/updated IDs. */
+export type InventoryImportResult =
+  | {
+      dryRun: true;
+      applied: 0;
+      summary: InventoryImportSummary;
+      plan: InventoryImportPlanEntry[];
+      /** Back-compat — list of stock-update plan entries flattened for older callers. */
+      valid?: Array<{ row: number; sku: string; currentStock: number; newStock: number; delta: number }>;
+      errors?: { row: number; sku: string; reason: string }[];
+    }
+  | {
+      dryRun: false;
+      applied: {
+        stockUpdates: number;
+        variantCreates: number;
+        listingCreates: number;
+        priceUpdates: number;
+      };
+      appliedTotal: number;
+      createdListings: Array<{ row: number; listingId: string; name: string }>;
+      createdVariants: Array<{ row: number; variantId: string; listingId: string; sku: string | null }>;
+      updatedVariants: Array<{ row: number; variantId: string; delta: number; priceChanged: boolean }>;
+      errors?: { row: number; sku: string; reason: string }[];
+    };
 
 export type InventoryAdjustment = {
   id: string;
@@ -181,7 +268,7 @@ export type AdminStoreView = Store & {
   } | null;
 };
 
-export type CollectionKind = 'outfit' | 'occasion' | 'drop' | 'edit' | 'trend';
+export type CollectionKind = 'outfit' | 'occasion' | 'drop' | 'edit' | 'trend' | 'brand';
 export type CollectionStatus = 'draft' | 'active' | 'archived';
 
 export type Collection = {
@@ -198,6 +285,10 @@ export type Collection = {
   status: CollectionStatus;
   startsAt: string | null;
   endsAt: string | null;
+  /** When kind='brand', the brand whose active listings auto-populate. */
+  brandId: string | null;
+  /** When kind='occasion', the occasion tag matched against listing.occasion[]. */
+  occasionTag: string | null;
   createdAt: string;
 };
 
@@ -408,7 +499,7 @@ export type ConsumerProfile = ConsumerSummary & {
 // upcoming lighter ticket type. Status union is widened with the doc-aligned
 // awaiting_* states so future §19 work can populate them without another rename.
 
-export type IssueKind = 'query' | 'dispute';
+export type IssueKind = 'query' | 'complaint' | 'dispute';
 
 export type IssueStatus =
   | 'open'
@@ -423,24 +514,36 @@ export type IssueStatus =
 
 export type IssueDecision = 'refund' | 'fresh_delivery' | 'pickup' | 'no_refund' | 'split';
 
+export type AwaitingParty = 'admin' | 'retailer' | 'consumer';
+
 export type IssueListRow = {
   id: string;
-  /** Optional today; populated when §19 ships. Defaults to `'dispute'` for legacy rows. */
-  kind?: IssueKind;
+  kind: IssueKind;
+  storeId: string;
   orderId: string | null;
   returnId: string | null;
-  targetKind: 'order' | 'return';
-  targetId: string;
   openedByActorType: ActorType;
   openedByActorId: string;
-  openedAt: string;
+  subject: string;
   description: string;
   evidence: string[];
   status: IssueStatus;
+  awaitingParty: AwaitingParty;
+  assignedAdminId: string | null;
   decision: IssueDecision | null;
   decisionNote: string | null;
   decidedAt: string | null;
-  decidedByAdminId: string | null;
+  payoutAdjustmentPaise: number | null;
+  linkedHoldId: string | null;
+  linkedAdjustmentId: string | null;
+  lastMessageAt: string;
+  createdAt: string;
+  closedAt: string | null;
+  /** Compatibility shims for pages that still read legacy field names */
+  targetKind?: 'order' | 'return';
+  targetId?: string;
+  openedAt?: string;
+  decidedByAdminId?: string | null;
 };
 
 // ─────────────────────── Orders ───────────────────────
@@ -509,6 +612,17 @@ export type OrderListRow = {
   placedAt: string;
   acceptedAt: string | null;
   deliveredAt: string | null;
+  /** When the routing/pending order's acceptance window closes. ISO timestamp; null on orders that never had a window. */
+  acceptanceDeadlineAt?: string | null;
+  /** True if the order has at least one open dispute/query — surfaced to admin filters. */
+  hasOpenDispute?: boolean;
+  /** §9 — pickup slot snapshot for delivery_method='pickup' orders. */
+  pickupSlotStart?: string | null;
+  pickupSlotEnd?: string | null;
+  pickupCode?: string | null;
+  /** §9 — try-and-buy door visit window. Live deadline for the try-on countdown. */
+  doorWindowExpiresAt?: string | null;
+  doorWindowExtendedAt?: string | null;
 };
 
 export type OrderItem = {
@@ -617,6 +731,9 @@ export type OrderDetail = {
   convenienceFeePaise: number;
   grandTotalPaise: number;
   platformFeeBpSnap: number;
+  /** §12 F3b — admin-set per-order platform fee override (paise). 0 = no override. */
+  platformFeeOverridePaise?: number;
+  platformFeeOverrideReason?: string | null;
 
   placedAt: string;
   acceptedAt: string | null;
@@ -624,8 +741,21 @@ export type OrderDetail = {
   closedAt: string | null;
   piiScrubbedAt: string | null;
   idempotencyKey: string;
+  acceptanceDeadlineAt?: string | null;
+  pickupSlotId?: string | null;
+  pickupSlotStart?: string | null;
+  pickupSlotEnd?: string | null;
+  pickupCode?: string | null;
+  doorWindowExpiresAt?: string | null;
+  doorWindowExtendedAt?: string | null;
 
-  group: { id: string; status: OrderGroupStatus; placedAt: string; siblingOrders: OrderListRow[] };
+  group: {
+    id: string;
+    status: OrderGroupStatus;
+    placedAt: string;
+    combinedTotalPaise?: number;
+    siblingOrders: OrderListRow[];
+  };
   items: OrderItem[];
   payments: Payment[];
   transitions: OrderTransition[];
@@ -781,7 +911,7 @@ export type RetailerStaff = {
   phone: string;
   gstin: string;
   subRole: RetailerSubRole;
-  status: 'pending_approval' | 'active' | 'deactivated';
+  status: 'pending_approval' | 'active' | 'terminated';
   createdAt: string;
 };
 
@@ -796,10 +926,10 @@ export type RetailerStaffInvite = {
 export type AdminTeamMember = {
   id: string;
   email: string;
-  name: string;
+  /** Display name. Optional because the backend `admin_accounts` row has no name column today; the UI falls back to email when absent. */
+  name?: string;
   subRole: AdminSubRole;
-  active: boolean;
-  lastActiveAt: string | null;
+  status: 'active' | 'revoked';
   createdAt: string;
 };
 
@@ -810,7 +940,7 @@ export type SubRolePermissionMatrix<Role extends string> = {
   cells: Record<string, Record<Role, boolean>>;
 };
 
-export type NotificationKind = 'order' | 'refund' | 'kyc' | 'system' | 'issue' | 'payout';
+export type NotificationKind = 'order' | 'refund' | 'kyc' | 'system' | 'issue' | 'payout' | 'promotion' | 'compliance';
 
 export type Notification = {
   id: string;
@@ -822,7 +952,7 @@ export type Notification = {
   createdAt: string;
 };
 
-export type BannerKind = 'impersonation' | 'kyc' | 'maintenance' | 'floor_breach' | 'suspended';
+export type BannerKind = 'impersonation' | 'kyc' | 'maintenance' | 'floor_breach' | 'suspended' | 'banned' | 'paused_by_admin';
 
 // ─────────────────────────────────────────────────────────────────────
 // §2 Retailer Onboarding — application pipeline, clarification thread, store profile
@@ -830,7 +960,6 @@ export type BannerKind = 'impersonation' | 'kyc' | 'maintenance' | 'floor_breach
 
 export type ApplicationStatus =
   | 'pending'
-  | 'under_review'
   | 'docs_requested'
   | 'approved'
   | 'rejected';
@@ -854,10 +983,53 @@ export type Application = {
   documents?: ApplicationDocument[];
 };
 
+export type ApplicationDocumentKind =
+  | 'storefront_photo'
+  | 'address_proof'
+  | 'pan'
+  | 'gst_certificate'
+  | 'bank_proof'
+  | 'other';
+
 export type ApplicationDocument = {
   id: string;
-  kind: 'storefront_photo' | 'address_proof' | 'pan' | 'gst_certificate' | 'bank_proof' | 'other';
+  kind: ApplicationDocumentKind;
   url: string;
+};
+
+/**
+ * Snapshot returned from POST /applications/:id/fetch-for-resubmit. Mirrors the
+ * `retailer_applications` row (minus `passwordHash`) plus the existing document set.
+ * Stashed in sessionStorage and read by the application form when `?reapply=<id>` is set.
+ */
+export type ResubmitSnapshot = {
+  application: {
+    id: string;
+    legalName: string;
+    storeName: string | null;
+    gstin: string;
+    pan: string | null;
+    ownerName: string;
+    ownerEmail: string;
+    ownerPhone: string;
+    addressLine: string;
+    pincode: string;
+    stateCode: string;
+    lat: string | null;
+    lng: string | null;
+    hours: Record<string, unknown> | null;
+    categories: string[] | null;
+    brands: string[] | null;
+    sampleSkus: unknown[] | null;
+    bankLegalName: string | null;
+    bankAccountNumber: string | null;
+    bankIfsc: string | null;
+    status: ApplicationStatus;
+    decisionReason: string | null;
+    mustReuploadDocKinds: ApplicationDocumentKind[];
+    resubmissionCount: number;
+  };
+  documents: Array<{ kind: ApplicationDocumentKind; url: string }>;
 };
 
 export type ClarificationMessage = {
@@ -926,11 +1098,20 @@ export type KycReverificationStatus = 'pending' | 'submitted' | 'approved' | 're
 
 export type KycReverification = {
   id: string;
-  retailerId: string;
+  /** Retailer endpoint sets this to the caller's account id; admin endpoint
+   *  omits it (uses storeId / storeName instead). Optional so both shapes type-fit. */
+  retailerId?: string;
+  /** Set by admin endpoint — the store the cycle belongs to. */
+  storeId?: string;
+  /** Joined store legal-name on admin endpoint. */
+  storeName?: string | null;
   dueAt: string;
   gracePeriodEndsAt: string;
   status: KycReverificationStatus;
   lastVerifiedAt: string | null;
+  submittedAt?: string | null;
+  decidedAt?: string | null;
+  decisionReason?: string | null;
   documents: KycDocument[];
 };
 
@@ -939,15 +1120,27 @@ export type ChangeRequestStatus = 'pending' | 'under_review' | 'approved' | 'rej
 
 export type ChangeRequest = {
   id: string;
-  retailerId: string;
+  storeId: string;
+  /** Joined from retailer_stores on the admin GET; absent on the retailer-scoped GET. */
+  storeName?: string | null;
   field: ChangeRequestField;
   currentValue: string;
   requestedValue: string;
-  reason: string;
+  reason: string | null;
+  evidenceUrl: string | null;
   status: ChangeRequestStatus;
   submittedAt: string;
   decidedAt: string | null;
+  decidedByAccountId: string | null;
   decisionNote: string | null;
+};
+
+/** Live store + bank values, used by the retailer submit dialog to populate "From". */
+export type ChangeRequestCurrentValues = {
+  legalName: string;
+  address: string;
+  gstin: string;
+  bank: { accountNumber: string; ifsc: string; legalName: string } | null;
 };
 
 export type EnforcementStep = 'warning_1' | 'warning_2' | 'warning_3' | 'suspension' | 'termination' | 'lifted';
@@ -962,6 +1155,12 @@ export type PolicyEnforcementAction = {
   actedByAdminId: string | null;
   reason: string | null;
   liftsActionId: string | null;
+  /** Joined fields (admin list/detail endpoint). */
+  storeName?: string | null;
+  retailerId?: string | null;
+  retailerName?: string | null;
+  retailerEmail?: string | null;
+  actorName?: string | null;
 };
 
 /** @deprecated use PolicyEnforcementAction */
@@ -978,6 +1177,9 @@ export type DataExportRequest = {
   downloadUrl: string | null;
   expiresAt: string | null;
   failureReason: string | null;
+  consumerName?: string | null;
+  consumerEmail?: string | null;
+  consumerPhone?: string | null;
 };
 
 export type AccountDeletionStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
@@ -989,6 +1191,10 @@ export type AccountDeletionRequest = {
   status: AccountDeletionStatus;
   scheduledFor: string;
   cancelledAt: string | null;
+  completedAt?: string | null;
+  consumerName?: string | null;
+  consumerEmail?: string | null;
+  consumerPhone?: string | null;
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1056,6 +1262,9 @@ export type CatalogFlagStatus = 'open' | 'under_appeal' | 'resolved_taken_down' 
 export type CatalogFlag = {
   id: string;
   listingId: string;
+  /** Joined from product_listings — present in GET /admin/catalog/moderation. */
+  listingName?: string | null;
+  listingStatus?: ListingStatus | null;
   source: CatalogFlagSource;
   reasonCode: string;
   details: string | null;
@@ -1064,6 +1273,7 @@ export type CatalogFlag = {
   status: CatalogFlagStatus;
   openedAt: string;
   resolvedAt: string | null;
+  assignedAdminId: string | null;
 };
 
 /** @deprecated use CatalogFlagSource */
@@ -1087,19 +1297,27 @@ export type AiSubmission = {
   id: string;
   storeId: string;
   listingId: string | null;
+  targetVariantId: string | null;
   mode: AiSubmissionMode;
+  prompt: string;
+  referenceImageUrls: string[];
+  revisionNotes: string | null;
   rawPhotos: string[];
   outputUrls: string[];
   status: AiSubmissionStatus;
+  errorMessage: string | null;
   costPaise: number | null;
   parentSubmissionId: string | null;
   thirdPartyRequestId: string | null;
   at: string;
+  // Populated only on the GET /:id detail call.
+  childSubmissionId?: string | null;
 };
 
-export type AiQuota = {
-  used: number;
-  total: number;
+export type AiListingQuota = {
+  listingId: string;
+  variantCount: number;
+  usedAttempts: number;
   remaining: number;
 };
 
@@ -1116,6 +1334,7 @@ export type FeesConfig = {
   interStateSplit: { igstBp: number };
   delivery: Record<DeliveryMethod, { baseFeePaise: number; perKmFeePaise: number }>;
   platformFeeOverrides: Array<{ retailerId: string; retailerName: string; platformFeeBp: number; reason: string }>;
+  lastChanged: Partial<Record<'base_delivery_fee_table' | 'surge_multiplier' | 'tcs_rate_bp', { at: string; by: string | null }>>;
 };
 
 export type RetailerFeeView = {
@@ -1136,10 +1355,15 @@ export type PromotionPerformance = {
   promotionId: string;
   name: string;
   redemptions: number;
+  uniqueConsumers: number;
+  totalDiscountPaise: number;
+  /** @deprecated alias of totalDiscountPaise; kept for back-compat. */
   gmvInfluencePaise: number;
-  aovLiftBp: number;
+  gmvInfluencedPaise: number;
   refundRateBp: number;
+  aovLiftBp: number;
   anomalyFlagged: boolean;
+  anomalyReasons: Array<'velocity_spike' | 'refund_spike' | 'consumer_concentration'>;
 };
 
 export type TargetedDrop = {
@@ -1157,7 +1381,7 @@ export type PromotionAnomaly = {
   id: string;
   promotionId: string;
   promotionName: string;
-  kind: 'velocity_spike' | 'concentrated_consumers' | 'refund_spike' | 'suspect_traffic';
+  kind: 'velocity_spike' | 'refund_spike' | 'consumer_concentration';
   detectedAt: string;
   severity: 'low' | 'medium' | 'high';
   metric: string;
@@ -1189,30 +1413,90 @@ export type WalletPayout = {
 // §15 Payment capture reconciliation + failures
 // ─────────────────────────────────────────────────────────────────────
 
-export type PaymentReconciliationStatus = 'matched' | 'mismatch' | 'missing_capture' | 'missing_settlement';
+export type PaymentSettlementStatus = 'uploaded' | 'reconciled' | 'partial' | 'closed';
+export type PaymentSettlementEntryMatchStatus =
+  | 'pending'
+  | 'matched'
+  | 'amount_mismatch'
+  | 'missing_in_capture'
+  | 'status_mismatch'
+  | 'duplicate';
+export type PaymentReconDiscrepancyKind =
+  | 'amount_mismatch'
+  | 'missing_in_capture'
+  | 'missing_in_settlement'
+  | 'status_mismatch'
+  | 'duplicate';
 
-export type PaymentReconRow = {
+export type PaymentReconSummary = {
+  totalEntries: number;
+  matched: number;
+  amountMismatch: number;
+  missingInCapture: number;
+  missingInSettlement: number;
+  statusMismatch: number;
+  duplicate: number;
+  totalAmountPaise: number;
+};
+
+export type PaymentSettlementRow = {
   id: string;
-  orderId: string;
-  gateway: 'razorpay' | 'phonepe' | 'cashfree' | 'manual';
-  capturePaise: number;
-  settlementPaise: number;
-  status: PaymentReconciliationStatus;
-  capturedAt: string;
-  settledAt: string | null;
-  diffPaise: number;
+  gatewayName: string;
+  cycleStart: string;
+  cycleEnd: string;
+  fileRef: string | null;
+  status: PaymentSettlementStatus;
+  summary: PaymentReconSummary;
+  openDiscrepancies: number;
+  uploadedAt: string;
+  reconciledAt: string | null;
+};
+
+export type PaymentSettlementEntry = {
+  id: string;
+  settlementId: string;
+  gatewayRef: string;
+  amountPaise: number;
+  currency: string;
+  txAt: string;
+  matchedPaymentId: string | null;
+  matchStatus: PaymentSettlementEntryMatchStatus;
+  raw: Record<string, unknown> | null;
+};
+
+export type PaymentReconDiscrepancy = {
+  id: string;
+  settlementId: string;
+  paymentId: string | null;
+  entryId: string | null;
+  kind: PaymentReconDiscrepancyKind;
+  details: Record<string, unknown>;
+  createdAt: string;
+  resolvedByAdminId: string | null;
+  resolvedAt: string | null;
+  resolvedNote: string | null;
+};
+
+export type PaymentSettlementDetail = {
+  settlement: PaymentSettlementRow;
+  entries: PaymentSettlementEntry[];
+  discrepancies: PaymentReconDiscrepancy[];
 };
 
 export type PaymentFailureRow = {
   id: string;
   orderId: string;
-  consumerEmail: string;
+  consumerId: string | null;
+  consumerEmail: string | null;
+  consumerPhone: string | null;
   amountPaise: number;
   method: PaymentMethod;
-  failureCode: string;
-  failureMessage: string;
-  attemptCount: number;
+  failureCode: string | null;
+  failureMessage: string | null;
+  gatewayRef: string | null;
   reservationStillHeld: boolean;
+  consumerNotifiedAt: string | null;
+  inventoryReleasedAt: string | null;
   failedAt: string;
 };
 
@@ -1395,21 +1679,59 @@ export type TailOfCycleRow = {
 // §19 Issue detail (extends IssueListRow already in place)
 // ─────────────────────────────────────────────────────────────────────
 
-export type IssueAttachment = { id: string; url: string; label: string };
-
 export type IssueMessage = {
   id: string;
-  issueId: string;
-  authorKind: 'admin' | 'retailer' | 'consumer' | 'system';
-  authorLabel: string;
+  senderType: 'admin' | 'retailer' | 'consumer' | 'system';
+  senderId: string;
   body: string;
-  attachments: IssueAttachment[];
-  createdAt: string;
+  attachments: string[];
+  at: string;
+};
+
+export type IssueTransition = {
+  id: string;
+  issueId: string;
+  fromStatus: IssueStatus | null;
+  toStatus: IssueStatus;
+  actorType: ActorType;
+  actorId: string;
+  reason: string | null;
+  at: string;
+};
+
+export type IssueEvidencePhoto = {
+  url: string;
+  source: string;
+  label?: string;
+};
+
+export type ConsumerFlag = {
+  kind: string;
+  reason: string;
+  at: string;
+};
+
+export type RetailerEnforcementEntry = {
+  step: string;
+  breachKind: string;
+  reason: string | null;
+  actedAt: string;
+};
+
+export type IssuePartyContext = {
+  consumerFlags: ConsumerFlag[];
+  retailerEnforcements: RetailerEnforcementEntry[];
 };
 
 export type IssueDetail = IssueListRow & {
   target: Record<string, unknown> | null;
   decidedByAdmin: { id: string; email: string } | null;
+  assignedAdminId?: string | null;
+  messages: IssueMessage[];
+  transitions: IssueTransition[];
+  evidencePhotos?: IssueEvidencePhoto[];
+  partyContext?: IssuePartyContext | null;
+  payoutAdjustmentPaise?: number | null;
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1506,6 +1828,7 @@ export type OperationalRow = {
 };
 
 export type ComplianceFloorRow = {
+  retailerId: string;
   retailerName: string;
   metric: string;
   value: string;

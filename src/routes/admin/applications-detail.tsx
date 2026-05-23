@@ -13,9 +13,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MetaList } from '@/components/ui/meta-list';
 import { CopyableId } from '@/components/ui/copyable-id';
-import { ReasonActionDialog } from '@/components/admin/reason-action-dialog';
 import { ClarificationRequestDialog } from '@/components/admin/clarification-request-dialog';
 import { ClarificationThread } from '@/components/admin/clarification-thread';
+import { RejectApplicationDialog } from '@/components/admin/reject-application-dialog';
+import type { ApplicationDocumentKind } from '@/lib/types';
 
 const FIELD_OPTIONS = [
   { value: 'legal_name', label: 'Legal name' },
@@ -51,7 +52,8 @@ export default function AdminApplicationsDetail() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (reason: string) => api(`/admin/applications/${id}/reject`, { method: 'POST', body: { reason } }),
+    mutationFn: (body: { reason: string; mustReuploadDocKinds: ApplicationDocumentKind[] }) =>
+      api(`/admin/applications/${id}/reject`, { method: 'POST', body }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'applications', id] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'applications'] });
@@ -189,14 +191,13 @@ export default function AdminApplicationsDetail() {
         </Card>
       </div>
 
-      <ReasonActionDialog
+      <RejectApplicationDialog
         open={rejecting}
-        title="Reject this application?"
-        description="The applicant is notified. They can re-apply only after admin approval."
-        confirmLabel="Reject"
-        danger
+        loading={rejectMutation.isPending}
         onClose={() => setRejecting(false)}
-        onConfirm={(reason) => rejectMutation.mutate(reason)}
+        onConfirm={({ reason, mustReuploadDocKinds }) =>
+          rejectMutation.mutate({ reason, mustReuploadDocKinds })
+        }
       />
       <ClarificationRequestDialog
         open={requesting}

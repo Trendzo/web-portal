@@ -3,7 +3,7 @@ import { test as base, type Page } from '@playwright/test';
 const ADMIN_SESSION = {
   kind: 'admin' as const,
   token: 'test-admin-token',
-  admin: { id: 'admin_super', email: 'super@closetx.local', subRole: 'super_admin' as const },
+  admin: { id: 'admin_super', email: 'super@trendzo.local', subRole: 'super_admin' as const },
 };
 
 const RETAILER_SESSION_ACTIVE = {
@@ -191,7 +191,7 @@ async function seedSession(page: Page, role: 'admin' | 'retailer-active' | 'reta
     version: 3,
   };
   await page.addInitScript((data) => {
-    localStorage.setItem('closetx-dashboard.auth', data);
+    localStorage.setItem('trendzo-dashboard.auth', data);
   }, JSON.stringify(wrapper));
 }
 

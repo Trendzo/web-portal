@@ -99,9 +99,9 @@ export function mockOperational(): OperationalRow[] {
 
 export function mockComplianceFloors(): ComplianceFloorRow[] {
   return [
-    { retailerName: 'Indigo Threads', metric: 'Acceptance rate', value: '74%', threshold: '85%', daysBelow: 14 },
-    { retailerName: 'Marigold', metric: 'Dispute rate', value: '4.2%', threshold: '2.0%', daysBelow: 9 },
-    { retailerName: 'Onyx Drape', metric: 'KYC re-verification', value: 'Overdue', threshold: 'On time', daysBelow: 22 },
+    { retailerId: 'rtl_indigo_threads', retailerName: 'Indigo Threads', metric: 'Acceptance rate', value: '74%', threshold: '85%', daysBelow: 14 },
+    { retailerId: 'rtl_marigold', retailerName: 'Marigold', metric: 'Dispute rate', value: '4.2%', threshold: '2.0%', daysBelow: 9 },
+    { retailerId: 'rtl_onyx_drape', retailerName: 'Onyx Drape', metric: 'KYC re-verification', value: 'Overdue', threshold: 'On time', daysBelow: 22 },
   ];
 }
 

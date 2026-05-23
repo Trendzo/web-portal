@@ -12,7 +12,7 @@ import type { Envelope } from './types';
  *
  * `VITE_API_BASE_URL` overrides the default. In local dev we leave it unset so
  * Vite's proxy forwards `/api/*` to the backend on :3099. On Vercel we set it to
- * the deployed backend's full URL (e.g. `https://closetx-backend-86wn.onrender.com/api/v1`)
+ * the deployed backend's full URL (e.g. `https://trendzo-backend-86wn.onrender.com/api/v1`)
  * so the SPA hits the backend directly.
  */
 export const BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
@@ -29,18 +29,25 @@ export class ApiError extends Error {
   }
 }
 
-type ApiInit = Omit<RequestInit, 'body'> & { body?: unknown };
+type ApiInit = Omit<RequestInit, 'body'> & {
+  body?: unknown;
+  /** Override the bearer token (defaults to the active session's). Useful for login flows
+   *  that need to call an authenticated endpoint with a token they just received but
+   *  haven't yet committed to the auth store. */
+  token?: string;
+};
 
 export async function api<T>(path: string, init: ApiInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  const token = getToken();
+  const token = init.token ?? getToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
   if (init.body !== undefined && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
-  const { body: _bodyTyped, ...rest } = init;
+  const { body: _bodyTyped, token: _tokenTyped, ...rest } = init;
   void _bodyTyped;
+  void _tokenTyped;
   const fetchInit: RequestInit = { ...rest, headers };
   if (init.body !== undefined) fetchInit.body = JSON.stringify(init.body);
   const res = await fetch(`${BASE}${path}`, fetchInit);

@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { uploadMedia } from '@/lib/upload';
 import { storeStatusMeta } from '@/lib/status';
 import type { RetailerProfile, Store } from '@/lib/types';
 import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
@@ -44,7 +46,7 @@ export default function RetailerStorePage() {
       <div className="mx-auto max-w-md py-16 text-center space-y-3">
         <p className="text-[14px] font-medium text-ink">Store not provisioned yet</p>
         <p className="text-[13px] text-ink-3">
-          Your store is created automatically when ClosetX approves your application.
+          Your store is created automatically when Trendzo approves your application.
           Check back after you receive the approval email.
         </p>
       </div>
@@ -61,19 +63,17 @@ function StoreDetails({ store }: { store: StoreWithPause }) {
         actions={
           <div className="flex items-center gap-2">
             <Badge tone={meta.tone}>{meta.label}</Badge>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/retailer/change-requests">Edit details</Link>
+            </Button>
           </div>
-        }
-        description={
-          <>
-            Storefront details aren't self-editable in the MVP — contact admin if anything
-            needs to change.
-          </>
         }
       />
 
       <Tabs defaultValue="basics">
-        <TabsList className="overflow-x-auto whitespace-nowrap">
+        <TabsList>
           <TabsTrigger value="basics">Basics</TabsTrigger>
+          <TabsTrigger value="photos">Photos</TabsTrigger>
           <TabsTrigger value="hours">Hours</TabsTrigger>
           <TabsTrigger value="address">Address</TabsTrigger>
           <TabsTrigger value="bank">Legal &amp; Bank</TabsTrigger>
@@ -90,8 +90,26 @@ function StoreDetails({ store }: { store: StoreWithPause }) {
               { label: 'Store ID', value: store.id, mono: true },
               { label: 'GSTIN', value: store.gstin, mono: true },
               { label: 'State code', value: store.stateCode, mono: true, hint: 'GST place-of-supply' },
+              { label: 'Contact phone', value: store.contactPhone ?? '—' },
+              { label: 'Manager name', value: store.managerName ?? '—' },
             ]}
           />
+          <div className="mt-4 rounded-lg border border-line bg-bg-2/40 px-4 py-3 text-[13px] text-ink-2">
+            Legal details (name, GSTIN, address) are KYC-protected.{' '}
+            <Link to="/retailer/change-requests" className="text-accent underline underline-offset-2">
+              Submit a change request
+            </Link>{' '}
+            to update them.
+          </div>
+          <div className="mt-6">
+            <SectionHeading title="Contact info" />
+            <ContactInfoPanel store={store} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="photos">
+          <SectionHeading title="Store photos" />
+          <StoreGalleryPanel store={store} />
         </TabsContent>
 
         <TabsContent value="hours">
@@ -130,12 +148,14 @@ function StoreDetails({ store }: { store: StoreWithPause }) {
                 ? 'Your store is active — add inventory and go live.'
                 : store.status === 'active'
                   ? 'Live to consumers. Pause from the panel below to take a temporary break.'
-                  : `Storefront is ${store.status}. Contact admin to restore.`}
+                  : store.status === 'paused'
+                    ? 'Storefront is paused. Customers cannot place orders. Resume below when ready.'
+                    : `Storefront is ${store.status}. Contact admin to restore.`}
             </p>
           </div>
-          {store.status === 'active' && (
+          {(store.status === 'active' || store.status === 'paused') && (
             <div className="mt-6">
-              <SectionHeading title="Pause storefront" />
+              <SectionHeading title={store.status === 'paused' ? 'Resume storefront' : 'Pause storefront'} />
               <PausePanel store={store} />
             </div>
           )}
@@ -156,13 +176,20 @@ function PausePanel({ store }: { store: StoreWithPause }) {
   const togglePause = useMutation({
     mutationFn: (next: boolean) =>
       next
-        ? api('/retailer/store/pause', { method: 'POST', body: JSON.stringify({ reason: reason || null, visibility }) })
+        ? api('/retailer/store/pause', {
+            method: 'POST',
+            body: {
+              ...(reason.trim() ? { reason: reason.trim() } : {}),
+              visibility: visibility === 'block_orders_only' ? 'visible' : 'hidden',
+            },
+          })
         : api('/retailer/store/resume', { method: 'POST' }),
     onSuccess: (_, next) => {
       void qc.invalidateQueries({ queryKey: ['retailer', 'me'] });
       toast.success(next ? 'Storefront paused' : 'Storefront resumed');
       setReason('');
     },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Failed to update store status'),
   });
 
   return (
@@ -219,31 +246,84 @@ function PausePanel({ store }: { store: StoreWithPause }) {
   );
 }
 
+type DaySlot = { from: string; to: string; closed: boolean };
+type HoursMap = Record<string, DaySlot>;
+const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+const DEFAULT_SLOT: DaySlot = { from: '09:00', to: '18:00', closed: false };
+
 function StoreHoursPanel() {
+  const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ['retailer', 'store', 'hours'],
-    queryFn: () => api<Record<string, { from: string; to: string; closed: boolean }>>('/retailer/store/hours'),
+    queryFn: () => api<HoursMap>('/retailer/store/hours'),
   });
-  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+  const [draft, setDraft] = useState<HoursMap | null>(null);
+  const hours: HoursMap = draft ?? data ?? {};
+
+  const save = useMutation({
+    mutationFn: (body: HoursMap) =>
+      api('/retailer/store/hours', { method: 'PUT', body }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['retailer', 'store', 'hours'] });
+      setDraft(null);
+      toast.success('Hours saved');
+    },
+    onError: () => toast.error('Failed to save hours'),
+  });
+
   if (isLoading) return <Skeleton className="h-40" />;
-  const hours = data ?? {};
+
+  function patch(day: string, update: Partial<DaySlot>) {
+    const current = hours[day] ?? DEFAULT_SLOT;
+    setDraft({ ...hours, [day]: { ...current, ...update } });
+  }
+
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-bg">
-      <table className="w-full text-[13px]">
-        <tbody>
-          {days.map((d) => {
-            const slot = hours[d];
-            return (
-              <tr key={d} className="border-b border-line last:border-b-0">
-                <td className="px-4 py-2.5 capitalize text-ink-2 w-32">{d}</td>
-                <td className="px-4 py-2.5 font-mono text-ink">
-                  {!slot || slot.closed ? <span className="text-ink-3 italic">Closed</span> : `${slot.from} – ${slot.to}`}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="space-y-4">
+      <div className="overflow-hidden rounded-lg border border-line bg-bg divide-y divide-line">
+        {DAYS.map((d) => {
+          const slot = hours[d] ?? DEFAULT_SLOT;
+          return (
+            <div key={d} className="flex items-center gap-3 px-4 py-3">
+              <label className="flex items-center gap-2 cursor-pointer w-36">
+                <input
+                  type="checkbox"
+                  checked={!slot.closed}
+                  onChange={(e) => patch(d, { closed: !e.target.checked })}
+                  className="accent-accent"
+                />
+                <span className="text-[13px] capitalize text-ink">{d}</span>
+              </label>
+              {slot.closed ? (
+                <span className="text-[13px] text-ink-3 italic">Closed</span>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="time"
+                    value={slot.from}
+                    onChange={(e) => patch(d, { from: e.target.value })}
+                    className="w-28 font-mono text-[13px]"
+                  />
+                  <span className="text-ink-3 text-[13px]">to</span>
+                  <Input
+                    type="time"
+                    value={slot.to}
+                    onChange={(e) => patch(d, { to: e.target.value })}
+                    className="w-28 font-mono text-[13px]"
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <Button
+        onClick={() => save.mutate(hours)}
+        loading={save.isPending}
+        disabled={!draft}
+      >
+        Save hours
+      </Button>
     </div>
   );
 }
@@ -282,27 +362,219 @@ function BankAccountPanel({ platformFeeBp, payoutCadenceDays, gstin }: { platfor
   );
 }
 
+type KycDoc = { id: string; kind: string; label: string; status: string; uploadedAt: string | null; fileUrl: string | null };
+
 function StoreDocumentsPanel() {
+  const qc = useQueryClient();
   const { data } = useQuery({
     queryKey: ['retailer', 'store', 'documents'],
-    queryFn: () => api<Array<{ id: string; kind: string; label: string; status: string; uploadedAt: string | null; fileUrl: string | null }>>('/retailer/store/documents'),
+    queryFn: () => api<KycDoc[]>('/retailer/store/documents'),
   });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeDocRef = useRef<string | null>(null);
+  const [uploading, setUploading] = useState<string | null>(null);
+
   const docs = data ?? [];
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    const docId = activeDocRef.current;
+    if (!file || !docId) return;
+    setUploading(docId);
+    try {
+      const { url } = await uploadMedia(file, { folder: 'kyc' });
+      await api(`/retailer/store/documents/${docId}/upload`, {
+        method: 'POST',
+        body: { url },
+      });
+      void qc.invalidateQueries({ queryKey: ['retailer', 'store', 'documents'] });
+      toast.success('Document uploaded');
+    } catch {
+      toast.error('Upload failed');
+    } finally {
+      setUploading(null);
+      activeDocRef.current = null;
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  if (docs.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-rule py-10 text-center text-[13px] text-ink-3">
+        No compliance documents required at this time.
+      </div>
+    );
+  }
+
   return (
-    <ul className="space-y-2">
-      {docs.map((d) => (
-        <li key={d.id} className="flex items-center justify-between rounded-lg border border-line bg-bg px-4 py-3">
-          <div>
-            <div className="text-[13.5px] font-medium text-ink">{d.label}</div>
-            <div className="text-[11.5px] text-ink-3">
-              {d.uploadedAt ? `Uploaded ${new Date(d.uploadedAt).toLocaleDateString()}` : 'Not uploaded'}
+    <>
+      <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
+      <ul className="space-y-2">
+        {docs.map((d) => (
+          <li key={d.id} className="flex items-center justify-between rounded-lg border border-line bg-bg px-4 py-3">
+            <div>
+              <div className="text-[13.5px] font-medium text-ink">{d.label}</div>
+              <div className="text-[11.5px] text-ink-3">
+                {d.uploadedAt ? `Uploaded ${new Date(d.uploadedAt).toLocaleDateString()}` : 'Not uploaded'}
+              </div>
             </div>
-          </div>
-          <Badge tone={d.status === 'verified' ? 'success' : d.status === 'pending_review' ? 'warning' : d.status === 'rejected' ? 'danger' : 'neutral'}>
-            {d.status.replace(/_/g, ' ')}
-          </Badge>
-        </li>
-      ))}
-    </ul>
+            <div className="flex items-center gap-2">
+              <Badge tone={d.status === 'verified' ? 'success' : d.status === 'pending_review' ? 'warning' : d.status === 'rejected' ? 'danger' : 'neutral'}>
+                {d.status.replace(/_/g, ' ')}
+              </Badge>
+              {(d.status === 'rejected' || d.status === 'missing') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  loading={uploading === d.id}
+                  onClick={() => {
+                    activeDocRef.current = d.id;
+                    fileInputRef.current?.click();
+                  }}
+                >
+                  Re-upload
+                </Button>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function ContactInfoPanel({ store }: { store: StoreWithPause }) {
+  const qc = useQueryClient();
+  const [contactPhone, setContactPhone] = useState(store.contactPhone ?? '');
+  const [managerName, setManagerName] = useState(store.managerName ?? '');
+
+  const save = useMutation({
+    mutationFn: () =>
+      api('/retailer/store/profile', {
+        method: 'PATCH',
+        body: {
+          contactPhone: contactPhone.trim() || null,
+          managerName: managerName.trim() || null,
+        },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['retailer', 'me'] });
+      toast.success('Contact info saved');
+    },
+    onError: () => toast.error('Failed to save contact info'),
+  });
+
+  const dirty =
+    contactPhone.trim() !== (store.contactPhone ?? '') ||
+    managerName.trim() !== (store.managerName ?? '');
+
+  return (
+    <div className="rounded-lg border border-line bg-bg p-5 space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <Label htmlFor="contact-phone" hint="shown to customers">Contact phone</Label>
+          <Input
+            id="contact-phone"
+            value={contactPhone}
+            onChange={(e) => setContactPhone(e.target.value)}
+            placeholder="9876543210"
+          />
+        </div>
+        <div>
+          <Label htmlFor="manager-name" hint="store manager">Manager name</Label>
+          <Input
+            id="manager-name"
+            value={managerName}
+            onChange={(e) => setManagerName(e.target.value)}
+            placeholder="Ramesh Patel"
+          />
+        </div>
+      </div>
+      <Button
+        onClick={() => save.mutate()}
+        loading={save.isPending}
+        disabled={!dirty}
+      >
+        Save contact info
+      </Button>
+    </div>
+  );
+}
+
+function StoreGalleryPanel({ store }: { store: StoreWithPause }) {
+  const qc = useQueryClient();
+  const [images, setImages] = useState<string[]>(store.galleryImageUrls ?? []);
+  const [uploading, setUploading] = useState(false);
+
+  const save = useMutation({
+    mutationFn: (urls: string[]) =>
+      api('/retailer/store/profile', {
+        method: 'PATCH',
+        body: { galleryImageUrls: urls },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['retailer', 'me'] });
+      toast.success('Gallery saved');
+    },
+    onError: () => toast.error('Failed to save gallery'),
+  });
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { url } = await uploadMedia(file, { folder: 'store-gallery' });
+      const next = [...images, url];
+      setImages(next);
+      save.mutate(next);
+    } catch {
+      toast.error('Image upload failed');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  }
+
+  function remove(idx: number) {
+    const next = images.filter((_, i) => i !== idx);
+    setImages(next);
+    save.mutate(next);
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-[13px] text-ink-2">
+        Add up to 5 photos of your storefront. These help customers recognize your store.
+      </p>
+      {images.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {images.map((url, i) => (
+            <div key={i} className="group relative overflow-hidden rounded-lg border border-line bg-bg-2">
+              <img src={url} alt={`Store photo ${i + 1}`} className="h-32 w-full object-cover" />
+              <button
+                type="button"
+                onClick={() => remove(i)}
+                className="absolute right-1 top-1 rounded-md bg-surface/80 px-1.5 py-0.5 text-[11px] text-danger opacity-0 transition-opacity group-hover:opacity-100"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {images.length < 5 && (
+        <label className={`flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-line px-4 py-3 text-[13px] text-ink-3 transition-colors hover:bg-bg-3 ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => void handleUpload(e)}
+            disabled={uploading}
+          />
+          {uploading ? 'Uploading…' : images.length === 0 ? 'Upload your first store photo' : 'Add another photo'}
+        </label>
+      )}
+    </div>
   );
 }

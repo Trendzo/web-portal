@@ -61,7 +61,7 @@ export default function RetailerDashboard() {
   const retailer = data?.retailer ?? fallback;
   const store = data?.store ?? null;
 
-  const liveAndKicking = retailer?.status === 'active' && store?.status === 'active';
+  const liveAndKicking = retailer?.status === 'active' && (store?.status === 'active' || store?.status === 'paused');
 
   const listings = useQuery({
     queryKey: ['retailer', 'listings', 'all'],
@@ -139,8 +139,8 @@ function StatusHero({ retailer, store, loading }: { retailer: RetailerProfile; s
     title = 'Your account is being reviewed.';
     subtitle = 'Admin usually responds within a working day. Your store will be created automatically on approval.';
     nextStep = { label: store ? 'View storefront' : 'Set up storefront', to: '/retailer/store' };
-  } else if (retailer.status === 'deactivated') {
-    title = 'Your account has been deactivated.';
+  } else if (retailer.status === 'terminated') {
+    title = 'Your account has been terminated.';
     subtitle = 'Contact admin to learn why and request reactivation.';
   } else if (!store) {
     title = 'Your store is ready — add inventory to go live.';
@@ -150,6 +150,10 @@ function StatusHero({ retailer, store, loading }: { retailer: RetailerProfile; s
     title = 'Add inventory to start selling.';
     subtitle = 'Your store is set up. Add products and manage stock to go live.';
     nextStep = { label: 'Add a product', to: '/retailer/listings' };
+  } else if (store.status === 'paused') {
+    title = 'Storefront is paused.';
+    subtitle = 'New orders are blocked for customers. Your dashboard is fully operational — resume when ready.';
+    nextStep = { label: 'Resume storefront', to: '/retailer/store' };
   } else if (store.status !== 'active') {
     title = `Your storefront is ${store.status}.`;
     subtitle = 'Reach out to admin if you think this is wrong.';
@@ -192,7 +196,7 @@ function Steps({ retailer, store }: { retailer: RetailerProfile; store: Store | 
       title: 'Under review',
       done: retailer.status === 'active',
       pending: retailer.status === 'pending_approval',
-      desc: retailer.status === 'pending_approval' ? 'Admin has the file open.' : retailer.status === 'active' ? 'Reviewed.' : 'Account deactivated.',
+      desc: retailer.status === 'pending_approval' ? 'Admin has the file open.' : retailer.status === 'active' ? 'Reviewed.' : 'Account terminated.',
     },
     {
       title: 'Application approved',

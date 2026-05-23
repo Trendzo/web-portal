@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
@@ -7,7 +7,12 @@ import {
   Box,
   Check,
   CheckCircle2,
+  Clock,
+  Download,
+  FileText,
+  Hourglass,
   ImageOff,
+  KeyRound,
   RotateCcw,
   Send,
   Truck,
@@ -15,7 +20,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, BASE } from '@/lib/api';
+import { getToken } from '@/lib/auth';
 import {
   deliveryMethodLabel,
   formatAge,
@@ -37,6 +43,8 @@ import { CopyableId } from '@/components/ui/copyable-id';
 import { Timeline } from '@/components/ui/timeline';
 import { ReturnDialog } from '@/components/ui/return-dialog';
 import { DoorVisitDialog } from '@/components/ui/door-visit-dialog';
+import { MediaGallery } from '@/components/ui/media-gallery';
+import { AcceptanceCountdown } from '@/components/retailer/acceptance-countdown';
 import {
   Dialog,
   DialogContent,
@@ -47,12 +55,17 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function RetailerOrderDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const [confirmAction, setConfirmAction] = useState<null | { kind: 'undelivered' | 'request-cancel'; title: string }>(null);
   const [reason, setReason] = useState('');
+  const [handoverOpen, setHandoverOpen] = useState(false);
+  const [handoverAgentName, setHandoverAgentName] = useState('');
+  const [handoverAgentPhone, setHandoverAgentPhone] = useState('');
+  const [handoverErrors, setHandoverErrors] = useState<{ name?: string; phone?: string }>({});
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['retailer', 'orders', id],
@@ -118,7 +131,12 @@ export default function RetailerOrderDetail() {
             actions={{
               accept: () => accept.mutate({}),
               pack: () => pack.mutate({}),
-              handover: () => handover.mutate({}),
+              handover: () => {
+                setHandoverAgentName('');
+                setHandoverAgentPhone('');
+                setHandoverErrors({});
+                setHandoverOpen(true);
+              },
               depart: () => depart.mutate({}),
               markDelivered: () => markDelivered.mutate({}),
               openUndelivered: () => {
@@ -156,12 +174,80 @@ export default function RetailerOrderDetail() {
           <DoorVisitDialog
             orderId={data.id}
             items={data.items}
+            doorWindowExpiresAt={data.doorWindowExpiresAt ?? null}
+            doorWindowExtendedAt={data.doorWindowExtendedAt ?? null}
             open={doorVisitOpen}
             onOpenChange={setDoorVisitOpen}
             onClosed={() => qc.invalidateQueries({ queryKey: ['retailer', 'orders'] })}
           />
         </>
       )}
+
+      <Dialog open={handoverOpen} onOpenChange={setHandoverOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Hand over to delivery agent</DialogTitle>
+            <DialogDescription>
+              Capture the agent picking this order up. Recorded against the order's chain of custody.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="agentName" required>Agent name</Label>
+              <Input
+                id="agentName"
+                value={handoverAgentName}
+                onChange={(e) => setHandoverAgentName(e.target.value)}
+                placeholder="e.g. Ramesh K."
+                autoFocus
+              />
+              {handoverErrors.name && (
+                <p className="mt-1 text-[11.5px] text-danger">{handoverErrors.name}</p>
+              )}
+            </div>
+            <div>
+              <Label htmlFor="agentPhone" required>Agent phone</Label>
+              <Input
+                id="agentPhone"
+                inputMode="numeric"
+                maxLength={10}
+                value={handoverAgentPhone}
+                onChange={(e) => setHandoverAgentPhone(e.target.value.replace(/\D/g, ''))}
+                placeholder="10-digit mobile"
+              />
+              {handoverErrors.phone && (
+                <p className="mt-1 text-[11.5px] text-danger">{handoverErrors.phone}</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setHandoverOpen(false)}>Cancel</Button>
+            <Button
+              variant="accent"
+              loading={handover.isPending}
+              onClick={() => {
+                const errs: { name?: string; phone?: string } = {};
+                const name = handoverAgentName.trim();
+                const phone = handoverAgentPhone.trim();
+                if (name.length < 2) errs.name = 'Enter the agent\'s name (≥ 2 characters)';
+                if (!/^[6-9]\d{9}$/.test(phone)) errs.phone = 'Enter a valid 10-digit Indian mobile';
+                if (Object.keys(errs).length > 0) {
+                  setHandoverErrors(errs);
+                  return;
+                }
+                handover.mutate(
+                  { agentName: name, agentPhone: phone },
+                  {
+                    onSuccess: () => setHandoverOpen(false),
+                  },
+                );
+              }}
+            >
+              Confirm handover
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!confirmAction} onOpenChange={(o) => { if (!o) setConfirmAction(null); }}>
         <DialogContent>
@@ -246,14 +332,15 @@ function Detail({
           </p>
 
           {(order.status === 'routing' || order.status === 'pending') && (
-            <AcceptanceCountdown placedAt={order.placedAt} />
+            <AcceptanceCountdown deadlineAt={order.acceptanceDeadlineAt ?? null} />
           )}
 
-          {order.deliveryMethod === 'try_and_buy' && (
-            <div className="mt-3 inline-flex items-center gap-2 rounded-md border border-info/30 bg-info-soft px-2.5 py-1.5 text-[12px] text-info">
-              <span className="font-semibold uppercase tracking-wide text-[11px]">Prepaid only</span>
-              <span>COD blocked for try-and-buy — capture confirmed at checkout.</span>
-            </div>
+          {/* §9 — try-on countdown surfaced in the hero on every active door visit. */}
+          {order.status === 'at_door' && order.doorWindowExpiresAt && (
+            <AcceptanceCountdown
+              deadlineAt={order.doorWindowExpiresAt}
+              label="Try-on window"
+            />
           )}
 
           {primaryAction && (
@@ -310,6 +397,8 @@ function Detail({
                 Start door visit
               </Button>
             )}
+            <TaxInvoiceButton orderId={order.id} />
+            <RaiseIssueButton orderId={order.id} />
           </div>
         </CardContent>
       </Card>
@@ -428,6 +517,66 @@ function Detail({
               )}
             </CardContent>
           </Card>
+
+          {/* §9 — pickup-only slot card. Staff needs the slot window + handover
+              code visible without opening the order detail dialog. */}
+          {order.deliveryMethod === 'pickup' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Pickup slot</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-[13px]">
+                {order.pickupSlotStart && order.pickupSlotEnd ? (
+                  <>
+                    <Row
+                      icon={<Clock className="size-3.5" />}
+                      k="Window"
+                      v={
+                        <span className="text-right">
+                          {new Date(order.pickupSlotStart).toLocaleString(undefined, {
+                            weekday: 'short',
+                            day: 'numeric',
+                            month: 'short',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          })}
+                          {' '}–{' '}
+                          {new Date(order.pickupSlotEnd).toLocaleTimeString(undefined, {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      }
+                    />
+                    <Row
+                      icon={<Hourglass className="size-3.5" />}
+                      k="Starts in"
+                      v={
+                        <AcceptanceCountdown
+                          deadlineAt={order.pickupSlotStart}
+                          variant="inline"
+                          label="Pickup slot starts"
+                        />
+                      }
+                    />
+                  </>
+                ) : (
+                  <Row icon={<Clock className="size-3.5" />} k="Window" v="—" />
+                )}
+                {order.pickupCode && (
+                  <Row
+                    icon={<KeyRound className="size-3.5" />}
+                    k="Handover code"
+                    v={
+                      <span className="font-mono tabular-nums text-[14px] font-semibold text-ink">
+                        {order.pickupCode}
+                      </span>
+                    }
+                  />
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <div className="space-y-4">
@@ -532,32 +681,6 @@ function nextStepHeading(status: OrderStatus): string {
   }
 }
 
-// MOCK_DEPENDENCY: §8 — acceptance window length not in API yet (assume 5 min from placedAt).
-
-const ACCEPTANCE_WINDOW_MS = 5 * 60 * 1000;
-
-function AcceptanceCountdown({ placedAt }: { placedAt: string }) {
-  const expiresAt = new Date(placedAt).getTime() + ACCEPTANCE_WINDOW_MS;
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(tick);
-  }, []);
-  const remainingMs = expiresAt - now;
-  const expired = remainingMs <= 0;
-  const mm = Math.max(0, Math.floor(remainingMs / 60_000));
-  const ss = Math.max(0, Math.floor((remainingMs % 60_000) / 1000));
-  const tone = expired ? 'border-danger/30 bg-danger-soft text-danger' : remainingMs < 60_000 ? 'border-warning/40 bg-warning-soft text-warning' : 'border-info/30 bg-info-soft text-info';
-  return (
-    <div className={`mt-3 inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[12px] ${tone}`}>
-      <span className="font-semibold uppercase tracking-wide text-[11px]">Acceptance window</span>
-      <span className="font-mono">
-        {expired ? 'expired' : `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')} left`}
-      </span>
-    </div>
-  );
-}
-
 function Row({ icon, k, v }: { icon: React.ReactNode; k: string; v: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3">
@@ -614,5 +737,184 @@ function ReturnVerifyRow({
         </Button>
       </div>
     </li>
+  );
+}
+
+interface RetailerInvoiceLite {
+  id: string;
+  number: string;
+  kind: string;
+  pdfUrl: string | null;
+}
+
+function TaxInvoiceButton({ orderId }: { orderId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['retailer', 'invoices', 'for-order', orderId],
+    queryFn: () =>
+      api<RetailerInvoiceLite[]>(
+        `/retailer/invoices?orderId=${encodeURIComponent(orderId)}&kind=invoice&limit=5`,
+      ),
+  });
+  if (isLoading) return null;
+  const inv = (data ?? []).find((i) => i.kind === 'invoice');
+  if (!inv) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        disabled
+        iconLeft={<FileText className="size-3.5" />}
+        title="Tax invoice not generated yet (issues after delivery)"
+      >
+        Tax invoice
+      </Button>
+    );
+  }
+
+  function downloadPdf() {
+    if (!inv) return;
+    const url = `${BASE}/retailer/invoices/${inv.id}/pdf`;
+    const token = getToken();
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((r) => {
+        if (!r.ok) throw new Error('Download failed');
+        return r.blob();
+      })
+      .then((blob) => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${inv.number}.pdf`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(() => toast.error('Could not download tax invoice'));
+  }
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      iconLeft={<Download className="size-3.5" />}
+      onClick={downloadPdf}
+      title={`Download ${inv.number}`}
+    >
+      Tax invoice ({inv.number})
+    </Button>
+  );
+}
+
+function RaiseIssueButton({ orderId }: { orderId: string }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [evidenceUrls, setEvidenceUrls] = useState<string[]>([]);
+  const [form, setForm] = useState({
+    kind: 'complaint' as 'query' | 'complaint' | 'dispute',
+    subject: '',
+    description: '',
+  });
+  const create = useMutation({
+    mutationFn: () =>
+      api<{ issueId: string }>('/retailer/issues', {
+        method: 'POST',
+        body: {
+          kind: form.kind,
+          orderId,
+          subject: form.subject.trim(),
+          description: form.description.trim(),
+          evidence: evidenceUrls,
+        },
+      }),
+    onSuccess: (r) => {
+      toast.success(`Issue opened (${form.kind})`);
+      setOpen(false);
+      setForm({ kind: 'complaint', subject: '', description: '' });
+      setEvidenceUrls([]);
+      navigate(`/retailer/issues/${r.issueId}`);
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not open issue'),
+  });
+  const valid = form.subject.trim().length > 0 && form.description.trim().length > 0;
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        iconLeft={<AlertTriangle className="size-3.5" />}
+        onClick={() => setOpen(true)}
+      >
+        Raise issue
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Open issue against this order</DialogTitle>
+            <DialogDescription>
+              Admin sees the issue in the queue with your store, this order, and the description.
+              Photo upload available via the thread once the issue is open.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="iss-kind" required>Kind</Label>
+              <Select
+                value={form.kind}
+                onValueChange={(v) => setForm((f) => ({ ...f, kind: v as 'query' | 'complaint' | 'dispute' }))}
+              >
+                <SelectTrigger id="iss-kind"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="query">Query</SelectItem>
+                  <SelectItem value="complaint">Complaint</SelectItem>
+                  <SelectItem value="dispute">Dispute</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="iss-subject" required>Subject</Label>
+              <Input
+                id="iss-subject"
+                value={form.subject}
+                onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))}
+                placeholder="e.g. Damaged item received"
+                maxLength={200}
+              />
+            </div>
+            <div>
+              <Label htmlFor="iss-desc" required>Description</Label>
+              <textarea
+                id="iss-desc"
+                rows={4}
+                maxLength={5000}
+                value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="What happened? Include any context admin needs to decide."
+                className="w-full rounded border border-line bg-surface p-2 text-[13px]"
+              />
+            </div>
+            <div>
+              <Label>Evidence photos (optional)</Label>
+              <MediaGallery
+                urls={evidenceUrls}
+                onChange={setEvidenceUrls}
+                uploadFolder={`issues/new-${orderId}`}
+                purpose="listing-gallery"
+                maxImages={5}
+                busy={create.isPending}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button
+              variant="ink"
+              disabled={!valid}
+              loading={create.isPending}
+              onClick={() => create.mutate()}
+            >
+              Open issue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

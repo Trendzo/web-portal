@@ -100,7 +100,7 @@ export function ApprovalConfigDialog({
             <FieldError>{cadenceError}</FieldError>
           </div>
           <p className="rounded-md bg-bg-2/40 px-3 py-2 text-[12px] text-ink-3">
-            ClosetX takes <strong>{Number.isFinite(feeNum) ? feeNum : 0}%</strong> on every order; payouts settle every{' '}
+            Trendzo takes <strong>{Number.isFinite(feeNum) ? feeNum : 0}%</strong> on every order; payouts settle every{' '}
             <strong>{Number.isInteger(cadenceNum) ? cadenceNum : '?'} days</strong>.
           </p>
         </div>

@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowUpRight, Plus, Sparkles } from 'lucide-react';
+import { ArrowUpRight, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatAge } from '@/lib/status';
-import type { AiQuota, AiSubmission, AiSubmissionStatus } from '@/lib/types';
+import type { AiSubmission, AiSubmissionStatus } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -29,10 +29,6 @@ export default function RetailerAiCatalog() {
     queryKey: ['retailer', 'ai-catalog'],
     queryFn: () => api<AiSubmission[]>('/retailer/ai-catalog'),
   });
-  const quota = useQuery({
-    queryKey: ['retailer', 'ai-catalog', 'quota'],
-    queryFn: () => api<AiQuota>('/retailer/ai-catalog/quota'),
-  });
   const list = submissions.data ?? [];
 
   return (
@@ -40,14 +36,11 @@ export default function RetailerAiCatalog() {
       <PageHeader
         kicker="AI Catalog"
         title="AI photo generation"
-        description="Submit input photos; the AI returns shot variants for review. Accepted outputs auto-attach to the listing gallery."
+        description="Submit a prompt + reference images; Gemini returns a polished shot for review. Quota is per listing — one generation per variant. Accepted outputs auto-attach to the listing or selected variant."
         actions={
-          <div className="flex items-center gap-2">
-            {quota.data && <QuotaPill quota={quota.data} />}
-            <Button asChild iconLeft={<Plus className="size-3.5" />}>
-              <Link to="/retailer/ai-catalog/new">New submission</Link>
-            </Button>
-          </div>
+          <Button asChild iconLeft={<Plus className="size-3.5" />}>
+            <Link to="/retailer/ai-catalog/new">New submission</Link>
+          </Button>
         }
       />
 
@@ -68,20 +61,6 @@ export default function RetailerAiCatalog() {
         ))}
       </Tabs>
     </Page>
-  );
-}
-
-function QuotaPill({ quota }: { quota: AiQuota }) {
-  const tone = quota.remaining < 5
-    ? 'border-danger/40 text-danger bg-danger-soft'
-    : quota.remaining < 15
-    ? 'border-warning/40 text-warning bg-warning-soft'
-    : 'border-line text-ink-2 bg-bg-2';
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] ${tone}`}>
-      <Sparkles className="size-3.5" />
-      {quota.used}/{quota.total} used
-    </span>
   );
 }
 

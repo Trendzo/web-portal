@@ -1,15 +1,26 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowUpRight, Search } from 'lucide-react';
-import { api } from '@/lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowUpRight, Plus, Search } from 'lucide-react';
+import { toast } from 'sonner';
+import { api, ApiError } from '@/lib/api';
 import { consumerStatusMeta } from '@/lib/status';
 import type { ConsumerStatus, ConsumerSummary } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Empty } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -65,6 +76,7 @@ export default function AdminConsumers() {
       <PageHeader
         title={<>Consumers</>}
         description="Search by name, email, or phone. Click a row to view the full profile, wallet, loyalty, and account actions."
+        actions={<NewConsumerButton onCreated={() => setSubmitted({})} />}
       />
 
       <form onSubmit={onSubmit} className="mb-6 flex flex-wrap items-end gap-3 border-b border-rule pb-4">
@@ -157,5 +169,145 @@ export default function AdminConsumers() {
         </ul>
       )}
     </Page>
+  );
+}
+
+function NewConsumerButton({ onCreated }: { onCreated?: () => void }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    email: '',
+    phone: '',
+    name: '',
+    password: '',
+    genderPreference: '' as '' | 'her' | 'him' | 'unisex',
+  });
+
+  const create = useMutation({
+    mutationFn: () =>
+      api<{ id: string; email: string; name: string }>('/admin/consumers', {
+        method: 'POST',
+        body: {
+          email: form.email.trim(),
+          phone: form.phone.trim(),
+          name: form.name.trim(),
+          ...(form.password ? { password: form.password } : {}),
+          ...(form.genderPreference ? { genderPreference: form.genderPreference } : {}),
+        },
+      }),
+    onSuccess: (r) => {
+      toast.success(`Consumer created · ${r.email}`);
+      setOpen(false);
+      setForm({ email: '', phone: '', name: '', password: '', genderPreference: '' });
+      void qc.invalidateQueries({ queryKey: ['admin', 'consumers'] });
+      onCreated?.();
+    },
+    onError: (e) => {
+      const code = e instanceof ApiError ? e.code : '';
+      toast.error(
+        code === 'email_already_taken'
+          ? 'Email already in use.'
+          : code === 'invalid_state'
+            ? 'Phone already in use.'
+            : e instanceof Error
+              ? e.message
+              : 'Create failed',
+      );
+    },
+  });
+
+  const valid = form.email.includes('@') && form.phone.length >= 10 && form.name.trim().length >= 2;
+
+  return (
+    <>
+      <Button variant="ink" iconLeft={<Plus className="size-3.5" />} onClick={() => setOpen(true)}>
+        New consumer
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create consumer</DialogTitle>
+            <DialogDescription>
+              Mints a real consumer account with the email + phone you supply. Password defaults to{' '}
+              <span className="font-mono text-[12px]">ChangeMe!1</span> when left blank.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="nc-name" required>Name</Label>
+              <Input
+                id="nc-name"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Riya Mehta"
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="nc-email" required>Email</Label>
+                <Input
+                  id="nc-email"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                  placeholder="riya@example.com"
+                />
+              </div>
+              <div>
+                <Label htmlFor="nc-phone" required>Phone</Label>
+                <Input
+                  id="nc-phone"
+                  value={form.phone}
+                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                  placeholder="+919812345678"
+                />
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="nc-pwd">Password (optional)</Label>
+                <Input
+                  id="nc-pwd"
+                  type="text"
+                  value={form.password}
+                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  placeholder="defaults to ChangeMe!1"
+                />
+              </div>
+              <div>
+                <Label htmlFor="nc-gender">Gender preference</Label>
+                <Select
+                  value={form.genderPreference || 'none'}
+                  onValueChange={(v) =>
+                    setForm((f) => ({ ...f, genderPreference: v === 'none' ? '' : (v as 'her' | 'him' | 'unisex') }))
+                  }
+                >
+                  <SelectTrigger id="nc-gender">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— none —</SelectItem>
+                    <SelectItem value="her">Her</SelectItem>
+                    <SelectItem value="him">Him</SelectItem>
+                    <SelectItem value="unisex">Unisex</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button
+              variant="ink"
+              loading={create.isPending}
+              disabled={!valid}
+              onClick={() => create.mutate()}
+            >
+              Create consumer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

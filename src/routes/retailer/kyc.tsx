@@ -1,16 +1,31 @@
+import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, ShieldCheck, Upload } from 'lucide-react';
+import { CalendarClock, CheckCircle2, FileText, Loader2, Paperclip, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
+import { uploadMedia } from '@/lib/upload';
 import { kycReverificationStatusMeta } from '@/lib/status';
-import type { KycReverification } from '@/lib/types';
+import type { KycReverification, RequiredDocumentType } from '@/lib/types';
 import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
-import { MockDataBadge } from '@/components/ui/mock-data-badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Empty } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MetaList } from '@/components/ui/meta-list';
+
+// Mirrors the signup `application.tsx` upload step exactly — same row layout,
+// same label-htmlFor trigger pattern, same status chips. Only the slot kinds
+// differ (these match the canonical kyc_document enum the server seeds).
+const DOC_SLOTS: { kind: RequiredDocumentType; label: string }[] = [
+  { kind: 'gstin_certificate', label: 'GSTIN certificate' },
+  { kind: 'pan_card', label: 'PAN card' },
+  { kind: 'address_proof', label: 'Address proof' },
+  { kind: 'cancelled_cheque', label: 'Cancelled cheque' },
+  { kind: 'shop_act_license', label: 'Shop-act license' },
+];
+
+type LocalUpload = { url: string; filename: string };
 
 export default function RetailerKyc() {
   const qc = useQueryClient();
@@ -19,19 +34,73 @@ export default function RetailerKyc() {
     queryFn: () => api<KycReverification | null>('/retailer/kyc'),
   });
 
+  // Per-kind transient state. `local` holds the filename + URL captured right
+  // after a successful upload so the row can show the green-check filename chip
+  // (mirroring signup). When the cycle reloads, the server-side `documents` row
+  // takes over and `local` is no longer consulted for that kind.
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [local, setLocal] = useState<Record<string, LocalUpload>>({});
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeKindRef = useRef<string | null>(null);
+
   const submit = useMutation({
     mutationFn: (id: string) => api(`/retailer/kyc/${id}/submit`, { method: 'POST' }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['retailer', 'kyc'] });
+      void qc.invalidateQueries({ queryKey: ['retailer', 'kyc'] });
       toast.success('KYC submitted for review.');
     },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Submission failed.'),
   });
 
-  if (isLoading || !data || !('id' in data)) {
+  async function persistDoc(id: string, kind: string, url: string): Promise<void> {
+    await api(`/retailer/kyc/${id}/documents`, { method: 'POST', body: { kind, url } });
+    void qc.invalidateQueries({ queryKey: ['retailer', 'kyc'] });
+  }
+
+  async function handleFile(file: File): Promise<void> {
+    const kind = activeKindRef.current;
+    activeKindRef.current = null;
+    if (!kind || !data) return;
+    if (data.status !== 'pending') {
+      toast.error('Cycle is not accepting uploads.');
+      return;
+    }
+    const allowed = ['application/pdf', 'image/jpeg', 'image/png'];
+    if (!allowed.includes(file.type)) {
+      toast.error('Use PDF, JPG, or PNG only.');
+      return;
+    }
+    setBusy((b) => ({ ...b, [kind]: true }));
+    try {
+      const res = await uploadMedia(file, { folder: 'kyc-reverification' });
+      setLocal((m) => ({ ...m, [kind]: { url: res.url, filename: file.name } }));
+      await persistDoc(data.id, kind, res.url);
+      toast.success('Document uploaded.');
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : `Failed to upload ${file.name}.`);
+    } finally {
+      setBusy((b) => ({ ...b, [kind]: false }));
+    }
+  }
+
+  if (isLoading) {
     return (
       <Page>
-        <PageHeader kicker="Compliance" title="KYC re-verification" actions={<MockDataBadge label="MOCKED — pending backend §3" />} />
+        <PageHeader kicker="Compliance" title="KYC re-verification" />
         <Skeleton className="h-72" />
+      </Page>
+    );
+  }
+
+  if (!data) {
+    return (
+      <Page>
+        <PageHeader kicker="Compliance" title="KYC re-verification" />
+        <Empty
+          kicker="All clear"
+          title="No re-verification cycle right now."
+          description="Trendzo will open a new cycle annually or if compliance flags your account."
+        />
       </Page>
     );
   }
@@ -40,13 +109,23 @@ export default function RetailerKyc() {
   const dueIn = Math.round((new Date(data.dueAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   const graceIn = Math.round((new Date(data.gracePeriodEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 
+  // Index server docs by kind so the slot list (the canonical 5 from DOC_SLOTS)
+  // is what the UI iterates, not whatever order the server returned. Guarantees
+  // the same labels + order the retailer saw at signup.
+  const serverByKind = new Map(data.documents.map((d) => [d.kind, d]));
+  const allUploaded = DOC_SLOTS.every((s) => {
+    const srv = serverByKind.get(s.kind);
+    return srv ? srv.status !== 'missing' : local[s.kind] != null;
+  });
+  const canSubmit = data.status === 'pending' && allUploaded;
+  const anyBusy = Object.values(busy).some(Boolean);
+
   return (
     <Page>
       <PageHeader
         kicker="Compliance"
         title="KYC re-verification"
         description="Annual compliance check. Upload current documents before the due date to avoid suspension."
-        actions={<MockDataBadge label="MOCKED — pending backend §3" />}
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -73,6 +152,8 @@ export default function RetailerKyc() {
                 variant="accent"
                 iconLeft={<ShieldCheck className="size-4" />}
                 loading={submit.isPending}
+                disabled={!canSubmit || anyBusy}
+                title={!canSubmit ? 'Upload all required documents first.' : anyBusy ? 'Wait for uploads to finish.' : undefined}
                 onClick={() => submit.mutate(data.id)}
               >
                 Submit re-verification
@@ -84,29 +165,104 @@ export default function RetailerKyc() {
         <Card>
           <CardContent className="p-6">
             <SectionHeading kicker="Documents" title="Required uploads" />
-            <ul className="space-y-2">
-              {data.documents.map((d) => (
-                <li key={d.id} className="flex items-center justify-between rounded-lg border border-line bg-bg px-4 py-3">
-                  <div>
-                    <div className="text-[13.5px] font-medium text-ink">{d.label}</div>
-                    <div className="text-[11.5px] text-ink-3">
-                      {d.uploadedAt ? `Uploaded ${new Date(d.uploadedAt).toLocaleDateString()}` : 'Not uploaded'}
+            <p className="mt-1 text-[12.5px] text-ink-2">
+              Upload your GSTIN certificate, PAN card, address proof, cancelled cheque, and shop-act
+              license. Each document is stored encrypted and reviewed by the compliance team.
+            </p>
+            <ul className="mt-4 space-y-2">
+              {DOC_SLOTS.map(({ kind, label }) => {
+                const srv = serverByKind.get(kind);
+                const localUp = local[kind];
+                const isBusy = busy[kind] === true;
+                const uploadedFilename = localUp?.filename;
+                const serverHasFile = srv?.fileUrl != null;
+                const statusTone =
+                  srv?.status === 'verified' ? 'success'
+                  : srv?.status === 'pending_review' ? 'warning'
+                  : srv?.status === 'rejected' ? 'danger'
+                  : 'neutral';
+                return (
+                  <li
+                    key={kind}
+                    className="flex items-center justify-between gap-3 rounded-md border border-line bg-bg-2/30 px-3 py-2"
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-2 flex-wrap">
+                      <span className="text-[13px] text-ink-2 shrink-0">{label}</span>
+                      {srv && (
+                        <Badge tone={statusTone} flat>
+                          {srv.status.replace(/_/g, ' ')}
+                        </Badge>
+                      )}
+                      {uploadedFilename && (
+                        <span className="flex items-center gap-1 truncate text-[11.5px] text-success">
+                          <CheckCircle2 className="size-3 shrink-0" />
+                          <span className="truncate">{uploadedFilename}</span>
+                        </span>
+                      )}
+                      {!uploadedFilename && serverHasFile && (
+                        <a
+                          href={srv.fileUrl!}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 truncate text-[11.5px] text-ink-3 hover:text-ink hover:underline"
+                        >
+                          <FileText className="size-3 shrink-0" />
+                          View existing file
+                        </a>
+                      )}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge tone={d.status === 'verified' ? 'success' : d.status === 'pending_review' ? 'warning' : d.status === 'rejected' ? 'danger' : 'neutral'}>
-                      {d.status.replace(/_/g, ' ')}
-                    </Badge>
-                    <Button size="sm" variant="outline" iconLeft={<Upload className="size-3.5" />}>
-                      Upload
-                    </Button>
-                  </div>
-                </li>
-              ))}
+                    {/* Trigger uses <label htmlFor> rather than a programmatic click so the
+                        file picker opens inside the original user gesture (Safari is strict
+                        about this) and the browser restores the last-used directory. */}
+                    <label
+                      htmlFor={isBusy || data.status !== 'pending' ? undefined : 'kyc-doc-file-input'}
+                      onMouseDown={() => {
+                        activeKindRef.current = kind;
+                      }}
+                      aria-disabled={isBusy || data.status !== 'pending'}
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-[12px] text-ink-2 transition-colors ${
+                        isBusy || data.status !== 'pending'
+                          ? 'cursor-not-allowed opacity-50'
+                          : 'cursor-pointer hover:bg-bg-3'
+                      }`}
+                    >
+                      {isBusy ? (
+                        <>
+                          <Loader2 className="size-3 animate-spin" /> Uploading…
+                        </>
+                      ) : uploadedFilename || serverHasFile ? (
+                        <>
+                          <Paperclip className="size-3" /> Replace
+                        </>
+                      ) : (
+                        <>
+                          <Paperclip className="size-3" /> Upload
+                        </>
+                      )}
+                    </label>
+                  </li>
+                );
+              })}
             </ul>
           </CardContent>
         </Card>
       </div>
+
+      {/* Single hidden input shared by every slot. activeKindRef (set by the row's
+          label onMouseDown) remembers which slot to write the URL into. */}
+      <input
+        ref={fileInputRef}
+        id="kyc-doc-file-input"
+        type="file"
+        accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void handleFile(file);
+          // Reset so re-picking the same file refires onChange.
+          e.target.value = '';
+        }}
+      />
     </Page>
   );
 }

@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Receipt, RefreshCw, Trash2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { formatPaise } from '@/lib/status';
-import type { PricingBreakdown } from '@/lib/types';
+import type { PricingBreakdown, Promotion } from '@/lib/types';
 import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { MultiSelect } from '@/components/ui/multi-select';
 
 /**
  * Pricing simulator — feed a hypothetical cart + promotions + loyalty redemption,
@@ -39,7 +40,16 @@ export default function AdminPromotionPreview() {
   const [storeStateCode, setStoreStateCode] = useState('27');
   const [deliveryMethod, setDeliveryMethod] = useState<'express' | 'standard' | 'pickup' | 'try_and_buy'>('standard');
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'cod' | 'wallet' | 'gift_card'>('upi');
-  const [promotionIds, setPromotionIds] = useState('');
+  const [promotionIds, setPromotionIds] = useState<string[]>([]);
+  const promotions = useQuery({
+    queryKey: ['admin', 'promotions', 'all'],
+    queryFn: () => api<Promotion[]>('/admin/promotions'),
+  });
+  const promotionOptions = (promotions.data ?? []).map((p) => ({
+    value: p.id,
+    label: p.name,
+    hint: p.id,
+  }));
   const [couponCode, setCouponCode] = useState('');
   const [voucherCode, setVoucherCode] = useState('');
   const [pointsToRedeem, setPointsToRedeem] = useState('0');
@@ -57,7 +67,7 @@ export default function AdminPromotionPreview() {
             paymentMethod,
             lines,
           },
-          promotionIds: promotionIds.split(',').map((s) => s.trim()).filter(Boolean),
+          promotionIds,
           ...(couponCode.trim() && { couponCode: couponCode.trim() }),
           ...(voucherCode.trim() && { voucherCode: voucherCode.trim() }),
           pointsToRedeem: Number(pointsToRedeem) || 0,
@@ -235,8 +245,14 @@ export default function AdminPromotionPreview() {
 
           <SectionHeading title="Promotions to apply" />
           <div>
-            <Label hint="comma-separated promotion IDs">Auto-applied promo IDs</Label>
-            <Input mono value={promotionIds} onChange={(e) => setPromotionIds(e.target.value)} placeholder="e.g. prm_…, prm_…" />
+            <Label hint="Pick one or more to auto-apply">Auto-applied promotions</Label>
+            <MultiSelect
+              options={promotionOptions}
+              value={promotionIds}
+              onChange={setPromotionIds}
+              placeholder={promotions.isLoading ? 'Loading promotions…' : 'Pick promotions'}
+              loading={promotions.isLoading}
+            />
           </div>
           <div className="grid gap-5 sm:grid-cols-2">
             <div>

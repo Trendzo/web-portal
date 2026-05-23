@@ -4,6 +4,7 @@ import AdminLogin from './admin/login';
 import AdminLayout from './admin/layout';
 import AdminDashboard from './admin/dashboard';
 import AdminRetailers from './admin/retailers';
+import AdminStores from './admin/stores';
 import AdminCollections from './admin/collections';
 import AdminCollectionDetail from './admin/collection-detail';
 import AdminCategories from './admin/categories';
@@ -50,6 +51,8 @@ import RetailerKyc from './retailer/kyc';
 import RetailerChangeRequests from './retailer/change-requests';
 import AdminCompliance from './admin/compliance';
 import AdminComplianceDetail from './admin/compliance-detail';
+import AdminChangeRequests from './admin/change-requests';
+import AdminChangeRequestDetail from './admin/change-request-detail';
 import AdminPolicyEnforcement from './admin/policy-enforcement';
 import AdminDataExports from './admin/data-exports';
 import AdminAccountDeletions from './admin/account-deletions';
@@ -64,6 +67,8 @@ import RetailerAiCatalog from './retailer/ai-catalog';
 import RetailerAiCatalogNew from './retailer/ai-catalog-new';
 import RetailerAiCatalogReview from './retailer/ai-catalog-review';
 import RetailerReturns from './retailer/returns';
+import RetailerReturnDetail from './retailer/return-detail';
+import RetailerPickupSlots from './retailer/pickup-slots';
 import RetailerPricing from './retailer/pricing';
 import AdminDeliveryWindows from './admin/delivery-windows';
 import AdminFees from './admin/fees';
@@ -101,11 +106,38 @@ import RetailerReportSales from './retailer/report-sales';
 import RetailerReportPerformance from './retailer/report-performance';
 import RetailerReportReturns from './retailer/report-returns';
 import RetailerReportInventory from './retailer/report-inventory';
+import RetailerReportSalesDetailed from './retailer/report-sales-detailed';
+import RetailerReportRevenueSummary from './retailer/report-revenue-summary';
+import RetailerReportListingRevenue from './retailer/report-listing-revenue';
+import RetailerReportVariantConversion from './retailer/report-variant-conversion';
+import RetailerReportReturnsTop from './retailer/report-returns-top';
+import RetailerReportCompliance from './retailer/report-compliance';
+import RetailerReportBestSellers from './retailer/report-best-sellers';
+import RetailerReportDeadStock from './retailer/report-dead-stock';
+import RetailerReportPayoutCycles from './retailer/report-payout-cycles';
 import AdminReportLeaderboard from './admin/report-leaderboard';
 import AdminReportFunnel from './admin/report-funnel';
 import AdminReportFeatureUsage from './admin/report-feature-usage';
 import AdminReportOperational from './admin/report-operational';
 import AdminReportCompliance from './admin/report-compliance';
+import AdminReportHeadline from './admin/report-headline';
+import AdminReportBelowFloor from './admin/report-below-floor';
+import AdminPayoutHolds from './admin/payout-holds';
+import AdminPayoutAdjustments from './admin/payout-adjustments';
+import AdminInvoiceOps from './admin/invoice-ops';
+import RetailerPayoutsUpcoming from './retailer/payouts-upcoming';
+import AdminDelegationModes from './admin/delegation-modes';
+import AdminRetailerNew from './admin/retailer-new';
+import AdminStoreDetail from './admin/store-detail';
+import AdminRetailerStaff from './admin/retailer-staff';
+import AdminStoreListings from './admin/store-listings';
+import AdminListingsSearch from './admin/listings-search';
+import AdminStoreInventory from './admin/store-inventory';
+import AdminStoreOrders from './admin/store-orders';
+import AdminStoreReturns from './admin/store-returns';
+import AdminStoreHeldItems from './admin/store-held-items';
+import AdminStorePromotions from './admin/store-promotions';
+import AdminStoreVoucherBatch from './admin/store-voucher-batch';
 
 export const router = createBrowserRouter([
   { path: '/', element: <Landing /> },
@@ -119,9 +151,21 @@ export const router = createBrowserRouter([
       { index: true, element: <Navigate to="dashboard" replace /> },
       { path: 'dashboard', element: <AdminDashboard /> },
       { path: 'retailers', element: <AdminRetailers /> },
+      { path: 'stores', element: <AdminStores /> },
+      { path: 'retailers/new', element: <AdminRetailerNew /> },
       { path: 'retailers/:id', element: <AdminRetailerDetail /> },
+      { path: 'retailers/:id/staff', element: <AdminRetailerStaff /> },
+      { path: 'retailers/:id/stores/:storeId', element: <AdminStoreDetail /> },
+      { path: 'retailers/:id/stores/:storeId/listings', element: <AdminStoreListings /> },
+      { path: 'retailers/:id/stores/:storeId/inventory', element: <AdminStoreInventory /> },
+      { path: 'retailers/:id/stores/:storeId/orders', element: <AdminStoreOrders /> },
+      { path: 'retailers/:id/stores/:storeId/returns', element: <AdminStoreReturns /> },
+      { path: 'retailers/:id/stores/:storeId/held-items', element: <AdminStoreHeldItems /> },
+      { path: 'retailers/:id/stores/:storeId/promotions', element: <AdminStorePromotions /> },
+      { path: 'retailers/:id/stores/:storeId/promotions/:promoId/vouchers', element: <AdminStoreVoucherBatch /> },
       { path: 'applications', element: <AdminApplications /> },
       { path: 'applications/:id', element: <AdminApplicationsDetail /> },
+      { path: 'listings', element: <AdminListingsSearch /> },
       { path: 'collections', element: <AdminCollections /> },
       { path: 'collections/:id', element: <AdminCollectionDetail /> },
       // Catalog infra — listings depend on these as load-bearing data,
@@ -136,6 +180,7 @@ export const router = createBrowserRouter([
       { path: 'consumers', element: <AdminConsumers /> },
       { path: 'consumers/:id', element: <AdminConsumerDetail /> },
       { path: 'promotion-preview', element: <AdminPromotionPreview /> },
+      { path: 'platform/delegation-modes', element: <AdminDelegationModes /> },
       { path: 'orders', element: <AdminOrdersList /> },
       { path: 'orders/new', element: <AdminPlaceTestOrder /> },
       { path: 'orders/:id', element: <AdminOrderDetail /> },
@@ -146,6 +191,8 @@ export const router = createBrowserRouter([
       { path: 'sub-roles', element: <AdminSubRoles /> },
       { path: 'compliance', element: <AdminCompliance /> },
       { path: 'compliance/:id', element: <AdminComplianceDetail /> },
+      { path: 'change-requests', element: <AdminChangeRequests /> },
+      { path: 'change-requests/:id', element: <AdminChangeRequestDetail /> },
       { path: 'policy-enforcement', element: <AdminPolicyEnforcement /> },
       { path: 'data-exports', element: <AdminDataExports /> },
       { path: 'account-deletions', element: <AdminAccountDeletions /> },
@@ -176,11 +223,27 @@ export const router = createBrowserRouter([
       { path: 'community-moderation', element: <AdminCommunityModeration /> },
       { path: 'reviews-moderation', element: <AdminReviewsModeration /> },
       // §21 Reports
+      { path: 'reports/headline', element: <AdminReportHeadline /> },
       { path: 'reports/leaderboard', element: <AdminReportLeaderboard /> },
       { path: 'reports/funnel', element: <AdminReportFunnel /> },
       { path: 'reports/feature-usage', element: <AdminReportFeatureUsage /> },
       { path: 'reports/operational', element: <AdminReportOperational /> },
       { path: 'reports/compliance', element: <AdminReportCompliance /> },
+      { path: 'reports/below-floor', element: <AdminReportBelowFloor /> },
+      // §18 admin settlement ops
+      { path: 'payout-holds', element: <AdminPayoutHolds /> },
+      { path: 'payout-adjustments', element: <AdminPayoutAdjustments /> },
+      { path: 'invoice-ops', element: <AdminInvoiceOps /> },
+      // §21 Admin drill-into-retailer (reuses retailer pages via useStoreScope)
+      { path: 'stores/:storeId/reports/sales-detailed', element: <RetailerReportSalesDetailed /> },
+      { path: 'stores/:storeId/reports/revenue-summary', element: <RetailerReportRevenueSummary /> },
+      { path: 'stores/:storeId/reports/listings/revenue', element: <RetailerReportListingRevenue /> },
+      { path: 'stores/:storeId/reports/listings/conversion', element: <RetailerReportVariantConversion /> },
+      { path: 'stores/:storeId/reports/returns/top-listings', element: <RetailerReportReturnsTop /> },
+      { path: 'stores/:storeId/reports/compliance', element: <RetailerReportCompliance /> },
+      { path: 'stores/:storeId/reports/listings/best-sellers', element: <RetailerReportBestSellers /> },
+      { path: 'stores/:storeId/reports/listings/dead-stock', element: <RetailerReportDeadStock /> },
+      { path: 'stores/:storeId/reports/payouts/cycles', element: <RetailerReportPayoutCycles /> },
       // §22 Notifications
       { path: 'inbox', element: <AdminInbox /> },
     ],
@@ -224,6 +287,8 @@ export const router = createBrowserRouter([
       { path: 'ai-catalog/new', element: <RetailerAiCatalogNew /> },
       { path: 'ai-catalog/:id', element: <RetailerAiCatalogReview /> },
       { path: 'returns', element: <RetailerReturns /> },
+      { path: 'returns/:id', element: <RetailerReturnDetail /> },
+      { path: 'pickup-slots', element: <RetailerPickupSlots /> },
       { path: 'pricing', element: <RetailerPricing /> },
       { path: 'fees', element: <RetailerFees /> },
       { path: 'voucher-batch', element: <RetailerVoucherBatch /> },
@@ -244,6 +309,17 @@ export const router = createBrowserRouter([
       { path: 'reports/performance', element: <RetailerReportPerformance /> },
       { path: 'reports/returns', element: <RetailerReportReturns /> },
       { path: 'reports/inventory-health', element: <RetailerReportInventory /> },
+      { path: 'reports/sales-detailed', element: <RetailerReportSalesDetailed /> },
+      { path: 'reports/revenue-summary', element: <RetailerReportRevenueSummary /> },
+      { path: 'reports/listings/revenue', element: <RetailerReportListingRevenue /> },
+      { path: 'reports/listings/conversion', element: <RetailerReportVariantConversion /> },
+      { path: 'reports/returns/top-listings', element: <RetailerReportReturnsTop /> },
+      { path: 'reports/compliance', element: <RetailerReportCompliance /> },
+      { path: 'reports/listings/best-sellers', element: <RetailerReportBestSellers /> },
+      { path: 'reports/listings/dead-stock', element: <RetailerReportDeadStock /> },
+      { path: 'reports/payouts/cycles', element: <RetailerReportPayoutCycles /> },
+      // §18 upcoming payout
+      { path: 'payouts/upcoming', element: <RetailerPayoutsUpcoming /> },
     ],
   },
 

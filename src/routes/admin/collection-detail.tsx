@@ -33,6 +33,7 @@ import {
 import { api, ApiError } from '@/lib/api';
 import { collectionStatusMeta, collectionKindLabel, formatPaise } from '@/lib/status';
 import type {
+  BrandRow,
   Collection,
   CollectionDetail,
   CollectionKind,
@@ -72,7 +73,15 @@ const KIND_OPTIONS: ReadonlyArray<{ value: CollectionKind; label: string }> = [
   { value: 'drop', label: 'Drop' },
   { value: 'edit', label: 'Edit' },
   { value: 'trend', label: 'Trend' },
+  { value: 'brand', label: 'Brand spotlight' },
 ];
+
+// Platform occasion taxonomy — kept in sync with the listing wizard so featured
+// occasion collections resolve to the same tag set retailers can apply.
+const OCCASION_PRESETS = [
+  'casual', 'formal', 'work', 'party', 'festive',
+  'sports', 'ethnic', 'wedding', 'beach', 'lounge',
+] as const;
 
 const GENDER_OPTIONS: ReadonlyArray<{ value: Gender; label: string }> = [
   { value: 'her', label: 'HER' },
@@ -182,7 +191,16 @@ function DetailsCard({
     from: collection.startsAt ? new Date(collection.startsAt) : null,
     to: collection.endsAt ? new Date(collection.endsAt) : null,
   });
+  const [brandId, setBrandId] = useState<string | null>(collection.brandId);
+  const [occasionTag, setOccasionTag] = useState<string | null>(collection.occasionTag);
   const [error, setError] = useState<string | null>(null);
+
+  // Brand list for the picker — only fetched when needed (kind=brand).
+  const brandsQ = useQuery({
+    queryKey: ['admin', 'brands'],
+    queryFn: () => api<BrandRow[]>('/admin/brands'),
+    enabled: kind === 'brand',
+  });
 
   // Re-hydrate when the underlying record updates (e.g. after a PATCH refetch)
   useEffect(() => {
@@ -196,6 +214,8 @@ function DetailsCard({
     setSortOrder(String(collection.sortOrder));
     setHeroImageUrl(collection.heroImageUrl);
     setAccentColors(collection.accentColors ?? []);
+    setBrandId(collection.brandId);
+    setOccasionTag(collection.occasionTag);
     setRange({
       from: collection.startsAt ? new Date(collection.startsAt) : null,
       to: collection.endsAt ? new Date(collection.endsAt) : null,
@@ -219,6 +239,8 @@ function DetailsCard({
           accentColors,
           startsAt: range.from ? range.from.toISOString() : null,
           endsAt: range.to ? range.to.toISOString() : null,
+          brandId: kind === 'brand' ? brandId : null,
+          occasionTag: kind === 'occasion' ? occasionTag : null,
         },
       }),
     onSuccess: () => {
@@ -282,6 +304,59 @@ function DetailsCard({
             </SelectContent>
           </Select>
         </div>
+
+        {kind === 'brand' && (
+          <div className="sm:col-span-2">
+            <Label htmlFor="dBrand" required hint="auto-populates with this brand's active listings">
+              Featured brand
+            </Label>
+            <Select value={brandId ?? ''} onValueChange={(v) => setBrandId(v || null)}>
+              <SelectTrigger id="dBrand">
+                <SelectValue placeholder={brandsQ.isLoading ? 'Loading brands…' : 'Pick a brand'} />
+              </SelectTrigger>
+              <SelectContent>
+                {(brandsQ.data ?? []).map((b) => (
+                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {kind === 'occasion' && (
+          <div className="sm:col-span-2">
+            <Label hint="optional — when set, listings tagged with this occasion auto-populate">
+              Occasion tag
+            </Label>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setOccasionTag(null)}
+                className={`rounded-full border px-3 py-1 text-[12px] transition-colors ${
+                  occasionTag === null
+                    ? 'border-ink bg-ink text-paper'
+                    : 'border-rule bg-bg text-ink-2 hover:border-ink-3'
+                }`}
+              >
+                manual curation
+              </button>
+              {OCCASION_PRESETS.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => setOccasionTag(tag)}
+                  className={`rounded-full border px-3 py-1 text-[12px] capitalize transition-colors ${
+                    occasionTag === tag
+                      ? 'border-accent bg-accent text-accent-fg'
+                      : 'border-rule bg-bg text-ink-2 hover:border-ink-3'
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div>
           <Label htmlFor="dStatus" required>Status</Label>
@@ -444,33 +519,55 @@ function ListingsRoster({
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Save failed'),
   });
 
+  const autoResolved =
+    collection.kind === 'brand' || (collection.kind === 'occasion' && Boolean(collection.occasionTag));
+
   return (
     <section>
       <div className="mb-5 flex items-end justify-between gap-3">
-        <SectionHeading title="Listings" hint={`${items.length} on file`} />
-        <div className="flex items-center gap-2">
-          {dirty && (
+        <SectionHeading
+          title="Listings"
+          hint={
+            autoResolved
+              ? `${items.length} auto-resolved`
+              : `${items.length} on file`
+          }
+        />
+        {!autoResolved && (
+          <div className="flex items-center gap-2">
+            {dirty && (
+              <Button
+                variant="ink"
+                caps
+                size="sm"
+                loading={save.isPending}
+                iconLeft={<Save className="size-3.5" />}
+                onClick={() => save.mutate(items.map((i) => i.id))}
+              >
+                Save order
+              </Button>
+            )}
             <Button
-              variant="ink"
-              caps
+              variant="outline"
               size="sm"
-              loading={save.isPending}
-              iconLeft={<Save className="size-3.5" />}
-              onClick={() => save.mutate(items.map((i) => i.id))}
+              iconLeft={<Plus className="size-3.5" />}
+              onClick={() => setPicking(true)}
             >
-              Save order
+              Add listings
             </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            iconLeft={<Plus className="size-3.5" />}
-            onClick={() => setPicking(true)}
-          >
-            Add listings
-          </Button>
-        </div>
+          </div>
+        )}
       </div>
+
+      {autoResolved && (
+        <div className="mb-4 rounded-md border border-accent/30 bg-accent-soft/20 px-3 py-2 text-[12.5px] text-ink-2">
+          This collection is <strong>auto-populated</strong> from{' '}
+          {collection.kind === 'brand'
+            ? 'the selected brand\'s active listings'
+            : <>listings tagged with <span className="font-mono">{collection.occasionTag}</span></>}.
+          Membership and order are managed by the catalog, not by hand. Switch the kind on the Details card to curate manually.
+        </div>
+      )}
 
       {items.length === 0 ? (
         <Empty

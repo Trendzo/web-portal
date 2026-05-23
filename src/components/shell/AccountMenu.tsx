@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Check, ChevronDown, LogOut, Moon, Plus, ShieldCheck, Store, Sun } from 'lucide-react';
+import { Check, ChevronDown, LogOut, Plus, ShieldCheck, Store } from 'lucide-react';
 import {
   accountHomeOf,
   accountIdOf,
@@ -8,7 +8,6 @@ import {
   useAuth,
   type Session,
 } from '@/lib/auth';
-import { useTheme } from '@/lib/theme';
 import { cn } from '@/lib/cn';
 import {
   DropdownMenu,
@@ -77,7 +76,6 @@ function useAccountActions() {
 export function AccountMenu({ className }: { className?: string }) {
   const { accounts, session, switchToAccount, addAccount, signOutActive, signOutEveryone } =
     useAccountActions();
-  const { theme, toggleTheme } = useTheme();
 
   if (!session) return null;
 
@@ -142,14 +140,6 @@ export function AccountMenu({ className }: { className?: string }) {
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={(e) => { e.preventDefault(); toggleTheme(); }}>
-          <span className="grid size-7 place-items-center text-ink-3">
-            {theme === 'dark' ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
-          </span>
-          <span className="text-[13px]">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
-        </DropdownMenuItem>
-
-        <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={signOutActive}>
           <span className="grid size-7 place-items-center text-ink-3">
             <LogOut className="size-3.5" />
@@ -176,7 +166,6 @@ export function AccountMenu({ className }: { className?: string }) {
 export function AccountsPanel({ onNavigate }: { onNavigate?: () => void }) {
   const { accounts, session, switchToAccount, addAccount, signOutActive, signOutEveryone } =
     useAccountActions();
-  const { theme, toggleTheme } = useTheme();
 
   if (!session) return null;
   const activeId = accountIdOf(session);
@@ -225,15 +214,6 @@ export function AccountsPanel({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <div className="border-t border-line pt-4 space-y-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start"
-          iconLeft={theme === 'dark' ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
-          onClick={() => toggleTheme()}
-        >
-          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-        </Button>
         <Button
           variant="ghost"
           size="sm"

@@ -9,18 +9,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { MultiSelect, type MultiSelectOption } from '@/components/ui/multi-select';
 import type { DiscountType } from '@/lib/types';
 import { discountTypeLabel } from '@/lib/status';
+
+export type ListingPickerItem = {
+  id: string;
+  name: string;
+  variants?: { id: string; label: string }[];
+};
 
 /**
  * Discriminated config form. Renders the right input panel for the chosen
  * `discountType`, and resets `config` defaults when the type changes so we never
  * submit a half-typed leftover from a different shape.
  *
- * Lives inside an existing react-hook-form context — caller provides the
- * `<FormProvider>` wrapper and registers the surrounding promotion fields.
+ * Caller passes the listings available to scope the promo to. Empty array means
+ * "no listings available yet" — typically because the admin hasn't picked a
+ * store or the retailer's catalog is empty.
  */
-export function DiscountConfigForm() {
+export function DiscountConfigForm({ listings = [], listingsLoading = false }: {
+  listings?: ListingPickerItem[];
+  listingsLoading?: boolean;
+}) {
   const { register, watch, setValue, formState: { errors } } = useFormContext();
   const discountType = (watch('discountType') as DiscountType) || 'percent';
 
@@ -29,6 +40,18 @@ export function DiscountConfigForm() {
   useEffect(() => {
     setValue('config', defaultConfigFor(discountType));
   }, [discountType, setValue]);
+
+  const listingOptions: MultiSelectOption[] = listings.map((l) => ({
+    value: l.id,
+    label: l.name,
+    hint: l.id,
+  }));
+
+  const buyListingId = (watch('config.buyListingId') as string) || '';
+  const getListingId = (watch('config.getListingId') as string) || '';
+  const buyListingIds = ((watch('config.buyListingIds') as string[]) || []);
+  const getListingIds = ((watch('config.getListingIds') as string[]) || []);
+  const bundleListingIds = ((watch('config.bundleListingIds') as string[]) || []);
 
   return (
     <div className="space-y-6">
@@ -88,12 +111,45 @@ export function DiscountConfigForm() {
         {discountType === 'bogo' && (
           <div className="grid gap-5 sm:grid-cols-3">
             <div>
-              <Label required>Buy listing ID</Label>
-              <Input mono placeholder="e.g. lst_…" {...register('config.buyListingId')} />
+              <Label required>Buy listing</Label>
+              <Select
+                value={buyListingId}
+                onValueChange={(v) => setValue('config.buyListingId', v)}
+                disabled={listingsLoading || listings.length === 0}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={listingsLoading ? 'Loading…' : listings.length === 0 ? 'No listings available' : 'Pick a listing'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {listings.map((l) => (
+                    <SelectItem key={l.id} value={l.id}>
+                      <span className="font-medium">{l.name}</span>
+                      <span className="ml-2 font-mono text-[11px] text-ink-3">{l.id}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
-              <Label hint="optional — defaults to buy">Get listing ID</Label>
-              <Input mono placeholder="e.g. lst_…" {...register('config.getListingId')} />
+              <Label hint="optional — defaults to buy">Get listing</Label>
+              <Select
+                value={getListingId || '__none__'}
+                onValueChange={(v) => setValue('config.getListingId', v === '__none__' ? '' : v)}
+                disabled={listingsLoading || listings.length === 0}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Same as buy" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Same as buy listing</SelectItem>
+                  {listings.map((l) => (
+                    <SelectItem key={l.id} value={l.id}>
+                      <span className="font-medium">{l.name}</span>
+                      <span className="ml-2 font-mono text-[11px] text-ink-3">{l.id}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label required hint="100 = free">Discount %</Label>
@@ -119,12 +175,26 @@ export function DiscountConfigForm() {
               <Input mono type="number" min={0} max={100} placeholder="100" {...register('config.discountPercent', { valueAsNumber: true })} />
             </div>
             <div className="sm:col-span-2">
-              <Label required hint="comma-separated listing IDs">Buy from listings</Label>
-              <Input mono placeholder="lst_a, lst_b" {...register('config.buyListingIds', { setValueAs: parseList })} />
+              <Label required>Buy from listings</Label>
+              <MultiSelect
+                options={listingOptions}
+                value={buyListingIds}
+                onChange={(next) => setValue('config.buyListingIds', next)}
+                placeholder={listingsLoading ? 'Loading…' : listings.length === 0 ? 'No listings available' : 'Pick listings'}
+                disabled={listings.length === 0 && !listingsLoading}
+                loading={listingsLoading}
+              />
             </div>
             <div className="sm:col-span-2">
-              <Label hint="comma-separated; defaults to buy list">Get from listings</Label>
-              <Input mono placeholder="lst_a, lst_b" {...register('config.getListingIds', { setValueAs: parseListOrUndef })} />
+              <Label hint="optional; defaults to buy list">Get from listings</Label>
+              <MultiSelect
+                options={listingOptions}
+                value={getListingIds}
+                onChange={(next) => setValue('config.getListingIds', next.length ? next : undefined)}
+                placeholder="Same as buy"
+                disabled={listings.length === 0 && !listingsLoading}
+                loading={listingsLoading}
+              />
             </div>
           </div>
         )}
@@ -132,8 +202,15 @@ export function DiscountConfigForm() {
         {discountType === 'bundle' && (
           <div className="space-y-5">
             <div>
-              <Label required hint="comma-separated; cart must have all">Bundle listing IDs</Label>
-              <Input mono placeholder="lst_a, lst_b, lst_c" {...register('config.bundleListingIds', { setValueAs: parseList })} />
+              <Label required hint="Cart must contain all to qualify">Bundle listings</Label>
+              <MultiSelect
+                options={listingOptions}
+                value={bundleListingIds}
+                onChange={(next) => setValue('config.bundleListingIds', next)}
+                placeholder={listingsLoading ? 'Loading…' : listings.length === 0 ? 'No listings available' : 'Pick listings'}
+                disabled={listings.length === 0 && !listingsLoading}
+                loading={listingsLoading}
+              />
             </div>
             <div>
               <Label required>Discount %</Label>
@@ -236,14 +313,6 @@ function defaultConfigFor(t: DiscountType): Record<string, unknown> {
   }
 }
 
-function parseList(v: unknown): string[] {
-  if (Array.isArray(v)) return v as string[];
-  return String(v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-}
-function parseListOrUndef(v: unknown): string[] | undefined {
-  const list = parseList(v);
-  return list.length ? list : undefined;
-}
 function numOrUndef(v: unknown): number | undefined {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : undefined;

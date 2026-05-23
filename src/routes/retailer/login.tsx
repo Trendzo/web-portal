@@ -42,7 +42,17 @@ export default function RetailerLogin() {
         method: 'POST',
         body: values,
       });
-      signIn({ kind: 'retailer', token, retailer });
+      let permissions: Record<string, boolean> = {};
+      try {
+        const me = await api<{ permissions: Record<string, boolean> }>(
+          '/retailer/me/permissions',
+          { token },
+        );
+        permissions = me.permissions;
+      } catch {
+        /* fall through with empty permissions */
+      }
+      signIn({ kind: 'retailer', token, retailer, permissions });
       navigate('/retailer/dashboard', { replace: true });
     } catch (e) {
       if (e instanceof ApiError) {
@@ -62,7 +72,7 @@ export default function RetailerLogin() {
         code === 'invalid_credentials'
           ? 'Incorrect email or password.'
           : code === 'forbidden'
-            ? 'This account has been deactivated. Contact admin for help.'
+            ? 'This account has been terminated. Contact admin for help.'
             : e instanceof Error ? e.message : 'Login failed.',
       );
     }

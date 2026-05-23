@@ -77,7 +77,12 @@ export default function AdminGstReturns() {
                       <div className="flex items-center gap-1.5">
                         {f.status === 'ready' && f.downloadUrl ? (
                           <Button asChild size="sm" variant="outline" iconLeft={<Download className="size-3.5" />}>
-                            <a href={f.downloadUrl}>Download</a>
+                            <a
+                              href={f.downloadUrl}
+                              download={`${f.kind}-${period}-${f.id.slice(-8)}.csv`}
+                            >
+                              Download
+                            </a>
                           </Button>
                         ) : (
                           <Button size="sm" variant="accent" iconLeft={<Sparkles className="size-3.5" />} onClick={() => void generate(period, f.kind)}>

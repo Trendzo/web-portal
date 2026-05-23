@@ -1,16 +1,25 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, ArrowUpRight, Check, Edit3, ImageOff, Plus, Save, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Check, Edit3, ImageOff, Plus, Power, Save, Trash2, X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { MediaGallery } from '@/components/ui/media-gallery';
 import { VariantImagePicker } from '@/components/ui/variant-image-picker';
 import { listingStatusMeta, formatPaise, mechanismLabel, formatDiscount, promotionStatusMeta } from '@/lib/status';
-import type { AttributeAxisType, AttributeTemplate, Listing, Promotion, Variant } from '@/lib/types';
+import type {
+  AiListingQuota,
+  AiSubmission,
+  AttributeAxisType,
+  AttributeTemplate,
+  Listing,
+  Promotion,
+  Store,
+  Variant,
+} from '@/lib/types';
 import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -110,24 +119,46 @@ export default function ListingDetail() {
         All products
       </Link>
 
-      <PageHeader
-        kicker={`${l.brand?.name ?? 'Unbranded'} · ${l.category?.label ?? l.categoryId}`}
-        title={<em>{l.name}</em>}
-        actions={
-          <div className="flex items-center gap-2">
-            <Badge tone={meta.tone}>{meta.label}</Badge>
-            {l.badge !== 'none' && <Badge flat>{l.badge}</Badge>}
-          </div>
-        }
-      />
+      <QuickEditNameDialog
+        listing={l}
+        onChanged={() => qc.invalidateQueries({ queryKey: ['retailer'] })}
+      >
+        {(open) => (
+          <PageHeader
+            kicker={`${l.brand?.name ?? 'Unbranded'} · ${l.category?.label ?? l.categoryId}`}
+            title={
+              <span className="group/title flex items-center gap-2">
+                <em>{l.name}</em>
+                <button
+                  type="button"
+                  onClick={open}
+                  className="opacity-0 group-hover/title:opacity-100 transition-opacity text-ink-3 hover:text-ink"
+                >
+                  <Edit3 className="size-3.5" />
+                </button>
+              </span>
+            }
+            actions={
+              <div className="flex items-center gap-2">
+                <Badge tone={meta.tone}>{meta.label}</Badge>
+                {l.badge !== 'none' && <Badge flat>{l.badge}</Badge>}
+                <Button variant="ghost" size="sm" iconLeft={<Edit3 className="size-3.5" />} onClick={open}>
+                  Edit
+                </Button>
+              </div>
+            }
+          />
+        )}
+      </QuickEditNameDialog>
 
       <PublishPanel
         listing={l}
         onChanged={() => qc.invalidateQueries({ queryKey: ['retailer'] })}
       />
 
-      <Tabs defaultValue="variants">
+      <Tabs defaultValue="overview">
         <TabsList className="overflow-x-auto whitespace-nowrap">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="variants">Variants &amp; inventory</TabsTrigger>
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="promotions">Promotions</TabsTrigger>
@@ -135,6 +166,9 @@ export default function ListingDetail() {
           <TabsTrigger value="audit">Audit log</TabsTrigger>
         </TabsList>
 
+        <TabsContent value="overview">
+          <OverviewTab listing={l} />
+        </TabsContent>
         <TabsContent value="variants">
           <VariantsTab listing={l} onChanged={() => qc.invalidateQueries({ queryKey: ['retailer'] })} />
         </TabsContent>
@@ -155,88 +189,462 @@ export default function ListingDetail() {
   );
 }
 
+function QuickEditNameDialog({
+  listing,
+  onChanged,
+  children,
+}: {
+  listing: Listing;
+  onChanged: () => void;
+  children: (open: () => void) => React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm({
+    resolver: zodResolver(z.object({
+      name: z.string().trim().min(1).max(200),
+      description: z.string().trim().max(5000).optional().or(z.literal('').transform(() => undefined)),
+    })),
+    defaultValues: { name: listing.name, description: listing.description ?? '' },
+  });
+
+  const save = useMutation({
+    mutationFn: (v: { name: string; description?: string | undefined }) =>
+      api<Listing>(`/retailer/listings/${listing.id}`, { method: 'PATCH', body: v }),
+    onSuccess: () => { toast.success('Saved'); setOpen(false); onChanged(); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Save failed'),
+  });
+
+  function handleOpen() {
+    reset({ name: listing.name, description: listing.description ?? '' });
+    setOpen(true);
+  }
+
+  return (
+    <>
+      {children(handleOpen)}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit product info</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit((v) => save.mutate(v))} className="space-y-4 py-1">
+            <div>
+              <Label htmlFor="qe-name" required>Name</Label>
+              <Input id="qe-name" {...register('name')} />
+              <FieldError>{errors.name?.message}</FieldError>
+            </div>
+            <div>
+              <Label htmlFor="qe-desc" hint="Optional">Description</Label>
+              <Textarea id="qe-desc" rows={5} {...register('description')} placeholder="Describe this product…" />
+              <FieldError>{errors.description?.message}</FieldError>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button type="submit" loading={isSubmitting || save.isPending}>Save</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function OverviewTab({ listing }: { listing: Listing }) {
+  const variants = listing.variants ?? [];
+  const totalStock = variants.reduce((sum, v) => sum + v.stock, 0);
+  const totalReserved = variants.reduce((sum, v) => sum + v.reserved, 0);
+  const totalAvailable = totalStock - totalReserved;
+  const coverImage = (listing.galleryUrls ?? [])[0];
+  const meta = listingStatusMeta(listing.status);
+
+  function fmt(iso: string) {
+    return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  return (
+    <div className="grid gap-8 lg:grid-cols-12">
+      {/* Cover image */}
+      <div className="lg:col-span-4">
+        <div className="aspect-square overflow-hidden rounded-xs border border-rule bg-paper-2">
+          {coverImage ? (
+            <img src={coverImage} alt="" className="h-full w-full object-contain" loading="lazy" />
+          ) : (
+            <div className="grid h-full place-items-center text-ink-4">
+              <ImageOff className="size-10" />
+            </div>
+          )}
+        </div>
+        <p className="mt-1.5 text-center text-[11px] uppercase tracking-[0.12em] text-ink-4">Cover image</p>
+      </div>
+
+      {/* Details column */}
+      <div className="lg:col-span-8 space-y-7">
+        {/* Basics */}
+        <section>
+          <div className="kicker mb-3 text-ink-3">Basics</div>
+          <dl className="space-y-2.5">
+            <OverviewRow label="Name" value={<span className="font-medium text-ink">{listing.name}</span>} />
+            <OverviewRow label="Brand" value={listing.brand?.name ?? <em className="text-ink-3">Unbranded</em>} />
+            <OverviewRow label="Category" value={listing.category?.label ?? listing.categoryId} />
+            <OverviewRow label="Gender" value={<span className="capitalize">{listing.gender}</span>} />
+            <OverviewRow label="Status" value={<Badge tone={meta.tone}>{meta.label}</Badge>} />
+            <OverviewRow label="Policy" value={REVIEW_POLICY_LABEL[listing.listingPolicy]} />
+            <OverviewRow label="Created" value={fmt(listing.createdAt)} />
+            <OverviewRow label="Last updated" value={fmt(listing.updatedAt)} />
+          </dl>
+        </section>
+
+        {/* Stock summary */}
+        <section>
+          <div className="kicker mb-3 text-ink-3">Stock summary</div>
+          <div className="grid grid-cols-3 gap-3">
+            <StockCard label="Total" value={totalStock} />
+            <StockCard label="Reserved" value={totalReserved} />
+            <StockCard label="Available" value={totalAvailable} warn={totalAvailable === 0 && variants.length > 0} />
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function OverviewRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 border-b border-rule/50 pb-2 last:border-b-0">
+      <dt className="w-28 shrink-0 text-[11.5px] uppercase tracking-[0.08em] text-ink-3">{label}</dt>
+      <dd className="min-w-0 flex-1 text-[13px] text-ink break-words">{value}</dd>
+    </div>
+  );
+}
+
+function StockCard({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
+  return (
+    <div className={`rounded-xs border px-4 py-3 text-center ${warn ? 'border-warning/40 bg-warning-soft/30' : 'border-rule bg-paper-2/40'}`}>
+      <div className={`text-[22px] font-mono tabular-nums font-semibold ${warn ? 'text-warning' : 'text-ink'}`}>
+        {value}
+      </div>
+      <div className="mt-0.5 text-[11px] uppercase tracking-[0.1em] text-ink-3">{label}</div>
+    </div>
+  );
+}
+
+function fmtPromoDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 function PromotionsTab({ listing }: { listing: Listing }) {
-  const { data: promos, isLoading } = useQuery({
+  const qc = useQueryClient();
+  const [pickerPromoId, setPickerPromoId] = useState('');
+
+  const includedQuery = useQuery({
     queryKey: ['retailer', 'promotions', { listingId: listing.id }],
     queryFn: () => api<Promotion[]>(`/retailer/promotions?listingId=${listing.id}`),
   });
+  const excludedQuery = useQuery({
+    queryKey: ['retailer', 'promotions', { excludedListingId: listing.id }],
+    queryFn: () => api<Promotion[]>(`/retailer/promotions?excludedListingId=${listing.id}`),
+  });
+  const allQuery = useQuery({
+    queryKey: ['retailer', 'promotions'],
+    queryFn: () => api<Promotion[]>('/retailer/promotions'),
+  });
+
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ['retailer', 'promotions'] });
+  };
+
+  const scopeMutation = useMutation({
+    mutationFn: ({ promoId, action }: { promoId: string; action: 'include' | 'uninclude' | 'exclude' | 'unexclude' }) =>
+      api(`/retailer/promotions/${promoId}/scope/listing`, {
+        method: 'PATCH',
+        body: { listingId: listing.id, action },
+      }),
+    onSuccess: (_, { action }) => {
+      invalidate();
+      const msg = action === 'include' ? 'Added to promotion' : action === 'uninclude' ? 'Removed from promotion' : action === 'exclude' ? 'Excluded from promotion' : 'Exclusion removed';
+      toast.success(msg);
+      setPickerPromoId('');
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Failed to update scope'),
+  });
+
+  const includedIds = new Set((includedQuery.data ?? []).map((p) => p.id));
+  const excludedIds = new Set((excludedQuery.data ?? []).map((p) => p.id));
+  const availableForPicker = (allQuery.data ?? []).filter((p) => !includedIds.has(p.id) && !excludedIds.has(p.id));
+
+  const isLoading = includedQuery.isLoading || excludedQuery.isLoading;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-8">
       <div className="flex items-center justify-between">
-        <SectionHeading title="Promotions targeting this listing" hint="Offers, coupons, and vouchers whose scope includes this listing" />
+        <SectionHeading title="Promotion scope" hint="Which promotions include or exclude this listing" />
         <Button asChild variant="outline" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
           <Link to="/retailer/promotions/new">New promotion</Link>
         </Button>
       </div>
-      {isLoading ? (
-        <div className="space-y-2">
-          <Skeleton className="h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
-        </div>
-      ) : !promos?.length ? (
-        <Empty
-          kicker="None yet"
-          title="No promotions target this listing."
-          description="Create a promotion and add this listing to its scope."
-          action={
-            <Button asChild variant="ink" size="sm">
-              <Link to="/retailer/promotions/new">New promotion</Link>
-            </Button>
-          }
-        />
-      ) : (
-        <ul className="space-y-2">
-          {promos.map((p) => {
-            const meta = promotionStatusMeta(p.effectiveStatus);
-            return (
-              <li key={p.id}>
-                <Link
-                  to={`/retailer/promotions/${p.id}`}
-                  className="flex items-center gap-3 rounded-lg border border-line bg-bg px-4 py-3 hover:bg-bg-2 transition-colors"
-                >
+
+      {/* Included */}
+      <div className="space-y-2">
+        <p className="text-[11.5px] font-medium uppercase tracking-[0.12em] text-ink-3">Included in</p>
+        {isLoading ? (
+          <Skeleton className="h-14" />
+        ) : (includedQuery.data ?? []).length === 0 ? (
+          <p className="text-[13px] text-ink-4 py-2">Not explicitly included in any promotion.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {(includedQuery.data ?? []).map((p) => {
+              const meta = promotionStatusMeta(p.effectiveStatus);
+              const pending = scopeMutation.isPending && scopeMutation.variables?.promoId === p.id;
+              return (
+                <li key={p.id} className="flex items-center gap-3 rounded-lg border border-line bg-bg px-4 py-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-[13.5px] text-ink truncate">{p.name}</span>
+                      <Badge tone={meta.tone}>{meta.label}</Badge>
                       <Badge flat>{mechanismLabel(p.mechanism)}</Badge>
                     </div>
-                    <div className="mt-0.5 text-[12px] text-ink-3 truncate">
-                      {formatDiscount(p.discountType, p.config)} · {new Date(p.validFrom).toLocaleDateString('en-IN')} – {new Date(p.validUntil).toLocaleDateString('en-IN')}
+                    <div className="mt-0.5 text-[12px] text-ink-3">{formatDiscount(p.discountType, p.config)}</div>
+                    <div className="mt-0.5 text-[11.5px] text-ink-4">
+                      {fmtPromoDate(p.validFrom)} – {fmtPromoDate(p.validUntil)}
+                      <span className="mx-1.5 text-ink-5">·</span>
+                      {p.redeemedCount} redeemed{p.totalUses !== null ? ` / ${p.totalUses}` : ''}
                     </div>
                   </div>
-                  <Badge tone={meta.tone}>{meta.label}</Badge>
-                  <ArrowUpRight className="size-3.5 text-ink-3 shrink-0" />
-                </Link>
-              </li>
-            );
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button variant="ghost" size="sm" loading={pending} onClick={() => scopeMutation.mutate({ promoId: p.id, action: 'exclude' })}>
+                      Exclude
+                    </Button>
+                    <Button variant="ghost" size="sm" loading={pending} onClick={() => scopeMutation.mutate({ promoId: p.id, action: 'uninclude' })}>
+                      Remove
+                    </Button>
+                    <Button asChild variant="ghost" size="sm" iconRight={<ArrowUpRight className="size-3" />}>
+                      <Link to={`/retailer/promotions/${p.id}`}>Open</Link>
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* Excluded */}
+      {((excludedQuery.data ?? []).length > 0 || excludedQuery.isLoading) && (
+        <div className="space-y-2">
+          <p className="text-[11.5px] font-medium uppercase tracking-[0.12em] text-ink-3">Explicitly excluded from</p>
+          {excludedQuery.isLoading ? (
+            <Skeleton className="h-14" />
+          ) : (
+            <ul className="space-y-1.5">
+              {(excludedQuery.data ?? []).map((p) => {
+                const meta = promotionStatusMeta(p.effectiveStatus);
+                const pending = scopeMutation.isPending && scopeMutation.variables?.promoId === p.id;
+                return (
+                  <li key={p.id} className="flex items-center gap-3 rounded-lg border border-danger/30 bg-danger/5 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-[13.5px] text-ink truncate">{p.name}</span>
+                        <Badge tone={meta.tone}>{meta.label}</Badge>
+                        <Badge flat>{mechanismLabel(p.mechanism)}</Badge>
+                      </div>
+                      <div className="mt-0.5 text-[12px] text-ink-3">{formatDiscount(p.discountType, p.config)}</div>
+                      <div className="mt-0.5 text-[11.5px] text-ink-4">
+                        {fmtPromoDate(p.validFrom)} – {fmtPromoDate(p.validUntil)}
+                        <span className="mx-1.5 text-ink-5">·</span>
+                        {p.redeemedCount} redeemed{p.totalUses !== null ? ` / ${p.totalUses}` : ''}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Button variant="ghost" size="sm" loading={pending} onClick={() => scopeMutation.mutate({ promoId: p.id, action: 'unexclude' })}>
+                        Re-include
+                      </Button>
+                      <Button asChild variant="ghost" size="sm" iconRight={<ArrowUpRight className="size-3" />}>
+                        <Link to={`/retailer/promotions/${p.id}`}>Open</Link>
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Add to scope */}
+      <div className="space-y-2">
+        <p className="text-[11.5px] font-medium uppercase tracking-[0.12em] text-ink-3">Add to a promotion</p>
+        <div className="flex items-center gap-2">
+          <Select value={pickerPromoId} onValueChange={setPickerPromoId}>
+            <SelectTrigger className="max-w-xs flex-1">
+              <SelectValue placeholder={allQuery.isLoading ? 'Loading…' : availableForPicker.length === 0 ? 'No promotions available' : 'Select promotion…'} />
+            </SelectTrigger>
+            <SelectContent>
+              {availableForPicker.map((p) => (
+                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!pickerPromoId}
+            loading={scopeMutation.isPending && scopeMutation.variables?.promoId === pickerPromoId && scopeMutation.variables.action === 'include'}
+            onClick={() => pickerPromoId && scopeMutation.mutate({ promoId: pickerPromoId, action: 'include' })}
+          >
+            Include
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!pickerPromoId}
+            loading={scopeMutation.isPending && scopeMutation.variables?.promoId === pickerPromoId && scopeMutation.variables.action === 'exclude'}
+            onClick={() => pickerPromoId && scopeMutation.mutate({ promoId: pickerPromoId, action: 'exclude' })}
+          >
+            Exclude
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AiGenerationsTab({ listing }: { listing: Listing }) {
+  const quota = useQuery({
+    queryKey: ['retailer', 'ai-catalog', 'quota', listing.id],
+    queryFn: () =>
+      api<AiListingQuota>(`/retailer/ai-catalog/quota?listingId=${encodeURIComponent(listing.id)}`),
+  });
+  const submissions = useQuery({
+    queryKey: ['retailer', 'ai-catalog', 'by-listing', listing.id],
+    queryFn: () =>
+      api<AiSubmission[]>(`/retailer/ai-catalog?listingId=${encodeURIComponent(listing.id)}`),
+  });
+
+  const variants = listing.variants ?? [];
+  const subsByVariant = new Map<string, AiSubmission>();
+  let listingLatest: AiSubmission | undefined;
+  for (const s of submissions.data ?? []) {
+    if (s.parentSubmissionId) continue; // only root attempts
+    if (s.targetVariantId) {
+      if (!subsByVariant.has(s.targetVariantId)) subsByVariant.set(s.targetVariantId, s);
+    } else if (!listingLatest) {
+      listingLatest = s;
+    }
+  }
+  const quotaExhausted = Boolean(quota.data && quota.data.remaining <= 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SectionHeading title="AI photo generations for this listing" />
+        <div className="flex items-center gap-2">
+          {quota.data && (
+            <Badge tone={quotaExhausted ? 'danger' : 'neutral'} flat>
+              {quota.data.usedAttempts}/{quota.data.variantCount} attempts used
+            </Badge>
+          )}
+          <Button
+            asChild
+            variant="accent"
+            size="sm"
+            iconRight={<ArrowUpRight className="size-3.5" />}
+            disabled={quotaExhausted || (quota.data?.variantCount ?? 0) === 0}
+          >
+            <Link to={`/retailer/ai-catalog/new?listingId=${listing.id}`}>Generate new</Link>
+          </Button>
+        </div>
+      </div>
+
+      {variants.length === 0 ? (
+        <Empty
+          kicker="No variants"
+          title="Add a variant first"
+          description="AI quota is one generation per variant. Add at least one variant to enable image generation."
+        />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {variants.map((v) => {
+            const sub = subsByVariant.get(v.id);
+            return <VariantSlotCard key={v.id} listingId={listing.id} variant={v} sub={sub} />;
           })}
-        </ul>
+        </div>
+      )}
+
+      {listingLatest && (
+        <div>
+          <div className="mb-2 mt-4 text-[11.5px] font-semibold uppercase tracking-wide text-ink-3">
+            Listing-level generation
+          </div>
+          <VariantSlotCard listingId={listing.id} sub={listingLatest} />
+        </div>
       )}
     </div>
   );
 }
 
-// MOCK_DEPENDENCY: §7 — per-listing AI submissions slice
-
-function AiGenerationsTab({ listing }: { listing: Listing }) {
+function VariantSlotCard({
+  listingId,
+  variant,
+  sub,
+}: {
+  listingId: string;
+  variant?: Variant | undefined;
+  sub?: AiSubmission | undefined;
+}) {
+  const image = variant?.imageUrls?.[0] ?? sub?.outputUrls?.[0];
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <SectionHeading title="AI photo generations for this listing" />
-        <Button asChild variant="accent" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
-          <Link to={`/retailer/ai-catalog/new?listingId=${listing.id}`}>Generate new</Link>
-        </Button>
+    <div className="rounded-md border border-line bg-bg-2/30 p-3">
+      <div className="aspect-[3/4] overflow-hidden rounded-md border border-line bg-bg-2">
+        {image ? (
+          <img src={image} alt="" className="size-full object-cover" />
+        ) : (
+          <div className="grid size-full place-items-center text-ink-4">
+            <ImageOff className="size-5" />
+          </div>
+        )}
       </div>
-      <Empty
-        kicker="Mocked"
-        title="No AI generations yet"
-        description="Submit input photos and let the AI catalog tool produce shot variants — accepted outputs auto-attach to the gallery."
-        action={
-          <Button asChild variant="outline">
-            <Link to="/retailer/ai-catalog">Open AI catalog</Link>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-[12.5px] font-semibold text-ink">
+            {variant ? variant.attributesLabel : 'Listing gallery'}
+          </div>
+          {sub && (
+            <div className="mt-0.5 text-[11px] text-ink-3">
+              <Badge
+                tone={
+                  sub.status === 'ready_for_review'
+                    ? 'warning'
+                    : sub.status === 'accepted'
+                      ? 'success'
+                      : sub.status === 'failed'
+                        ? 'danger'
+                        : sub.status === 'processing' || sub.status === 'regenerating'
+                          ? 'info'
+                          : 'neutral'
+                }
+                flat
+              >
+                {sub.status.replace(/_/g, ' ')}
+              </Badge>
+            </div>
+          )}
+        </div>
+        {sub ? (
+          <Button asChild variant="outline" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
+            <Link to={`/retailer/ai-catalog/${sub.id}`}>Open</Link>
           </Button>
-        }
-      />
+        ) : (
+          <Button asChild variant="accent" size="sm">
+            <Link
+              to={`/retailer/ai-catalog/new?listingId=${listingId}${
+                variant ? `&variantId=${variant.id}` : ''
+              }`}
+            >
+              Generate
+            </Link>
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -302,17 +710,22 @@ function VariantsTab({ listing, onChanged }: { listing: Listing; onChanged: () =
               <tr className="border-b border-rule">
                 <Th className="w-[5%]">№</Th>
                 <Th className="w-[8%]">Image</Th>
-                <Th className="w-[30%]">Variant</Th>
-                <Th className="w-[18%]">SKU</Th>
-                <Th className="w-[14%] text-right">Price</Th>
+                <Th className="w-[27%]">Variant</Th>
+                <Th className="w-[17%]">SKU</Th>
+                <Th className="w-[12%] text-right">Price</Th>
                 <Th className="w-[10%] text-right">Stock</Th>
                 <Th className="w-[8%] text-right">Held</Th>
-                <Th className="w-[7%] text-right" />
+                <Th className="w-[8%] text-right">Avail</Th>
+                <Th className="w-[5%] text-right" />
               </tr>
             </thead>
             <tbody className="divide-y divide-rule">
               {variants.map((v, i) => (
-                <tr key={v.id} className="hover:bg-surface/40">
+                <tr
+                  key={v.id}
+                  onClick={() => setEditing(v)}
+                  className={`cursor-pointer hover:bg-surface/40 transition-opacity ${v.isActive ? '' : 'opacity-50'}`}
+                >
                   <Td className="font-mono text-[11px] text-ink-3 align-middle">
                     {String(i + 1).padStart(2, '0')}
                   </Td>
@@ -320,7 +733,9 @@ function VariantsTab({ listing, onChanged }: { listing: Listing; onChanged: () =
                     <VariantThumb urls={v.imageUrls ?? []} />
                   </Td>
                   <Td>
-                    <div className="font-medium text-ink">{v.attributesLabel}</div>
+                    <div className={`font-medium text-ink ${v.isActive ? '' : 'line-through decoration-ink-3'}`}>
+                      {v.attributesLabel}
+                    </div>
                     <div className="mt-0.5 text-[12px] text-ink-3">
                       {Object.entries(v.attributes).length > 0
                         ? Object.entries(v.attributes).map(([k, val]) => `${k}: ${val}`).join(' · ')
@@ -333,7 +748,7 @@ function VariantsTab({ listing, onChanged }: { listing: Listing; onChanged: () =
                   <Td className="text-right font-mono text-[14px] tabular-nums">
                     {formatPaise(v.pricePaise)}
                   </Td>
-                  <Td className="text-right">
+                  <Td className="text-right" onClick={(e) => e.stopPropagation()}>
                     {/* Stock is read-only here on purpose — Inventory owns it.
                         Click jumps to the Inventory row pre-filtered by SKU (or
                         product name when no SKU is set). */}
@@ -347,7 +762,10 @@ function VariantsTab({ listing, onChanged }: { listing: Listing; onChanged: () =
                     </Link>
                   </Td>
                   <Td className="text-right font-mono text-[13px] text-ink-3 tabular-nums">{v.reserved}</Td>
-                  <Td className="text-right">
+                  <Td className={`text-right font-mono text-[13px] tabular-nums ${v.stock - v.reserved === 0 ? 'text-warning' : 'text-ink-2'}`}>
+                    {v.stock - v.reserved}
+                  </Td>
+                  <Td className="text-right" onClick={(e) => e.stopPropagation()}>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -394,8 +812,20 @@ function Th({ children, className }: { children?: React.ReactNode; className?: s
   );
 }
 
-function Td({ children, className }: { children?: React.ReactNode; className?: string }) {
-  return <td className={'px-3 py-4 align-top ' + (className ?? '')}>{children}</td>;
+function Td({
+  children,
+  className,
+  onClick,
+}: {
+  children?: React.ReactNode;
+  className?: string;
+  onClick?: (e: React.MouseEvent<HTMLTableCellElement>) => void;
+}) {
+  return (
+    <td className={'px-3 py-4 align-top ' + (className ?? '')} onClick={onClick}>
+      {children}
+    </td>
+  );
 }
 
 function VariantThumb({ urls }: { urls: string[] }) {
@@ -910,8 +1340,10 @@ function EditInventoryDialog({
   // Image gallery is managed independently of the form fields — every change PATCHes
   // the variant immediately so the user can add/remove without hitting Save.
   const [imageUrls, setImageUrls] = useState<string[]>(target?.imageUrls ?? []);
+  const [isActive, setIsActive] = useState<boolean>(target?.isActive ?? true);
   useEffect(() => {
     setImageUrls(target?.imageUrls ?? []);
+    setIsActive(target?.isActive ?? true);
   }, [target]);
 
   const save = useMutation({
@@ -922,6 +1354,7 @@ function EditInventoryDialog({
           pricePaise: v.pricePaise,
           ...(v.sku ? { sku: v.sku } : {}),
           imageUrls,
+          isActive,
         },
       }),
     onSuccess: () => {
@@ -939,6 +1372,21 @@ function EditInventoryDialog({
             ? e.message
             : 'Could not save',
       );
+    },
+  });
+
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const del = useMutation({
+    mutationFn: () =>
+      api(`/retailer/variants/${target!.id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast.success('Variant deleted');
+      setConfirmDelete(false);
+      onClose();
+      onSaved();
+    },
+    onError: (e) => {
+      toast.error(e instanceof Error ? e.message : 'Could not delete');
     },
   });
 
@@ -996,15 +1444,74 @@ function EditInventoryDialog({
               />
             </div>
 
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-              <Button type="submit" variant="ink" caps loading={isSubmitting || save.isPending} iconLeft={<Save className="size-3.5" />}>
-                Save
+            <div className="rounded-lg border border-line">
+              <div className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-2.5">
+                  <Power className={`size-3.5 ${isActive ? 'text-success' : 'text-ink-4'}`} />
+                  <span className="text-[12.5px] font-medium text-ink">
+                    {isActive ? 'Active' : 'Inactive'}
+                  </span>
+                  <span className="text-[11.5px] text-ink-4">
+                    {isActive ? '— visible to buyers' : '— hidden from buyers'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isActive}
+                  onClick={() => setIsActive((v) => !v)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 ${isActive ? 'bg-success' : 'bg-ink-4'}`}
+                >
+                  <span
+                    className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${isActive ? 'translate-x-4' : 'translate-x-0'}`}
+                  />
+                </button>
+              </div>
+              {!isActive && target.reserved > 0 && (
+                <div className="border-t border-warning/30 bg-warning-soft/40 px-4 py-2.5 text-[11.5px] text-warning">
+                  Heads up — this variant has <span className="font-mono">{target.reserved}</span> unit{target.reserved === 1 ? '' : 's'} reserved by open orders. Existing reservations remain fulfillable; new buyers cannot add it to their cart once you save.
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="sm:justify-between">
+              <Button
+                type="button"
+                variant="danger"
+                iconLeft={<Trash2 className="size-3.5" />}
+                onClick={() => setConfirmDelete(true)}
+              >
+                Delete
               </Button>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+                <Button type="submit" variant="ink" caps loading={isSubmitting || save.isPending} iconLeft={<Save className="size-3.5" />}>
+                  Save
+                </Button>
+              </div>
             </DialogFooter>
           </form>
         )}
       </DialogContent>
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete variant?</DialogTitle>
+            <DialogDescription>
+              {target?.attributesLabel ?? 'This variant'} will be permanently removed.
+              {target && target.reserved > 0
+                ? ` Currently ${target.reserved} unit(s) reserved — delete will fail.`
+                : ' This cannot be undone.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+            <Button variant="danger" loading={del.isPending} onClick={() => del.mutate()}>
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
@@ -1014,11 +1521,29 @@ const DetailsPatchSchema = z.object({
   description: z.string().trim().max(5000).optional().or(z.literal('').transform(() => undefined)),
   badge: z.enum(['new', 'hot', 'trending', 'none']),
   listingPolicy: z.enum(['return', 'replace', 'final_sale']),
-  status: z.enum(['draft', 'active', 'retired']),
+  // 'taken_down' is admin-set; we accept it in the form default so the field renders,
+  // but the UI Select keeps it read-only — see the conditional below.
+  status: z.enum(['draft', 'active', 'retired', 'taken_down']),
+  occasion: z.array(z.string().trim().min(1).max(40)).max(10).default([]),
+  ageGroup: z.enum(['kids', 'teens', 'adults', 'all']).nullable().optional(),
 });
 type DetailsPatchValues = z.infer<typeof DetailsPatchSchema>;
 
+const DETAIL_OCCASION_PRESETS = [
+  'casual', 'formal', 'work', 'party', 'festive',
+  'sports', 'ethnic', 'wedding', 'beach', 'lounge',
+] as const;
+
 function DetailsTab({ listing, onChanged }: { listing: Listing; onChanged: () => void }) {
+  const [confirmFinalSale, setConfirmFinalSale] = useState(false);
+  const [pendingPolicy, setPendingPolicy] = useState<string | null>(null);
+
+  const meQuery = useQuery({
+    queryKey: ['retailer', 'me'],
+    queryFn: () => api<{ store: Store | null }>('/retailer/me'),
+  });
+  const delegationLocked = meQuery.data?.store?.delegationModeEnabled === true;
+
   const {
     register,
     handleSubmit,
@@ -1033,8 +1558,19 @@ function DetailsTab({ listing, onChanged }: { listing: Listing; onChanged: () =>
       badge: listing.badge,
       listingPolicy: listing.listingPolicy,
       status: listing.status,
+      occasion: listing.occasion ?? [],
+      ageGroup: listing.ageGroup ?? null,
     },
   });
+
+  function handlePolicyChange(v: string) {
+    if (v === 'final_sale' && listing.listingPolicy !== 'final_sale') {
+      setPendingPolicy(v);
+      setConfirmFinalSale(true);
+      return;
+    }
+    setValue('listingPolicy', v as DetailsPatchValues['listingPolicy']);
+  }
 
   const save = useMutation({
     mutationFn: (v: DetailsPatchValues) =>
@@ -1104,17 +1640,71 @@ function DetailsTab({ listing, onChanged }: { listing: Listing; onChanged: () =>
         </div>
         <div>
           <Label>Return policy</Label>
+          {delegationLocked ? (
+            <div title="Policy controlled by platform delegation settings">
+              <Select value={watch('listingPolicy')} disabled>
+                <SelectTrigger className="opacity-60 cursor-not-allowed"><SelectValue /></SelectTrigger>
+              </Select>
+              <p className="mt-1 text-[11.5px] text-ink-3">Controlled by platform delegation settings.</p>
+            </div>
+          ) : (
+            <Select value={watch('listingPolicy')} onValueChange={handlePolicyChange}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="return">Returnable</SelectItem>
+                <SelectItem value="replace">Replace only</SelectItem>
+                <SelectItem value="final_sale">Final sale</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+        <div>
+          <Label hint="Optional">Age group</Label>
           <Select
-            value={watch('listingPolicy')}
-            onValueChange={(v) => setValue('listingPolicy', v as DetailsPatchValues['listingPolicy'])}
+            value={watch('ageGroup') ?? '__none__'}
+            onValueChange={(v) => setValue('ageGroup', v === '__none__' ? null : (v as NonNullable<DetailsPatchValues['ageGroup']>))}
           >
-            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Unspecified" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="return">Returnable</SelectItem>
-              <SelectItem value="replace">Replace only</SelectItem>
-              <SelectItem value="final_sale">Final sale</SelectItem>
+              <SelectItem value="__none__">Unspecified</SelectItem>
+              <SelectItem value="kids">Kids</SelectItem>
+              <SelectItem value="teens">Teens</SelectItem>
+              <SelectItem value="adults">Adults</SelectItem>
+              <SelectItem value="all">All ages</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div>
+          <Label hint="Optional · multi-select">Occasion tags</Label>
+          <div className="flex flex-wrap gap-1.5">
+            {DETAIL_OCCASION_PRESETS.map((occ) => {
+              const current = watch('occasion') ?? [];
+              const selected = current.includes(occ);
+              return (
+                <button
+                  key={occ}
+                  type="button"
+                  onClick={() => {
+                    if (selected) {
+                      setValue('occasion', current.filter((c) => c !== occ));
+                    } else if (current.length < 10) {
+                      setValue('occasion', [...current, occ]);
+                    } else {
+                      toast.error('At most 10 occasions allowed');
+                    }
+                  }}
+                  className={
+                    'rounded-full border px-3 py-1 text-[12px] capitalize transition-colors ' +
+                    (selected
+                      ? 'border-accent bg-accent text-accent-fg'
+                      : 'border-line bg-bg text-ink-2 hover:border-line-2')
+                  }
+                >
+                  {occ}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 
@@ -1129,6 +1719,28 @@ function DetailsTab({ listing, onChanged }: { listing: Listing; onChanged: () =>
           Save changes
         </Button>
       </div>
+
+      <Dialog open={confirmFinalSale} onOpenChange={setConfirmFinalSale}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Switch to Final sale?</DialogTitle>
+            <DialogDescription>
+              Shoppers will see <span className="font-medium text-ink">"No returns"</span> on this listing.
+              Final sale removes return and replace rights for all future orders. Already-placed orders keep the policy they were bought under and are unaffected.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setConfirmFinalSale(false); setPendingPolicy(null); }}>Cancel</Button>
+            <Button variant="danger" onClick={() => {
+              if (pendingPolicy) setValue('listingPolicy', pendingPolicy as DetailsPatchValues['listingPolicy']);
+              setConfirmFinalSale(false);
+              setPendingPolicy(null);
+            }}>
+              Confirm final sale
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </form>
   );
 }
@@ -1145,13 +1757,17 @@ function PublishPanel({ listing, onChanged }: { listing: Listing; onChanged: () 
   const images = listing.galleryUrls ?? [];
   const hasVariants = variants.length > 0;
   const hasImages = images.length > 0;
-  const ready = hasVariants && hasImages;
+  const [reviewOpen, setReviewOpen] = useState(false);
+
   const isPublished = listing.status === 'active';
 
   const patch = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       api<Listing>(`/retailer/listings/${listing.id}`, { method: 'PATCH', body }),
-    onSuccess: () => onChanged(),
+    onSuccess: () => {
+      onChanged();
+      setReviewOpen(false);
+    },
     onError: (e) => {
       const code = e instanceof ApiError ? e.code : '';
       const msg =
@@ -1168,7 +1784,19 @@ function PublishPanel({ listing, onChanged }: { listing: Listing; onChanged: () 
     },
   });
 
-  function publish() {
+  function openReview() {
+    if (!hasVariants) {
+      toast.error('Add at least one variant before publishing');
+      return;
+    }
+    if (!hasImages) {
+      toast.error('Add at least one image before publishing');
+      return;
+    }
+    setReviewOpen(true);
+  }
+
+  function publishNow() {
     patch.mutate({ status: 'active' });
   }
 
@@ -1199,16 +1827,29 @@ function PublishPanel({ listing, onChanged }: { listing: Listing; onChanged: () 
             variant="ink"
             caps
             size="sm"
-            disabled={!ready}
-            loading={patch.isPending && (patch.variables as { status?: string } | undefined)?.status === 'active'}
+            disabled={!hasVariants || !hasImages}
             iconLeft={<Check className="size-3.5" />}
-            onClick={publish}
-            title={!ready ? 'Add at least one variant and one image to publish' : undefined}
+            onClick={openReview}
+            title={
+              !hasVariants
+                ? 'Add at least one variant before publishing'
+                : !hasImages
+                  ? 'Add at least one gallery image before publishing'
+                  : undefined
+            }
           >
-            Publish
+            Review & Publish
           </Button>
         )}
       </div>
+
+      <ReviewPublishDialog
+        open={reviewOpen}
+        listing={listing}
+        publishing={patch.isPending && (patch.variables as { status?: string } | undefined)?.status === 'active'}
+        onClose={() => setReviewOpen(false)}
+        onPublish={publishNow}
+      />
 
       {/* Readiness checklist — only shown while drafting */}
       {!isPublished && (
@@ -1239,11 +1880,188 @@ function PublishPanel({ listing, onChanged }: { listing: Listing; onChanged: () 
         <MediaGallery
           urls={images}
           uploadFolder={`products/${listing.id}`}
+          purpose="listing-gallery"
+          maxImages={10}
           busy={patch.isPending}
           onChange={(next) => patch.mutate({ galleryUrls: next })}
         />
       </div>
     </section>
+  );
+}
+
+const REVIEW_POLICY_LABEL: Record<Listing['listingPolicy'], string> = {
+  return: 'Returnable',
+  replace: 'Replace only',
+  final_sale: 'Final sale',
+};
+
+const REVIEW_AGE_GROUP_LABEL: Record<NonNullable<Listing['ageGroup']>, string> = {
+  kids: 'Kids',
+  teens: 'Teens',
+  adults: 'Adults',
+  all: 'All ages',
+};
+
+function ReviewPublishDialog({
+  open,
+  listing,
+  publishing,
+  onClose,
+  onPublish,
+}: {
+  open: boolean;
+  listing: Listing;
+  publishing: boolean;
+  onClose: () => void;
+  onPublish: () => void;
+}) {
+  const variants = listing.variants ?? [];
+  const images = listing.galleryUrls ?? [];
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Review &amp; publish</DialogTitle>
+          <DialogDescription>
+            Read-only summary of everything that will go live. Edit any section by closing this dialog and using the tabs below.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-5 py-1">
+          {/* Basics */}
+          <ReviewBlock title="Basics">
+            <ReviewRow label="Name" value={listing.name} />
+            <ReviewRow label="Brand" value={listing.brand?.name ?? <em className="text-ink-3">Unbranded</em>} />
+            <ReviewRow label="Category" value={listing.category?.label ?? <em className="text-ink-3">Uncategorised</em>} />
+            <ReviewRow label="Cut for" value={<span className="capitalize">{listing.gender}</span>} />
+            <ReviewRow label="Badge" value={<span className="capitalize">{listing.badge}</span>} />
+            <ReviewRow
+              label="Description"
+              value={listing.description?.trim() || <em className="text-ink-3">none</em>}
+            />
+          </ReviewBlock>
+
+          {/* Tags */}
+          <ReviewBlock title="Tags">
+            <ReviewRow
+              label="Age group"
+              value={
+                listing.ageGroup
+                  ? REVIEW_AGE_GROUP_LABEL[listing.ageGroup]
+                  : <em className="text-ink-3">unspecified</em>
+              }
+            />
+            <ReviewRow
+              label="Occasion"
+              value={
+                (listing.occasion?.length ?? 0) > 0
+                  ? <span className="capitalize">{listing.occasion.join(', ')}</span>
+                  : <em className="text-ink-3">none</em>
+              }
+            />
+          </ReviewBlock>
+
+          {/* Policy */}
+          <ReviewBlock title="Policy">
+            <ReviewRow label="Return policy" value={REVIEW_POLICY_LABEL[listing.listingPolicy]} />
+            <ReviewRow
+              label="HSN"
+              value={listing.hsn?.trim() ? <span className="font-mono">{listing.hsn}</span> : <em className="text-ink-3">none</em>}
+            />
+          </ReviewBlock>
+
+          {/* Variants */}
+          <ReviewBlock title={`Variants · ${variants.length}`}>
+            {variants.length === 0 ? (
+              <p className="text-[13px] text-ink-3 italic px-1">No variants yet.</p>
+            ) : (
+              <div className="overflow-hidden rounded-xs border border-rule">
+                <table className="w-full text-[12.5px]">
+                  <thead>
+                    <tr className="border-b border-rule bg-bg-2/60">
+                      <th className="text-left py-2 px-3 kicker text-ink-3">Attributes</th>
+                      <th className="text-left py-2 px-3 kicker text-ink-3">SKU</th>
+                      <th className="text-right py-2 px-3 kicker text-ink-3">Price</th>
+                      <th className="text-right py-2 px-3 kicker text-ink-3">Stock</th>
+                      <th className="text-left py-2 px-3 kicker text-ink-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-rule">
+                    {variants.map((v) => (
+                      <tr key={v.id} className="hover:bg-bg-2/40">
+                        <td className="px-3 py-2 text-ink">{v.attributesLabel}</td>
+                        <td className="px-3 py-2 text-ink-2 font-mono">{v.sku ?? '—'}</td>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums text-ink">{formatPaise(v.pricePaise)}</td>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums text-ink">{v.stock}</td>
+                        <td className="px-3 py-2">
+                          <Badge tone={v.isActive ? 'success' : 'neutral'} flat>
+                            {v.isActive ? 'active' : 'inactive'}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </ReviewBlock>
+
+          {/* Gallery */}
+          <ReviewBlock title={`Gallery · ${images.length} ${images.length === 1 ? 'image' : 'images'}`}>
+            {images.length === 0 ? (
+              <p className="text-[13px] text-ink-3 italic px-1">No images.</p>
+            ) : (
+              <ul className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                {images.map((url, i) => (
+                  <li key={url} className="relative aspect-square overflow-hidden rounded-xs border border-rule bg-bg-2">
+                    <img src={url} alt="" loading="lazy" className="size-full object-cover" />
+                    {i === 0 && (
+                      <span className="absolute left-1.5 top-1.5 rounded-xs bg-ink/90 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-paper">
+                        Cover
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </ReviewBlock>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={publishing}>
+            Cancel
+          </Button>
+          <Button
+            variant="ink"
+            caps
+            iconLeft={<Check className="size-3.5" />}
+            onClick={onPublish}
+            loading={publishing}
+          >
+            Publish
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReviewBlock({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-xs border border-rule bg-paper-2/40 p-4">
+      <h3 className="kicker text-ink-3 mb-2">{title}</h3>
+      <div className="space-y-1.5">{children}</div>
+    </section>
+  );
+}
+
+function ReviewRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 border-b border-rule/60 pb-1.5 last:border-b-0">
+      <dt className="w-32 shrink-0 text-[11.5px] uppercase tracking-[0.08em] text-ink-3">{label}</dt>
+      <dd className="min-w-0 flex-1 text-[13px] text-ink break-words">{value}</dd>
+    </div>
   );
 }
 

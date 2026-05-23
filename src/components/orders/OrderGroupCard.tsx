@@ -17,11 +17,14 @@ type Props = {
   status: OrderGroupStatus;
   placedAt: string;
   orders: OrderListRow[];
+  /** Server-computed combined total across orders in the group (paise). */
+  combinedTotalPaise?: number | undefined;
 };
 
-export function OrderGroupCard({ groupId, status, placedAt, orders }: Props) {
+export function OrderGroupCard({ groupId, status, placedAt, orders, combinedTotalPaise }: Props) {
   const meta = orderGroupStatusMeta(status);
-  const totalPaise = orders.reduce((n, o) => n + o.grandTotalPaise, 0);
+  const totalPaise =
+    combinedTotalPaise ?? orders.reduce((n, o) => n + o.grandTotalPaise, 0);
   return (
     <Card>
       <CardContent className="p-5">

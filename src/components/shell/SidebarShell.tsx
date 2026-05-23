@@ -12,12 +12,30 @@ export type SidebarItem = {
   end?: boolean;
   /** Optional lucide icon component, rendered before the label. Sized 16px. */
   icon?: ComponentType<{ className?: string }>;
+  /** Optional permission action key. When supplied, the layout hides this item
+   *  whenever the active session's permission map says the action is not granted. */
+  action?: string;
 };
 
 export type SidebarGroup = {
   label: string;
   items: SidebarItem[];
 };
+
+/** Hide items the active session lacks permission for and drop now-empty groups.
+ *  Items without `action` always pass through. */
+export function filterSidebarGroups(
+  groups: SidebarGroup[],
+  permissions: Record<string, boolean> | undefined,
+): SidebarGroup[] {
+  if (!permissions) return groups;
+  const out: SidebarGroup[] = [];
+  for (const g of groups) {
+    const items = g.items.filter((it) => !it.action || permissions[it.action] === true);
+    if (items.length > 0) out.push({ ...g, items });
+  }
+  return out;
+}
 
 type SidebarShellProps = {
   kindLabel: string;
@@ -28,7 +46,7 @@ type SidebarShellProps = {
   sidebarFooter?: ComponentType | ReactElement;
 };
 
-const STORAGE_KEY = 'closetx.sidebar.collapsed';
+const STORAGE_KEY = 'trendzo.sidebar.collapsed';
 
 /**
  * Floating-card application shell. A soft gray page hosts a single rounded
@@ -84,8 +102,8 @@ export function SidebarShell({ kindLabel, groups, searchHint, sidebarFooter }: S
           </button>
 
           {/* Mobile wordmark — sits in the white top bar so it stays inked. */}
-          <NavLink to="/" className="lg:hidden text-[18px] font-semibold tracking-tight text-ink leading-none" aria-label="ClosetX home">
-            ClosetX
+          <NavLink to="/" className="lg:hidden text-[18px] font-semibold tracking-tight text-ink leading-none" aria-label="Trendzo home">
+            Trendzo
           </NavLink>
 
           {searchHint && (
@@ -154,10 +172,10 @@ function SidebarHeader({
   }
   return (
     <div className="flex h-16 shrink-0 items-center justify-between border-b border-[#2a2a2a] px-5">
-      <NavLink to="/" aria-label="ClosetX home" className="min-w-0">
+      <NavLink to="/" aria-label="Trendzo home" className="min-w-0">
         <div className="flex flex-col leading-none">
           <div className="text-[20px] font-semibold tracking-tight text-bg">
-            Closet<span className="text-bg/60">X</span>
+            Trendzo
           </div>
           <div className="mt-1 text-[10.5px] uppercase tracking-[0.12em] text-bg/50 font-medium">
             {kindLabel}
@@ -242,7 +260,7 @@ function MobileDrawer({
         <div className="flex items-start justify-between px-5 py-4 border-b border-[#2a2a2a]">
           <div className="flex flex-col leading-none">
             <div className="text-[20px] font-semibold tracking-tight text-bg">
-              Closet<span className="text-bg/60">X</span>
+              Trendzo
             </div>
             <div className="mt-1 text-[10.5px] uppercase tracking-[0.12em] text-bg/50 font-medium">
               {kindLabel}

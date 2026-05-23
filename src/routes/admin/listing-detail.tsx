@@ -16,7 +16,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { MetaList } from '@/components/ui/meta-list';
 import { CopyableId } from '@/components/ui/copyable-id';
 import { ReasonActionDialog } from '@/components/admin/reason-action-dialog';
+import { TypeConfirmDialog } from '@/components/admin/type-confirm-dialog';
 import { MockDataBadge } from '@/components/ui/mock-data-badge';
+
+type ReportBreakdown = { total: number; breakdown: { reasonCode: string; count: number }[] };
 
 export default function AdminListingDetail() {
   const { id = '' } = useParams<{ id: string }>();
@@ -91,6 +94,12 @@ export default function AdminListingDetail() {
     queryFn: () => api<ListingAuditEntry[]>(`/admin/catalog/listings/${id}/audit`),
   });
 
+  const reports = useQuery({
+    queryKey: ['admin', 'listing', id, 'reports'],
+    queryFn: () => api<ReportBreakdown>(`/admin/catalog/listings/${id}/reports`),
+    enabled: Boolean(id),
+  });
+
   if (flagQuery.isLoading) return <Page><Skeleton className="h-72" /></Page>;
 
   return (
@@ -101,7 +110,7 @@ export default function AdminListingDetail() {
         description="Admin moderation overlay. Take down hides immediately; retire removes platform-wide."
         actions={
           <div className="flex items-center gap-2">
-            <MockDataBadge label="MOCKED — pending backend §5" />
+            <MockDataBadge label="Mock data · backend wiring pending" />
             <Button asChild variant="ghost" size="sm" iconLeft={<ArrowLeft className="size-3.5" />}>
               <Link to="/admin/catalog-moderation">Back</Link>
             </Button>
@@ -166,6 +175,40 @@ export default function AdminListingDetail() {
 
         <Card>
           <CardContent className="p-6">
+            <SectionHeading
+              kicker="Consumer reports"
+              title={`${reports.data?.total ?? 0} report${(reports.data?.total ?? 0) === 1 ? '' : 's'}`}
+            />
+            {reports.isLoading ? (
+              <Skeleton className="h-24" />
+            ) : (reports.data?.breakdown?.length ?? 0) === 0 ? (
+              <p className="text-[12.5px] text-ink-3 italic">No consumer-filed reports for this listing.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {(reports.data?.breakdown ?? []).map((b) => {
+                  const pct = reports.data!.total > 0 ? Math.round((b.count / reports.data!.total) * 100) : 0;
+                  return (
+                    <li key={b.reasonCode} className="flex items-center gap-3">
+                      <span className="w-40 truncate text-[12.5px] text-ink-2 capitalize">
+                        {b.reasonCode.replace(/_/g, ' ')}
+                      </span>
+                      <div className="flex-1 overflow-hidden rounded-full bg-bg-2">
+                        <div className="h-1.5 bg-warning" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="w-16 text-right font-mono text-[12px] tabular-nums text-ink-2">
+                        {b.count}{' '}
+                        <span className="text-ink-4">({pct}%)</span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardContent className="p-6">
             <SectionHeading kicker="Audit" title="Edit history" />
             {audit.isLoading ? (
               <Skeleton className="h-32" />
@@ -196,12 +239,19 @@ export default function AdminListingDetail() {
         onClose={() => setTakingDown(false)}
         onConfirm={(reason) => takeDown.mutate(reason)}
       />
-      <ReasonActionDialog
+      <TypeConfirmDialog
         open={retiring}
         title="Retire listing platform-wide?"
-        description="This is permanent. The listing cannot be republished without admin override."
-        confirmLabel="Retire"
+        description="This is permanent. The listing cannot be republished — even by admin override. Type the listing name exactly to confirm."
+        confirmText={flag?.listingName ?? id}
+        typeLabel={
+          <>
+            Type the listing name <span className="font-mono text-ink">{flag?.listingName ?? id}</span> to confirm
+          </>
+        }
+        confirmLabel="Retire forever"
         danger
+        loading={retire.isPending}
         onClose={() => setRetiring(false)}
         onConfirm={(reason) => retire.mutate(reason)}
       />

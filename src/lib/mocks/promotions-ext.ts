@@ -6,11 +6,34 @@ const HOUR = 1000 * 60 * 60;
 const now = () => Date.now();
 
 export function mockPromotionPerformance(): PromotionPerformance[] {
+  const row = (
+    promotionId: string,
+    name: string,
+    redemptions: number,
+    uniqueConsumers: number,
+    totalDiscountPaise: number,
+    gmvInfluencedPaise: number,
+    refundRateBp: number,
+    aovLiftBp: number,
+    anomalyReasons: PromotionPerformance['anomalyReasons'],
+  ): PromotionPerformance => ({
+    promotionId,
+    name,
+    redemptions,
+    uniqueConsumers,
+    totalDiscountPaise,
+    gmvInfluencePaise: totalDiscountPaise,
+    gmvInfluencedPaise,
+    refundRateBp,
+    aovLiftBp,
+    anomalyFlagged: anomalyReasons.length > 0,
+    anomalyReasons,
+  });
   return [
-    { promotionId: 'promo_diwali', name: 'Diwali ₹500 off', redemptions: 423, gmvInfluencePaise: 8_50_000_00, aovLiftBp: 1450, refundRateBp: 320, anomalyFlagged: false },
-    { promotionId: 'promo_first', name: 'First-order coupon', redemptions: 1820, gmvInfluencePaise: 24_00_000_00, aovLiftBp: 800, refundRateBp: 180, anomalyFlagged: false },
-    { promotionId: 'promo_flash20', name: 'Flash 20% off', redemptions: 91, gmvInfluencePaise: 1_20_000_00, aovLiftBp: 220, refundRateBp: 1840, anomalyFlagged: true },
-    { promotionId: 'promo_loyalty', name: 'Loyalty bonus tier', redemptions: 612, gmvInfluencePaise: 6_40_000_00, aovLiftBp: 940, refundRateBp: 240, anomalyFlagged: false },
+    row('promo_diwali', 'Diwali ₹500 off', 423, 410, 8_50_000_00, 32_00_000_00, 320, 1450, []),
+    row('promo_first', 'First-order coupon', 1820, 1820, 24_00_000_00, 84_00_000_00, 180, 800, []),
+    row('promo_flash20', 'Flash 20% off', 91, 14, 1_20_000_00, 5_40_000_00, 1840, 220, ['refund_spike', 'consumer_concentration']),
+    row('promo_loyalty', 'Loyalty bonus tier', 612, 540, 6_40_000_00, 22_00_000_00, 240, 940, []),
   ];
 }
 
@@ -24,7 +47,7 @@ export function mockTargetedDrops(): TargetedDrop[] {
 export function mockPromotionAnomalies(): PromotionAnomaly[] {
   return [
     { id: 'anom_1', promotionId: 'promo_flash20', promotionName: 'Flash 20% off', kind: 'velocity_spike', detectedAt: new Date(now() - HOUR * 1).toISOString(), severity: 'high', metric: 'redemptions/min', value: '12', threshold: '4', status: 'open', consumersInvolved: 38 },
-    { id: 'anom_2', promotionId: 'promo_flash20', promotionName: 'Flash 20% off', kind: 'concentrated_consumers', detectedAt: new Date(now() - HOUR * 6).toISOString(), severity: 'medium', metric: 'top-1% share', value: '42%', threshold: '15%', status: 'acknowledged', consumersInvolved: 14 },
-    { id: 'anom_3', promotionId: 'promo_first', promotionName: 'First-order coupon', kind: 'suspect_traffic', detectedAt: new Date(now() - HOUR * 22).toISOString(), severity: 'low', metric: 'bot signature', value: '0.6', threshold: '0.5', status: 'open', consumersInvolved: 7 },
+    { id: 'anom_2', promotionId: 'promo_flash20', promotionName: 'Flash 20% off', kind: 'consumer_concentration', detectedAt: new Date(now() - HOUR * 6).toISOString(), severity: 'medium', metric: 'top-1% share', value: '42%', threshold: '15%', status: 'acknowledged', consumersInvolved: 14 },
+    { id: 'anom_3', promotionId: 'promo_first', promotionName: 'First-order coupon', kind: 'refund_spike', detectedAt: new Date(now() - HOUR * 22).toISOString(), severity: 'low', metric: 'refund rate', value: '32%', threshold: '30%', status: 'open', consumersInvolved: 7 },
   ];
 }
