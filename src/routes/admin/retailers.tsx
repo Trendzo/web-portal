@@ -178,9 +178,9 @@ export default function AdminRetailers() {
           description={q ? 'Try a different keyword.' : 'When new retailers sign up, they appear here.'}
         />
       ) : (
-        <div className="rounded-lg border border-line bg-bg overflow-hidden">
+        <div className="rounded-lg border border-line bg-bg overflow-x-auto">
           {/* Desktop: table */}
-          <table className="hidden md:table w-full text-[13px]">
+          <table className="hidden md:table w-full text-[13px] min-w-[900px]">
             <thead className="bg-bg-2 border-b border-line">
               <tr>
                 <Th>Retailer</Th>
