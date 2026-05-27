@@ -14,7 +14,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { MetaList } from '@/components/ui/meta-list';
 import { CopyableId } from '@/components/ui/copyable-id';
 import { MediaGallery } from '@/components/ui/media-gallery';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/input';
 
 function formatPaise(paise: number) {
