@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { PendingRequestsGrid, usePendingRequests } from '@/components/admin/pending-requests-grid';
 
 interface AdminStoreListItem {
   id: string;
@@ -58,6 +59,10 @@ export default function AdminStores() {
   const [status, setStatus] = useState<StoreStatus | 'all'>('all');
   const [stateCode, setStateCode] = useState<string>('all');
   const [q, setQ] = useState('');
+  // Toggle between the store grid and the merged compliance/KYC "Pending Requests"
+  // grid (applications, change requests, re-KYC, policy breaches). See [[kyc-merged-into-stores]].
+  const [showRequests, setShowRequests] = useState(false);
+  const pending = usePendingRequests();
 
   // Partition the cache by retailerIdFilter. Backend doesn't accept a
   // retailerId server-side filter today, so the filter is applied client-side
@@ -98,12 +103,30 @@ export default function AdminStores() {
         title="Stores"
         description="All retailer storefronts on the platform."
         actions={
-          <Button asChild variant="ink" size="sm">
-            <Link to="/admin/retailers/new">+ New store</Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={showRequests ? 'ink' : 'outline'}
+              size="sm"
+              onClick={() => setShowRequests((v) => !v)}
+            >
+              {showRequests ? 'Back to stores' : 'Pending Requests'}
+              {pending.count > 0 && (
+                <Badge tone={showRequests ? 'neutral' : 'danger'} flat className="ml-1.5">
+                  {pending.count}
+                </Badge>
+              )}
+            </Button>
+            <Button asChild variant="ink" size="sm">
+              <Link to="/admin/retailers/new">+ New store</Link>
+            </Button>
+          </div>
         }
       />
 
+      {showRequests ? (
+        <PendingRequestsGrid />
+      ) : (
+      <>
       {retailerIdFilter && (
         <div className="mb-4 flex items-center gap-2 rounded-md border border-line bg-bg-2 px-3 py-2 text-[12.5px]">
           <span className="text-ink-3">Filtered to retailer:</span>
@@ -218,6 +241,8 @@ export default function AdminStores() {
             );
           })}
         </div>
+      )}
+      </>
       )}
     </Page>
   );

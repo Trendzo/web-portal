@@ -8,7 +8,7 @@ import {
   Package,
   Receipt,
   ShieldAlert,
-  ShieldCheck,
+  // ShieldCheck, // used only by the hidden KYC/Compliance sidebar entry below
   Sliders,
   Sparkles,
   Tag,
@@ -66,23 +66,26 @@ const GROUPS: SidebarGroup[] = [
       },
     ],
   },
-  {
-    label: 'Compliance',
-    items: [
-      {
-        to: '/admin/compliance',
-        label: 'KYC',
-        end: false,
-        icon: ShieldCheck,
-        anyAction: ['kyc.review', 'change_requests.view', 'moderation.view', 'applications.view'],
-        activeWhen: (l) =>
-          l.pathname.startsWith('/admin/compliance') ||
-          l.pathname.startsWith('/admin/change-requests') ||
-          l.pathname.startsWith('/admin/policy-enforcement') ||
-          l.pathname.startsWith('/admin/applications'),
-      },
-    ],
-  },
+  // KYC / Compliance sidebar entry — merged into Stores → "Pending Requests".
+  // Hidden (not removed) so it can be re-enabled by uncommenting this block.
+  // The /admin/compliance route + detail flows still exist and work.
+  // {
+  //   label: 'Compliance',
+  //   items: [
+  //     {
+  //       to: '/admin/compliance',
+  //       label: 'KYC',
+  //       end: false,
+  //       icon: ShieldCheck,
+  //       anyAction: ['kyc.review', 'change_requests.view', 'moderation.view', 'applications.view'],
+  //       activeWhen: (l) =>
+  //         l.pathname.startsWith('/admin/compliance') ||
+  //         l.pathname.startsWith('/admin/change-requests') ||
+  //         l.pathname.startsWith('/admin/policy-enforcement') ||
+  //         l.pathname.startsWith('/admin/applications'),
+  //     },
+  //   ],
+  // },
   {
     label: 'Orders',
     items: [

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useStoreRetailerId } from '@/hooks/useStoreRetailerId';
+import { PendingRequestsGrid } from '@/components/admin/pending-requests-grid';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -496,6 +497,18 @@ export default function AdminStoreDetail() {
               </dl>
             </CardContent>
           </Card>
+
+          {/* Store-scoped compliance requests — the same operations as the
+              KYC/Pending-Requests desk (re-KYC, verified-field change requests,
+              policy breaches), filtered to this store. Card click opens the
+              same detail flow; Accept/Reject act in place. */}
+          <div className="mt-6">
+            <SectionHeading kicker="Requests" title="Compliance requests for this store" />
+            <p className="mt-1 mb-3 text-[12.5px] text-ink-3">
+              Pending re-KYC, change requests and policy breaches scoped to this store.
+            </p>
+            <PendingRequestsGrid storeId={storeId} />
+          </div>
         </TabsContent>
 
         <TabsContent value="accounts">
