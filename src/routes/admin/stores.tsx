@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Search } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
+import { ReasonActionDialog } from '@/components/admin/reason-action-dialog';
 import { storeStatusMeta } from '@/lib/status';
 import type { StoreStatus } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
@@ -63,6 +65,23 @@ export default function AdminStores() {
   // grid (applications, change requests, re-KYC, policy breaches). See [[kyc-merged-into-stores]].
   const [showRequests, setShowRequests] = useState(false);
   const pending = usePendingRequests();
+  const qc = useQueryClient();
+  // Per-store lifecycle actions (moved here from the retailer tab — suspend is a
+  // store-level action). Hold the target store for the reason dialog.
+  const [suspendTarget, setSuspendTarget] = useState<AdminStoreListItem | null>(null);
+  const [terminateTarget, setTerminateTarget] = useState<AdminStoreListItem | null>(null);
+
+  const lifecycle = useMutation({
+    mutationFn: ({ storeId, verb, reason }: { storeId: string; verb: 'suspend' | 'ban'; reason: string }) =>
+      api(`/admin/stores/${storeId}/${verb}`, { method: 'POST', body: { reason } }),
+    onSuccess: (_d, v) => {
+      toast.success(v.verb === 'ban' ? 'Store terminated' : 'Store suspended');
+      setSuspendTarget(null);
+      setTerminateTarget(null);
+      void qc.invalidateQueries({ queryKey: ['admin', 'stores'] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Action failed'),
+  });
 
   // Partition the cache by retailerIdFilter. Backend doesn't accept a
   // retailerId server-side filter today, so the filter is applied client-side
@@ -232,9 +251,26 @@ export default function AdminStores() {
                       )}
                       <span>{(store.platformFeeBp / 100).toFixed(1)}% fee</span>
                     </div>
-                    <Button asChild variant="outline" size="sm" className="mt-3 w-full">
-                      <Link to={`/admin/stores/${store.id}`}>View</Link>
-                    </Button>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button asChild variant="outline" size="sm" className="flex-1">
+                        <Link to={`/admin/stores/${store.id}`}>View</Link>
+                      </Button>
+                      {(store.status === 'active' || store.status === 'paused') && (
+                        <Button variant="outline" size="sm" onClick={() => setSuspendTarget(store)}>
+                          Suspend
+                        </Button>
+                      )}
+                      {store.status !== 'terminated' && !store.permanentSuspend && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-danger border-danger/40 hover:bg-danger/5"
+                          onClick={() => setTerminateTarget(store)}
+                        >
+                          Terminate
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -244,6 +280,26 @@ export default function AdminStores() {
       )}
       </>
       )}
+
+      <ReasonActionDialog
+        open={suspendTarget !== null}
+        title="Suspend store"
+        description="Pauses fulfilment immediately. The owner account stays active so they can sign in and see the notice. Lift the suspension from the store detail page."
+        confirmLabel="Suspend"
+        loading={lifecycle.isPending}
+        onClose={() => setSuspendTarget(null)}
+        onConfirm={(reason) => { if (suspendTarget) lifecycle.mutate({ storeId: suspendTarget.id, verb: 'suspend', reason }); }}
+      />
+      <ReasonActionDialog
+        open={terminateTarget !== null}
+        title="Terminate store"
+        description="Permanently terminates this store. The owner account is not deleted — use the retailer's Terminate to bar the account and all its stores."
+        confirmLabel="Terminate"
+        danger
+        loading={lifecycle.isPending}
+        onClose={() => setTerminateTarget(null)}
+        onConfirm={(reason) => { if (terminateTarget) lifecycle.mutate({ storeId: terminateTarget.id, verb: 'ban', reason }); }}
+      />
     </Page>
   );
 }

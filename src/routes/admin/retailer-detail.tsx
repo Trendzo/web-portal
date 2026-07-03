@@ -1,11 +1,28 @@
 // MOCK_DEPENDENCY: §2 Retailer Onboarding (single-retailer detail view)
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, ArrowUpRight, Building2, Coins, Eye, Package, Receipt, ShieldAlert, Users } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Building2, Coins, Eye, Package, Pencil, Receipt, Users } from 'lucide-react';
 import { api, ApiError, apiValidated } from '@/lib/api';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { AdminRetailerViewSchema } from '@/lib/schemas';
 import { installImpersonationSessionAndReload } from '@/lib/auth';
 import type { RetailerProfile } from '@/lib/types';
@@ -24,20 +41,10 @@ import { AccountsOnStoreCard } from '@/components/admin/accounts-on-store-card';
 
 export default function AdminRetailerDetail() {
   const { id } = useParams<{ id: string }>();
-  const [suspending, setSuspending] = useState(false);
   const [banning, setBanning] = useState(false);
+  const [editing, setEditing] = useState(false);
   const qc = useQueryClient();
 
-  const suspendMut = useMutation({
-    mutationFn: ({ reason }: { reason: string }) =>
-      api(`/admin/retailers/${id}/suspend`, { method: 'POST', body: { reason } }),
-    onSuccess: () => {
-      toast.success('Retailer suspended');
-      setSuspending(false);
-      void qc.invalidateQueries({ queryKey: ['admin', 'retailers', id] });
-    },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Suspend failed'),
-  });
   const banMut = useMutation({
     mutationFn: ({ reason }: { reason: string }) =>
       api(`/admin/retailers/${id}/ban`, { method: 'POST', body: { reason } }),
@@ -56,15 +63,6 @@ export default function AdminRetailerDetail() {
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Unban failed'),
   });
-  const unsuspendMut = useMutation({
-    mutationFn: () => api(`/admin/retailers/${id}/unsuspend`, { method: 'POST', body: {} }),
-    onSuccess: () => {
-      toast.success('Suspension lifted');
-      void qc.invalidateQueries({ queryKey: ['admin', 'retailers', id] });
-    },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Unsuspend failed'),
-  });
-
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['admin', 'retailers', id],
     queryFn: () => apiValidated(`/admin/retailers/${id}`, AdminRetailerViewSchema),
@@ -208,7 +206,12 @@ export default function AdminRetailerDetail() {
         <TabsContent value="overview">
           <Card>
             <CardContent className="p-6">
-              <SectionHeading kicker="Identity" title="Profile" />
+              <div className="flex items-start justify-between gap-3">
+                <SectionHeading kicker="Identity" title="Profile" />
+                <Button variant="outline" size="sm" iconLeft={<Pencil className="size-3" />} onClick={() => setEditing(true)}>
+                  Edit profile
+                </Button>
+              </div>
               <MetaList
                 cols={2}
                 items={[
@@ -227,19 +230,9 @@ export default function AdminRetailerDetail() {
                     Lift ban
                   </Button>
                 ) : (
-                  <>
-                    <Button variant="outline" iconLeft={<ShieldAlert className="size-3.5" />} className="text-warning border-warning/40 hover:bg-warning/5" onClick={() => setSuspending(true)}>
-                      Suspend
-                    </Button>
-                    <Button variant="outline" className="text-danger border-danger/40 hover:bg-danger/5" onClick={() => setBanning(true)}>
-                      Ban (permanent)
-                    </Button>
-                    {r.status === 'suspended' && (
-                      <Button variant="outline" onClick={() => unsuspendMut.mutate()} loading={unsuspendMut.isPending}>
-                        Lift suspension
-                      </Button>
-                    )}
-                  </>
+                  <Button variant="outline" className="text-danger border-danger/40 hover:bg-danger/5" onClick={() => setBanning(true)}>
+                    Terminate (permanent)
+                  </Button>
                 )}
                 <Button asChild variant="outline" iconLeft={<Users className="size-3.5" />}>
                   <Link to={`/admin/retailers/${r.id}/staff`}>Manage staff</Link>
@@ -310,20 +303,26 @@ export default function AdminRetailerDetail() {
       </Tabs>
 
       <ReasonActionDialog
-        open={suspending}
-        title="Suspend retailer"
-        description="Pauses fulfilment immediately. Account remains so they can sign in and see the notice. Lift the suspension from the same screen."
-        confirmLabel="Suspend"
-        onClose={() => setSuspending(false)}
-        onConfirm={(reason) => suspendMut.mutate({ reason })}
-      />
-      <ReasonActionDialog
         open={banning}
-        title="Ban retailer (permanent)"
-        description="Permanently blocks the account and store. The retailer is signed out and barred from re-entering. The ban can be lifted later by an admin."
-        confirmLabel="Ban"
+        title="Terminate retailer (permanent)"
+        description="Permanently blocks the account and ALL its stores. The retailer is signed out and barred from re-entering. Can be lifted later by an admin."
+        confirmLabel="Terminate"
+        danger
         onClose={() => setBanning(false)}
         onConfirm={(reason) => banMut.mutate({ reason })}
+      />
+
+      <EditRetailerDialog
+        retailer={{
+          id: r.id,
+          legalName: r.legalName,
+          phone: r.phone,
+          email: r.email,
+          gstin: r.gstin,
+          subRole: r.subRole,
+        }}
+        open={editing}
+        onClose={() => setEditing(false)}
       />
     </Page>
   );
@@ -558,4 +557,107 @@ function RelatedLink({ icon: Icon, title, href }: { icon: typeof Building2; titl
 
 // AccountsOnStoreCard moved to components/admin/accounts-on-store-card.tsx so
 // the admin store-detail page can reuse the same roster + quick actions.
+
+/**
+ * Admin direct-edit of retailer ACCOUNT identity fields (the "without change
+ * request" path — account fields have no change-request type). Sends only the
+ * fields that actually changed to `PATCH /admin/retailers/:id`. Store verified
+ * fields (address/GSTIN/bank on the store) are edited from store-detail instead.
+ */
+function EditRetailerDialog({
+  retailer,
+  open,
+  onClose,
+}: {
+  retailer: { id: string; legalName: string; phone: string; email: string; gstin: string; subRole: string };
+  open: boolean;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [legalName, setLegalName] = useState(retailer.legalName);
+  const [phone, setPhone] = useState(retailer.phone);
+  const [email, setEmail] = useState(retailer.email);
+  const [gstin, setGstin] = useState(retailer.gstin);
+  const [subRole, setSubRole] = useState(retailer.subRole);
+
+  // Re-seed the form each time the dialog opens (or the underlying record changes).
+  useEffect(() => {
+    if (!open) return;
+    setLegalName(retailer.legalName);
+    setPhone(retailer.phone);
+    setEmail(retailer.email);
+    setGstin(retailer.gstin);
+    setSubRole(retailer.subRole);
+  }, [open, retailer.legalName, retailer.phone, retailer.email, retailer.gstin, retailer.subRole]);
+
+  const save = useMutation({
+    mutationFn: () => {
+      const body: Record<string, unknown> = {};
+      if (legalName.trim() !== retailer.legalName) body.legalName = legalName.trim();
+      if (phone.trim() !== retailer.phone) body.phone = phone.trim();
+      if (email.trim().toLowerCase() !== retailer.email) body.email = email.trim().toLowerCase();
+      if (gstin.trim().toUpperCase() !== retailer.gstin) body.gstin = gstin.trim().toUpperCase();
+      if (subRole !== retailer.subRole) body.subRole = subRole;
+      if (Object.keys(body).length === 0) throw new ApiError(400, 'no_changes', 'No changes to save');
+      return api(`/admin/retailers/${retailer.id}`, { method: 'PATCH', body });
+    },
+    onSuccess: () => {
+      toast.success('Retailer profile updated');
+      void qc.invalidateQueries({ queryKey: ['admin', 'retailers', retailer.id] });
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Update failed'),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit retailer profile</DialogTitle>
+          <DialogDescription>
+            Updates the owner account directly (audited, retailer notified). Applies immediately —
+            no change request needed for account fields.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="ret-legal">Legal name</Label>
+            <Input id="ret-legal" value={legalName} onChange={(e) => setLegalName(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="ret-phone">Phone</Label>
+              <Input id="ret-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+919812345678" />
+            </div>
+            <div>
+              <Label htmlFor="ret-email">Email</Label>
+              <Input id="ret-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="ret-gstin">GSTIN</Label>
+              <Input id="ret-gstin" mono className="uppercase" value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} />
+            </div>
+            <div>
+              <Label htmlFor="ret-subrole">Sub-role</Label>
+              <Select value={subRole} onValueChange={setSubRole}>
+                <SelectTrigger id="ret-subrole"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="owner">owner</SelectItem>
+                  <SelectItem value="manager">manager</SelectItem>
+                  <SelectItem value="staff">staff</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ink" loading={save.isPending} onClick={() => save.mutate()}>Save changes</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 

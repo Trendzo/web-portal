@@ -60,6 +60,7 @@ interface AdminStoreView {
 
 type EditDraft = {
   legalName: string;
+  gstin: string;
   address: string;
   stateCode: string;
   contactPhone: string;
@@ -103,6 +104,11 @@ export default function AdminStoreDetail() {
   const [dialog, setDialog] = useState<null | 'pause' | 'suspend' | 'terminate' | 'reverify'>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<EditDraft | null>(null);
+  // Verified store fields (legal name / address / GSTIN) can be applied directly
+  // (admin override) or filed as a change request that flows through the approval
+  // queue. `applyMode` picks which; `changeReason` is required for change requests.
+  const [applyMode, setApplyMode] = useState<'immediate' | 'change_request'>('immediate');
+  const [changeReason, setChangeReason] = useState('');
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin', 'stores', storeId],
@@ -151,12 +157,43 @@ export default function AdminStoreDetail() {
   });
 
   const saveMut = useMutation({
-    mutationFn: (d: EditDraft) => {
-      const feeChanged = data && d.platformFeeBp !== data.platformFeeBp;
-      return api(`/admin/stores/${storeId}`, {
+    mutationFn: async ({ d, mode, reason }: { d: EditDraft; mode: 'immediate' | 'change_request'; reason: string }) => {
+      const server = data!;
+      const feeChanged = d.platformFeeBp !== server.platformFeeBp;
+
+      if (mode === 'change_request') {
+        // Verified fields (legal name / address / GSTIN) → change requests; all other
+        // changed fields have no change-request type, so they still apply directly.
+        const calls: Promise<unknown>[] = [];
+        const cr = (field: 'legal_name' | 'address' | 'gstin', requestedValue: string) =>
+          api(`/admin/compliance/stores/${storeId}/change-requests`, {
+            method: 'POST',
+            body: { field, requestedValue, reason },
+          });
+        if (d.legalName !== server.legalName) calls.push(cr('legal_name', d.legalName));
+        if (d.address !== server.address) calls.push(cr('address', d.address));
+        if (d.gstin !== server.gstin) calls.push(cr('gstin', d.gstin));
+
+        const direct: Record<string, unknown> = {};
+        if (d.stateCode !== server.stateCode) direct.stateCode = d.stateCode;
+        if ((d.contactPhone || null) !== (server.contactPhone ?? null)) direct.contactPhone = d.contactPhone || null;
+        if ((d.managerName || null) !== (server.managerName ?? null)) direct.managerName = d.managerName || null;
+        if (feeChanged) { direct.platformFeeBp = d.platformFeeBp; direct.platformFeeReason = d.platformFeeReason; }
+        if (d.payoutCadenceDays !== server.payoutCadenceDays) direct.payoutCadenceDays = d.payoutCadenceDays;
+        if (Object.keys(direct).length > 0) {
+          calls.push(api(`/admin/stores/${storeId}`, { method: 'PATCH', body: direct }));
+        }
+        if (calls.length === 0) throw new ApiError(400, 'no_changes', 'No changes to save');
+        await Promise.all(calls);
+        return;
+      }
+
+      // Immediate override — everything (incl. GSTIN) written directly.
+      await api(`/admin/stores/${storeId}`, {
         method: 'PATCH',
         body: {
           storeName: d.legalName,
+          gstin: d.gstin,
           address: d.address,
           stateCode: d.stateCode,
           contactPhone: d.contactPhone || null,
@@ -167,11 +204,14 @@ export default function AdminStoreDetail() {
         },
       });
     },
-    onSuccess: () => {
-      toast.success('Store profile updated');
+    onSuccess: (_r, vars) => {
+      toast.success(vars.mode === 'change_request' ? 'Change request(s) filed' : 'Store profile updated');
       setEditing(false);
       setDraft(null);
+      setApplyMode('immediate');
+      setChangeReason('');
       void qc.invalidateQueries({ queryKey: ['admin', 'stores', storeId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'change-requests'] });
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Save failed'),
   });
@@ -212,6 +252,7 @@ export default function AdminStoreDetail() {
   function startEdit() {
     setDraft({
       legalName: s.legalName,
+      gstin: s.gstin,
       address: s.address,
       stateCode: s.stateCode,
       contactPhone: s.contactPhone ?? '',
@@ -220,12 +261,16 @@ export default function AdminStoreDetail() {
       platformFeeReason: '',
       payoutCadenceDays: s.payoutCadenceDays,
     });
+    setApplyMode('immediate');
+    setChangeReason('');
     setEditing(true);
   }
 
   function cancelEdit() {
     setEditing(false);
     setDraft(null);
+    setApplyMode('immediate');
+    setChangeReason('');
   }
 
   return (
@@ -421,8 +466,16 @@ export default function AdminStoreDetail() {
               {editing && draft ? (
                 <EditForm
                   draft={draft}
-                  gstin={s.gstin}
                   serverPlatformFeeBp={s.platformFeeBp}
+                  applyMode={applyMode}
+                  changeReason={changeReason}
+                  verifiedChanged={
+                    draft.legalName !== s.legalName ||
+                    draft.address !== s.address ||
+                    draft.gstin !== s.gstin
+                  }
+                  onApplyModeChange={setApplyMode}
+                  onChangeReason={setChangeReason}
                   onChange={setDraft}
                   onCancel={cancelEdit}
                   onSave={() => {
@@ -432,7 +485,21 @@ export default function AdminStoreDetail() {
                       toast.error('Reason (≥3 chars) is required when changing the platform fee.');
                       return;
                     }
-                    saveMut.mutate(draft);
+                    const verifiedChanged =
+                      draft.legalName !== s.legalName ||
+                      draft.address !== s.address ||
+                      draft.gstin !== s.gstin;
+                    if (applyMode === 'change_request') {
+                      if (!verifiedChanged) {
+                        toast.error('Change-request mode needs a change to legal name, address, or GSTIN.');
+                        return;
+                      }
+                      if (changeReason.trim().length < 3) {
+                        toast.error('A reason (≥3 chars) is required to file a change request.');
+                        return;
+                      }
+                    }
+                    saveMut.mutate({ d: draft, mode: applyMode, reason: changeReason.trim() });
                   }}
                   saving={saveMut.isPending}
                 />
@@ -653,16 +720,24 @@ function OpsTile({
 
 function EditForm({
   draft,
-  gstin,
   serverPlatformFeeBp,
+  applyMode,
+  changeReason,
+  verifiedChanged,
+  onApplyModeChange,
+  onChangeReason,
   onChange,
   onCancel,
   onSave,
   saving,
 }: {
   draft: EditDraft;
-  gstin: string;
   serverPlatformFeeBp: number;
+  applyMode: 'immediate' | 'change_request';
+  changeReason: string;
+  verifiedChanged: boolean;
+  onApplyModeChange: (m: 'immediate' | 'change_request') => void;
+  onChangeReason: (r: string) => void;
   onChange: (updater: (d: EditDraft | null) => EditDraft | null) => void;
   onCancel: () => void;
   onSave: () => void;
@@ -681,13 +756,18 @@ function EditForm({
           />
         </div>
         <div>
-          <Label>
+          <Label htmlFor="ed-gstin">
             GSTIN
-            <span className="ml-1.5 text-[11px] font-normal text-ink-3">(KYC-protected, change via request)</span>
+            <span className="ml-1.5 text-[11px] font-normal text-ink-3">(verified — override or file a request below)</span>
           </Label>
-          <p className="mt-1 rounded-md border border-line bg-bg-3 px-3 py-[7px] font-mono text-[13px] text-ink-3 select-none">
-            {gstin}
-          </p>
+          <Input
+            id="ed-gstin"
+            mono
+            className="uppercase"
+            maxLength={15}
+            value={draft.gstin}
+            onChange={(e) => onChange((d) => (d ? { ...d, gstin: e.target.value.toUpperCase() } : d))}
+          />
         </div>
         <div>
           <Label htmlFor="ed-address">Address</Label>
@@ -775,9 +855,56 @@ function EditForm({
         </div>
       </div>
 
-      <div className="mt-6 flex gap-2">
+      {/* Apply mode — verified fields (legal name / address / GSTIN) can be written
+          directly (override) or filed as a change request for the approval queue. */}
+      <div className="mt-6 rounded-lg border border-line bg-bg-2/40 p-3">
+        <p className="kicker text-ink-3">How to apply legal name / address / GSTIN changes</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => onApplyModeChange('immediate')}
+            className={cn(
+              'rounded-md border px-3 py-1.5 text-[12.5px] transition-colors',
+              applyMode === 'immediate' ? 'border-ink bg-ink text-bg' : 'border-line text-ink-2 hover:bg-bg-2',
+            )}
+          >
+            Apply immediately (override)
+          </button>
+          <button
+            type="button"
+            onClick={() => onApplyModeChange('change_request')}
+            className={cn(
+              'rounded-md border px-3 py-1.5 text-[12.5px] transition-colors',
+              applyMode === 'change_request' ? 'border-ink bg-ink text-bg' : 'border-line text-ink-2 hover:bg-bg-2',
+            )}
+          >
+            File change request
+          </button>
+        </div>
+        {applyMode === 'change_request' && (
+          <div className="mt-3">
+            <Label htmlFor="ed-cr-reason" required>Reason for the change request</Label>
+            <textarea
+              id="ed-cr-reason"
+              rows={2}
+              maxLength={500}
+              placeholder="e.g. GSTIN correction per updated certificate"
+              value={changeReason}
+              onChange={(e) => onChangeReason(e.target.value)}
+              className="mt-1 w-full rounded border border-line-2 bg-bg px-2 py-1 text-[13px]"
+            />
+            <p className="mt-1 text-[11px] text-ink-4">
+              {verifiedChanged
+                ? 'A pending request is filed per changed verified field; other fields apply directly. Approve it from the Compliance tab.'
+                : 'Change a verified field (legal name, address, or GSTIN) to file a request.'}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex gap-2">
         <Button variant="ink" loading={saving} onClick={onSave}>
-          Save changes
+          {applyMode === 'change_request' ? 'Save & file request' : 'Save changes'}
         </Button>
         <Button variant="outline" iconLeft={<X className="size-3.5" />} onClick={onCancel} disabled={saving}>
           Cancel

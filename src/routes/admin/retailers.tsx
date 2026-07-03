@@ -108,7 +108,6 @@ export function RetailersPanel() {
   const setStatus = (v: FilterStatus) => updateParams({ status: v });
   const setQ = (v: string) => updateParams({ q: v });
   const [rejecting, setRejecting] = useState<AdminRetailerView | null>(null);
-  const [suspending, setSuspending] = useState<AdminRetailerView | null>(null);
   const [terminating, setTerminating] = useState<AdminRetailerView | null>(null);
 
   const qc = useQueryClient();
@@ -150,17 +149,6 @@ export function RetailersPanel() {
       void qc.invalidateQueries({ queryKey: ['admin', 'retailers'] });
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Reject failed'),
-  });
-
-  const suspend = useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
-      api(`/admin/retailers/${id}/suspend`, { method: 'POST', body: { reason } }),
-    onSuccess: () => {
-      toast.success('Store suspended');
-      setSuspending(null);
-      void qc.invalidateQueries({ queryKey: ['admin', 'retailers'] });
-    },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Suspend failed'),
   });
 
   const terminate = useMutation({
@@ -351,23 +339,14 @@ export function RetailersPanel() {
                             </Button>
                           </>
                         ) : r.status === 'active' ? (
-                          <>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setSuspending(r)}
-                            >
-                              Suspend
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-danger border-danger/40 hover:bg-danger/5"
-                              onClick={() => setTerminating(r)}
-                            >
-                              Terminate
-                            </Button>
-                          </>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-danger border-danger/40 hover:bg-danger/5"
+                            onClick={() => setTerminating(r)}
+                          >
+                            Terminate
+                          </Button>
                         ) : null}
                         <Button asChild variant="ghost" size="sm" iconRight={<ArrowUpRight className="size-3.5" />}>
                           <Link to={`/admin/retailers/${r.id}`}>View</Link>
@@ -426,9 +405,6 @@ export function RetailersPanel() {
                   )}
                   {r.status === 'active' && (
                     <div className="flex gap-2 pt-1">
-                      <Button variant="outline" size="sm" className="flex-1" onClick={() => setSuspending(r)}>
-                        Suspend
-                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -454,15 +430,6 @@ export function RetailersPanel() {
           reject.mutate({ id: rejecting.id, reason });
         }}
         loading={reject.isPending}
-      />
-      <ReasonActionDialog
-        title="Suspend store"
-        description="This will pause fulfilment immediately. The retailer account stays active so they can log in and see the notice. You can lift the suspension later."
-        confirmLabel="Suspend"
-        target={suspending}
-        onClose={() => setSuspending(null)}
-        onConfirm={(reason) => { if (suspending) suspend.mutate({ id: suspending.id, reason }); }}
-        loading={suspend.isPending}
       />
       <ReasonActionDialog
         title="Terminate retailer"

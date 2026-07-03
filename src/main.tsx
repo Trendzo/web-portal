@@ -7,6 +7,17 @@ import { Toaster } from 'sonner';
 import { queryClient } from '@/lib/query';
 import { router } from '@/routes/router';
 
+// A lazy chunk failed to load — almost always because a new deploy replaced the
+// hashed assets this (stale) index.html points at. Reload once to pull the fresh
+// index.html and its current chunk hashes; the sessionStorage guard stops a
+// reload loop if the failure is something other than a stale deploy.
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault();
+  if (sessionStorage.getItem('chunk-reloaded')) return;
+  sessionStorage.setItem('chunk-reloaded', '1');
+  window.location.reload();
+});
+
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('#root not found');
 
