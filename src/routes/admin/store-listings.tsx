@@ -1,24 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { ArrowLeft, ImageOff, Plus, Search } from 'lucide-react';
-import { api, ApiError } from '@/lib/api';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, ImageOff, Search } from 'lucide-react';
+import { api } from '@/lib/api';
 import { listingStatusMeta } from '@/lib/status';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
-import { Label, FieldError } from '@/components/ui/label';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -26,8 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { BulkActionBar } from '@/components/admin/bulk-action-bar';
-import { useBulkSelect } from '@/hooks/useBulkSelect';
+import { useStoreRetailerId } from '@/hooks/useStoreRetailerId';
 
 interface VariantSummary {
   id: string;
@@ -49,16 +38,12 @@ interface ListingRow {
   variants: VariantSummary[];
 }
 
-interface BrandRow { id: string; name: string; }
-interface CategoryRow { id: string; label: string; }
-
 export default function AdminStoreListings() {
-  const { id: retailerId, storeId } = useParams<{ id: string; storeId: string }>();
+  const { storeId } = useParams<{ storeId: string }>();
+  const retailerId = useStoreRetailerId(storeId);
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const [status, setStatus] = useState<'all' | 'draft' | 'active' | 'retired'>('all');
   const [q, setQ] = useState('');
-  const [addOpen, setAddOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'store-listings', storeId, status],
@@ -76,61 +61,16 @@ export default function AdminStoreListings() {
     );
   }, [rows, q]);
 
-  const bulk = useBulkSelect(filtered);
-
-  const setListingStatus = useMutation({
-    mutationFn: ({ listingId, nextStatus }: { listingId: string; nextStatus: 'draft' | 'active' | 'retired' }) =>
-      api(`/admin/stores/${storeId}/listings/${listingId}`, { method: 'PATCH', body: { status: nextStatus } }),
-    onSuccess: () => {
-      toast.success('Listing updated');
-      void qc.invalidateQueries({ queryKey: ['admin', 'store-listings', storeId] });
-    },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Update failed'),
-  });
-
-  const bulkStatus = useMutation({
-    mutationFn: (next: 'active' | 'draft' | 'retired') =>
-      api<{ updated: number; skipped: number }>(`/admin/stores/${storeId}/listings/bulk-status`, {
-        method: 'POST',
-        body: { ids: bulk.selectedIds, status: next },
-      }),
-    onSuccess: (r) => {
-      toast.success(`${r.updated} updated${r.skipped > 0 ? ` · ${r.skipped} skipped` : ''}`);
-      bulk.clear();
-      void qc.invalidateQueries({ queryKey: ['admin', 'store-listings', storeId] });
-    },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Bulk update failed'),
-  });
-
-  const bulkDelete = useMutation({
-    mutationFn: () =>
-      api<{ deleted: number; skipped: number }>(`/admin/stores/${storeId}/listings/bulk-delete`, {
-        method: 'POST',
-        body: { ids: bulk.selectedIds },
-      }),
-    onSuccess: (r) => {
-      toast.success(`${r.deleted} deleted${r.skipped > 0 ? ` · ${r.skipped} skipped (non-drafts)` : ''}`);
-      bulk.clear();
-      void qc.invalidateQueries({ queryKey: ['admin', 'store-listings', storeId] });
-    },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Bulk delete failed'),
-  });
-
   return (
     <Page>
       <PageHeader
         kicker="Store"
         title="Listings"
-        description="Browse, create, and manage product listings for this store."
+        description="Browse product listings for this store."
         actions={
-          <div className="flex items-center gap-2">
-            <Button asChild variant="ghost" size="sm" iconLeft={<ArrowLeft className="size-3.5" />}>
-              <Link to={`/admin/retailers/${retailerId}/stores/${storeId}`}>Back</Link>
-            </Button>
-            <Button variant="ink" size="sm" iconLeft={<Plus className="size-3.5" />} onClick={() => setAddOpen(true)}>
-              New listing
-            </Button>
-          </div>
+          <Button asChild variant="ghost" size="sm" iconLeft={<ArrowLeft className="size-3.5" />}>
+            <Link to={`/admin/retailers/${retailerId}/stores/${storeId}`}>Back</Link>
+          </Button>
         }
       />
 
@@ -171,20 +111,11 @@ export default function AdminStoreListings() {
           <table className="w-full text-[13px]">
             <thead>
               <tr className="border-b border-rule bg-bg-2/60">
-                <th className="w-10 px-3 py-2.5">
-                  <input
-                    type="checkbox"
-                    checked={bulk.isAllSelected}
-                    onChange={bulk.toggleAll}
-                    className="size-4 cursor-pointer accent-accent"
-                  />
-                </th>
                 <th className="w-14 py-2.5 pl-4 pr-2" />
                 <th className="py-2.5 pr-4 text-left kicker text-ink-3">Product</th>
                 <th className="py-2.5 pr-4 text-left kicker text-ink-3 w-28">Status</th>
                 <th className="py-2.5 pr-4 text-right kicker text-ink-3 w-20">Variants</th>
                 <th className="py-2.5 pr-4 text-right kicker text-ink-3 w-24">Stock</th>
-                <th className="w-36 py-2.5 pr-4" />
               </tr>
             </thead>
             <tbody className="divide-y divide-rule">
@@ -193,21 +124,12 @@ export default function AdminStoreListings() {
                 const variantCount = l.variants.length;
                 const totalStock = l.variants.reduce((acc, v) => acc + v.stock, 0);
                 const hero = l.galleryUrls?.[0] ?? null;
-                const pending = setListingStatus.isPending && setListingStatus.variables?.listingId === l.id;
                 return (
                   <tr
                     key={l.id}
                     onClick={() => navigate(`/admin/retailers/${retailerId}/stores/${storeId}/listings/${l.id}`)}
-                    className={`cursor-pointer transition-colors ${bulk.isSelected(l.id) ? 'bg-accent/5' : 'hover:bg-bg-2/40'}`}
+                    className="cursor-pointer transition-colors hover:bg-bg-2/40"
                   >
-                    <td className="w-10 px-3" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={bulk.isSelected(l.id)}
-                        onChange={() => bulk.toggle(l.id)}
-                        className="size-4 cursor-pointer accent-accent"
-                      />
-                    </td>
                     <td className="w-14 py-2 pl-4 pr-2">
                       <div className="size-9 shrink-0 overflow-hidden rounded-xs border border-rule bg-bg-2">
                         {hero ? (
@@ -242,23 +164,6 @@ export default function AdminStoreListings() {
                         {String(totalStock).padStart(3, '0')}
                       </span>
                     </td>
-                    <td className="w-36 py-2 pr-4 text-right" onClick={(e) => e.stopPropagation()}>
-                      {(l.status === 'active' || l.status === 'draft') && (
-                        <Button
-                          size="sm"
-                          variant={l.status === 'active' ? 'outline' : 'accent'}
-                          loading={pending}
-                          onClick={() =>
-                            setListingStatus.mutate({
-                              listingId: l.id,
-                              nextStatus: l.status === 'active' ? 'draft' : 'active',
-                            })
-                          }
-                        >
-                          {l.status === 'active' ? 'Unpublish' : 'Publish'}
-                        </Button>
-                      )}
-                    </td>
                   </tr>
                 );
               })}
@@ -266,141 +171,6 @@ export default function AdminStoreListings() {
           </table>
         </div>
       )}
-
-      <BulkActionBar
-        selectedCount={bulk.selectedCount}
-        onClear={bulk.clear}
-        actions={[
-          { label: 'Publish', onClick: () => bulkStatus.mutate('active'), loading: bulkStatus.isPending },
-          { label: 'Unpublish', onClick: () => bulkStatus.mutate('draft'), loading: bulkStatus.isPending },
-          { label: 'Retire', onClick: () => bulkStatus.mutate('retired'), loading: bulkStatus.isPending },
-          { label: 'Delete drafts', danger: true, onClick: () => bulkDelete.mutate(), loading: bulkDelete.isPending },
-        ]}
-      />
-
-      <NewListingDialog
-        open={addOpen}
-        storeId={storeId ?? ''}
-        onClose={() => setAddOpen(false)}
-        onCreated={() => {
-          setAddOpen(false);
-          void qc.invalidateQueries({ queryKey: ['admin', 'store-listings', storeId] });
-        }}
-      />
     </Page>
-  );
-}
-
-function NewListingDialog({
-  open,
-  storeId,
-  onClose,
-  onCreated,
-}: {
-  open: boolean;
-  storeId: string;
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [name, setName] = useState('');
-  const [brandId, setBrandId] = useState('');
-  const [categoryId, setCategoryId] = useState('');
-  const [gender, setGender] = useState<'her' | 'him' | 'unisex'>('unisex');
-  const [description, setDescription] = useState('');
-
-  const { data: brands } = useQuery({
-    queryKey: ['admin', 'brands'],
-    queryFn: () => api<BrandRow[]>('/admin/brands'),
-    enabled: open,
-  });
-  const { data: categories } = useQuery({
-    queryKey: ['admin', 'categories'],
-    queryFn: () => api<CategoryRow[]>('/admin/categories'),
-    enabled: open,
-  });
-
-  const create = useMutation({
-    mutationFn: () =>
-      api(`/admin/stores/${storeId}/listings`, {
-        method: 'POST',
-        body: {
-          name: name.trim(),
-          brandId,
-          categoryId,
-          gender,
-          description: description.trim() || undefined,
-        },
-      }),
-    onSuccess: () => {
-      toast.success('Listing created');
-      setName(''); setBrandId(''); setCategoryId(''); setGender('unisex'); setDescription('');
-      onCreated();
-    },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Create failed'),
-  });
-
-  const canSubmit = name.trim().length > 0 && brandId && categoryId;
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) { setName(''); onClose(); } }}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>New listing</DialogTitle>
-          <DialogDescription>
-            Creates the listing as `draft`. Add variants + gallery from the listing detail page before publishing.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div>
-            <Label htmlFor="adm-name" required>Product name</Label>
-            <Input id="adm-name" value={name} onChange={(e) => setName(e.target.value)} />
-            <FieldError>{name && name.trim().length === 0 ? 'Required' : ''}</FieldError>
-          </div>
-          <div>
-            <Label htmlFor="adm-brand" required>Brand</Label>
-            <Select value={brandId} onValueChange={setBrandId}>
-              <SelectTrigger id="adm-brand"><SelectValue placeholder="Select brand" /></SelectTrigger>
-              <SelectContent>
-                {(brands ?? []).map((b) => (
-                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="adm-cat" required>Category</Label>
-            <Select value={categoryId} onValueChange={setCategoryId}>
-              <SelectTrigger id="adm-cat"><SelectValue placeholder="Select category" /></SelectTrigger>
-              <SelectContent>
-                {(categories ?? []).map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="adm-gender" required>Gender</Label>
-            <Select value={gender} onValueChange={(v) => setGender(v as 'her' | 'him' | 'unisex')}>
-              <SelectTrigger id="adm-gender"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="her">her</SelectItem>
-                <SelectItem value="him">him</SelectItem>
-                <SelectItem value="unisex">unisex</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="adm-desc">Description (optional)</Label>
-            <Input id="adm-desc" value={description} onChange={(e) => setDescription(e.target.value)} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button variant="ink" disabled={!canSubmit} loading={create.isPending} onClick={() => create.mutate()}>
-            Create draft
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

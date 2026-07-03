@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useStoreRetailerId } from '@/hooks/useStoreRetailerId';
 import { ArrowLeft } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Page, PageHeader } from '@/components/ui/page';
@@ -48,7 +49,8 @@ function parseTab(v: string | null): TabKey {
 }
 
 export default function AdminStoreFulfilment() {
-  const { id: retailerId, storeId } = useParams<{ id: string; storeId: string }>();
+  const { storeId } = useParams<{ storeId: string }>();
+  const retailerId = useStoreRetailerId(storeId);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const activeTab = parseTab(searchParams.get('tab'));

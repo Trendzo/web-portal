@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useStoreRetailerId } from '@/hooks/useStoreRetailerId';
 import { toast } from 'sonner';
 import { ArrowLeft, Download, Upload } from 'lucide-react';
 import { api, ApiError, BASE } from '@/lib/api';
@@ -49,7 +50,8 @@ interface InventoryResponse {
 }
 
 export default function AdminStoreInventory() {
-  const { id: retailerId, storeId } = useParams<{ id: string; storeId: string }>();
+  const { storeId } = useParams<{ storeId: string }>();
+  const retailerId = useStoreRetailerId(storeId);
   const qc = useQueryClient();
   const [adjusting, setAdjusting] = useState<InventoryRow | null>(null);
   const [importOpen, setImportOpen] = useState(false);

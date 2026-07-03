@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useStoreRetailerId } from '@/hooks/useStoreRetailerId';
 import { ArrowLeft, Tag } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Page, PageHeader } from '@/components/ui/page';
@@ -22,7 +23,8 @@ interface PromoRow {
 }
 
 export default function AdminStorePromotions() {
-  const { id: retailerId, storeId } = useParams<{ id: string; storeId: string }>();
+  const { storeId } = useParams<{ storeId: string }>();
+  const retailerId = useStoreRetailerId(storeId);
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({

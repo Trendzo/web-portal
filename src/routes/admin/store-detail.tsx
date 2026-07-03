@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useStoreRetailerId } from '@/hooks/useStoreRetailerId';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -108,9 +109,10 @@ export default function AdminStoreDetail() {
     enabled: Boolean(storeId),
   });
 
-  // Retailer id: from the route when retailer-scoped, else recovered from the
-  // store record so deep-links and the accounts query still resolve.
-  const retailerId = routeRetailerId ?? data?.retailer?.id;
+  // Retailer id: trust the route only when it's a real `ret_…` account id,
+  // else recover it from the store record. Same resolution every store-scoped
+  // page uses, so deep-links and the accounts query always resolve.
+  const retailerId = useStoreRetailerId(storeId);
 
   // Accounts count drives a KPI tile + a deep-link button — fetched here so the
   // card and the headline number stay in sync, since the AccountsOnStoreCard

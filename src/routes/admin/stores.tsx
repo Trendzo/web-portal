@@ -165,9 +165,9 @@ export default function AdminStores() {
       </div>
 
       {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-20" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-40" />
           ))}
         </div>
       ) : isError ? (
@@ -182,38 +182,35 @@ export default function AdminStores() {
           description={q ? 'Try a different keyword or filter.' : 'When retailers go live, stores appear here.'}
         />
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((store) => {
             const meta = storeStatusMeta(store.status === 'suspended' && store.permanentSuspend ? 'terminated' : store.status);
             const label = store.status === 'suspended' && store.permanentSuspend ? 'terminated' : store.status;
             return (
-              <Card key={store.id}>
-                <CardContent className="p-4">
-                  <div className="flex flex-wrap items-start gap-x-4 gap-y-1">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-ink truncate">{store.legalName}</span>
-                        <Badge tone={meta.tone as never}>{label}</Badge>
-                        <span className="text-xs text-ink-3">{store.stateCode}</span>
-                      </div>
-                      <div className="mt-0.5 text-xs text-ink-3 truncate">{store.address}</div>
-                      {store.retailer && (
-                        <div className="mt-0.5 text-xs text-ink-3">
-                          Owner: {store.retailer.legalName} · {store.retailer.email}
-                        </div>
-                      )}
+              <Card key={store.id} className="flex flex-col">
+                <CardContent className="flex flex-1 flex-col p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="font-medium text-ink truncate">{store.legalName}</span>
+                    <Badge tone={meta.tone as never}>{label}</Badge>
+                  </div>
+                  <div className="mt-1 text-xs text-ink-3 truncate">
+                    {store.address} · {store.stateCode}
+                  </div>
+                  {store.retailer && (
+                    <div className="mt-0.5 text-xs text-ink-3 truncate">
+                      Owner: {store.retailer.legalName} · {store.retailer.email}
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-ink-3 shrink-0">
+                  )}
+                  <div className="mt-auto pt-3">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
                       <span>{store.orderCount} orders</span>
                       {store.disputeCount > 0 && (
                         <span className="text-warning font-medium">{store.disputeCount} disputes</span>
                       )}
                       <span>{(store.platformFeeBp / 100).toFixed(1)}% fee</span>
                     </div>
-                    <Button asChild variant="outline" size="sm" className="shrink-0">
-                      <Link to={`/admin/stores/${store.id}`}>
-                        View
-                      </Link>
+                    <Button asChild variant="outline" size="sm" className="mt-3 w-full">
+                      <Link to={`/admin/stores/${store.id}`}>View</Link>
                     </Button>
                   </div>
                 </CardContent>

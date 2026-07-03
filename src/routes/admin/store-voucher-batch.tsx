@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
+import { useStoreRetailerId } from '@/hooks/useStoreRetailerId';
 import { toast } from 'sonner';
 import { ArrowLeft, Download } from 'lucide-react';
 import { api, ApiError, BASE } from '@/lib/api';
@@ -12,7 +13,8 @@ import { Input } from '@/components/ui/input';
 import { Label, FieldError } from '@/components/ui/label';
 
 export default function AdminStoreVoucherBatch() {
-  const { id: retailerId, storeId, promoId } = useParams<{ id: string; storeId: string; promoId: string }>();
+  const { storeId, promoId } = useParams<{ storeId: string; promoId: string }>();
+  const retailerId = useStoreRetailerId(storeId);
   const [count, setCount] = useState('100');
   const [prefix, setPrefix] = useState('');
   const [sample, setSample] = useState<string[]>([]);

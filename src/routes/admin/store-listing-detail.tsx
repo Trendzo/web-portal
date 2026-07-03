@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useStoreRetailerId } from '@/hooks/useStoreRetailerId';
 import { toast } from 'sonner';
 import { ArrowLeft, ImageOff } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
@@ -34,7 +35,8 @@ interface ListingRow {
 }
 
 export default function AdminStoreListingDetail() {
-  const { id: retailerId, storeId, listingId } = useParams<{ id: string; storeId: string; listingId: string }>();
+  const { storeId, listingId } = useParams<{ storeId: string; listingId: string }>();
+  const retailerId = useStoreRetailerId(storeId);
   const qc = useQueryClient();
 
   // Reuse the store-listings list query — variants are already embedded, so no
@@ -46,16 +48,6 @@ export default function AdminStoreListingDetail() {
     enabled: Boolean(storeId),
   });
   const listing = (data ?? []).find((l) => l.id === listingId) ?? null;
-
-  const setListingStatus = useMutation({
-    mutationFn: (nextStatus: 'draft' | 'active' | 'retired') =>
-      api(`/admin/stores/${storeId}/listings/${listingId}`, { method: 'PATCH', body: { status: nextStatus } }),
-    onSuccess: () => {
-      toast.success('Listing updated');
-      void qc.invalidateQueries({ queryKey: ['admin', 'store-listings', storeId] });
-    },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Update failed'),
-  });
 
   function invalidate() {
     void qc.invalidateQueries({ queryKey: ['admin', 'store-listings', storeId] });
@@ -104,16 +96,6 @@ export default function AdminStoreListingDetail() {
                 </div>
                 <div className="mt-1 font-mono text-[11px] text-ink-4">{listing.id}</div>
               </div>
-              {(listing.status === 'active' || listing.status === 'draft') && (
-                <Button
-                  size="sm"
-                  variant={listing.status === 'active' ? 'outline' : 'accent'}
-                  loading={setListingStatus.isPending}
-                  onClick={() => setListingStatus.mutate(listing.status === 'active' ? 'draft' : 'active')}
-                >
-                  {listing.status === 'active' ? 'Unpublish' : 'Publish'}
-                </Button>
-              )}
             </CardContent>
           </Card>
 
