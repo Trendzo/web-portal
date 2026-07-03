@@ -426,6 +426,7 @@ export default function RetailerInventory() {
 }
 
 type BestSellerRow = { variantId: string; listingName: string; attributesLabel: string; sku: string | null; stock: number; unitsSold: number };
+type DeadStockRow = { variantId: string; listingName: string; label: string; totalStock: number };
 
 function HealthTab({ rows, savedThreshold }: { rows: InventoryRow[]; savedThreshold: number }) {
   const qc = useQueryClient();
@@ -454,9 +455,15 @@ function HealthTab({ rows, savedThreshold }: { rows: InventoryRow[]; savedThresh
     queryFn: () => api<BestSellerRow[]>('/retailer/inventory/reports/inventory-health/best-sellers?days=30&limit=10'),
   });
 
-  // Dead stock: items with stock > 0 and no sales in last 30 days
-  const sellerIds = new Set((bestSellersQ.data ?? []).map((b) => b.variantId));
-  const deadStock = rows.filter((r) => r.stock > 0 && !sellerIds.has(r.id)).slice(0, 10);
+  // Dead stock: shares the Analytics report's definition (per-variant, stock > 0,
+  // no order *placed* in 30 days) so both surfaces agree. Best sellers above keeps
+  // its own delivered-based source — only dead stock was reconciled.
+  const deadStockQ = useQuery({
+    queryKey: ['retailer', 'inventory', 'dead-stock'],
+    queryFn: () =>
+      api<{ rows: DeadStockRow[] }>('/retailer/reports/listings/dead-stock?daysWithoutSale=30&limit=10'),
+  });
+  const deadStock = deadStockQ.data?.rows ?? [];
 
   return (
     <div className="space-y-6">
@@ -519,7 +526,7 @@ function HealthTab({ rows, savedThreshold }: { rows: InventoryRow[]; savedThresh
             </ul>
           )}
         </div>
-        <HealthCard title="Dead stock (no sales in 30 days)" items={deadStock.map((r) => ({ key: r.id, primary: r.listingName, secondary: `${r.attributesLabel} · ${r.stock} units` }))} />
+        <HealthCard title="Dead stock (no sales in 30 days)" items={deadStock.map((r) => ({ key: r.variantId, primary: r.listingName, secondary: `${r.label} · ${r.totalStock} units` }))} />
       </div>
     </div>
   );
@@ -829,8 +836,8 @@ function InventoryRowEl({ row, threshold, checked, onCheck }: { row: InventoryRo
       <Td className="font-mono text-[12.5px] text-ink-2">
         {row.sku ?? <span className="text-ink-4">—</span>}
       </Td>
-      <Td className="text-right font-mono tabular">
-        {formatPaise(row.pricePaise)}
+      <Td className="text-right">
+        <PriceEditor row={row} />
       </Td>
       <Td className="text-right">
         <StockEditor row={row} />
@@ -1013,6 +1020,160 @@ function StockEditor({ row }: { row: InventoryRow }) {
         disabled={save.isPending}
         className="grid size-7 place-items-center rounded-md bg-ink text-bg hover:bg-ink-2 press disabled:opacity-50"
         aria-label="Save stock"
+      >
+        <Check className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={cancel}
+        disabled={save.isPending}
+        className="grid size-7 place-items-center rounded-md border border-line text-ink-3 hover:bg-bg-3 press disabled:opacity-50"
+        aria-label="Cancel edit"
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Inline price editor — click-to-edit cell (merged in from the Pricing tab).
+// Edits rupees in the UI, persists pricePaise. Mirrors StockEditor's UX.
+// ─────────────────────────────────────────────────────────────────────
+
+function PriceEditor({ row }: { row: InventoryRow }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(row.pricePaise / 100));
+  const inputRef = useRef<HTMLInputElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Re-sync the draft if the source value changes from elsewhere (e.g. the Pricing tab).
+  useEffect(() => {
+    if (!editing) setDraft(String(row.pricePaise / 100));
+  }, [row.pricePaise, editing]);
+
+  // Click outside cancels without saving (skipped mid-flight). Mirrors StockEditor.
+  useEffect(() => {
+    if (!editing) return;
+    function handlePointerDown(e: PointerEvent) {
+      if (save.isPending) return;
+      const target = e.target as Node | null;
+      if (wrapperRef.current && target && !wrapperRef.current.contains(target)) {
+        setDraft(String(row.pricePaise / 100));
+        setEditing(false);
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    return () => document.removeEventListener('pointerdown', handlePointerDown, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, row.pricePaise]);
+
+  const save = useMutation({
+    mutationFn: (pricePaise: number) =>
+      api<Variant>(`/retailer/variants/${row.id}`, {
+        method: 'PATCH',
+        body: { pricePaise },
+      }),
+    onSuccess: () => {
+      setEditing(false);
+      // Refresh inventory + any open listing detail, and keep the legacy Pricing tab in sync.
+      void qc.invalidateQueries({ queryKey: ['retailer', 'inventory'] });
+      void qc.invalidateQueries({ queryKey: ['retailer', 'listing', row.listingId] });
+      void qc.invalidateQueries({ queryKey: ['retailer', 'listings'] });
+      void qc.invalidateQueries({ queryKey: ['retailer', 'listing-effective-pricing', row.listingId] });
+      void qc.invalidateQueries({ queryKey: ['retailer', 'audit', 'recent-price-changes'] });
+      toast.success(`Price saved · ${row.attributesLabel}`);
+    },
+    onError: (e) => {
+      toast.error(
+        e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not save price',
+      );
+      // Snap back so the operator can correct.
+      setDraft(String(row.pricePaise / 100));
+      inputRef.current?.focus();
+    },
+  });
+
+  function commit() {
+    const rupees = Number(draft);
+    if (!Number.isFinite(rupees) || rupees <= 0) {
+      toast.error('Price must be greater than ₹0');
+      setDraft(String(row.pricePaise / 100));
+      return;
+    }
+    const paise = Math.round(rupees * 100);
+    if (paise === row.pricePaise) {
+      setEditing(false);
+      return;
+    }
+    save.mutate(paise);
+  }
+
+  function cancel() {
+    setDraft(String(row.pricePaise / 100));
+    setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <div className="inline-flex flex-col items-end leading-tight">
+        <button
+          type="button"
+          onClick={() => {
+            setEditing(true);
+            requestAnimationFrame(() => {
+              inputRef.current?.focus();
+              inputRef.current?.select();
+            });
+          }}
+          className={cn(
+            'inline-flex min-w-[4rem] items-center justify-end rounded-md px-2 py-0.5 font-mono tabular text-ink',
+            'hover:bg-bg-3 hover:ring-1 hover:ring-line-2 transition-colors press',
+          )}
+          aria-label={`Edit selling price for ${row.attributesLabel}`}
+          title="Selling price"
+        >
+          {formatPaise(row.pricePaise)}
+        </button>
+        {row.compareAtPrice != null && (
+          <span
+            className="px-2 font-mono tabular text-[11px] text-ink-4 line-through"
+            title="MRP"
+          >
+            {formatPaise(row.compareAtPrice)}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div ref={wrapperRef} className="inline-flex items-center gap-1">
+      <span className="font-mono text-[12.5px] text-ink-3">₹</span>
+      <input
+        ref={inputRef}
+        type="number"
+        min={0}
+        step="0.01"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') cancel();
+        }}
+        disabled={save.isPending}
+        className={cn(
+          'h-8 w-24 rounded-md border border-line-2 bg-bg px-2 text-right font-mono tabular text-[13.5px] text-ink',
+          'focus:border-ink focus:outline-none',
+        )}
+      />
+      <button
+        type="button"
+        onClick={commit}
+        disabled={save.isPending}
+        className="grid size-7 place-items-center rounded-md bg-ink text-bg hover:bg-ink-2 press disabled:opacity-50"
+        aria-label="Save price"
       >
         <Check className="size-3.5" />
       </button>

@@ -180,6 +180,8 @@ export type InventoryRow = {
   sku: string | null;
   attributesLabel: string;
   pricePaise: number;
+  /** MRP / "compare-at" price (paise). null when the retailer hasn't set one. */
+  compareAtPrice: number | null;
   stock: number;
   reserved: number;
   isActive: boolean;

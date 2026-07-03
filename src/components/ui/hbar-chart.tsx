@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { cn } from '@/lib/cn';
 
 export type HBarRow = {
@@ -12,9 +13,10 @@ export type HBarRow = {
 };
 
 /**
- * Ranked horizontal bar list — the right chart for "top N" reports
- * (best sellers, revenue contributors, return rates). HTML/CSS rather than
- * SVG: rows stay readable at any width, labels never truncate into an axis.
+ * Ranked list with an inline data-bar — one compact line per row (rank · name ·
+ * value) with the bar painted as a subtle tint fill *behind* the row, proportional
+ * to value. Half the height of a label-over-bar layout, stays dense as the list
+ * grows, and reads like a leaderboard. HTML/CSS so labels never truncate into an axis.
  */
 export function HBarChart({
   rows,
@@ -25,31 +27,40 @@ export function HBarChart({
   color?: string;
   className?: string;
 }) {
+  const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(1, ...rows.map((r) => Math.abs(r.value)));
   return (
-    <div className={cn('space-y-2.5', className)}>
+    <div className={cn('divide-y divide-line/60', className)}>
       {rows.map((r, i) => {
-        const pct = Math.max(1.5, (Math.abs(r.value) / max) * 100);
+        const pct = Math.max(2, (Math.abs(r.value) / max) * 100);
+        const c = r.color ?? color;
+        const active = hover === i;
         return (
-          <div key={`${r.label}-${i}`} className="group">
-            <div className="mb-1 flex items-baseline justify-between gap-3">
-              <span className="min-w-0 truncate text-[12.5px] text-ink">
-                <span className="mr-1.5 font-mono text-[11px] text-ink-4">
-                  {String(i + 1).padStart(2, '0')}
-                </span>
-                {r.label}
-                {r.sub && <span className="ml-1.5 text-[11px] text-ink-4">{r.sub}</span>}
-              </span>
-              <span className="shrink-0 font-mono text-[12.5px] tabular-nums text-ink">
-                {r.display ?? String(r.value)}
-              </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-bg-3">
-              <div
-                className="h-full rounded-full transition-[width] duration-500 ease-out"
-                style={{ width: `${pct}%`, background: r.color ?? color, opacity: 0.9 }}
-              />
-            </div>
+          <div
+            key={`${r.label}-${i}`}
+            className="relative flex h-8 items-center gap-3 overflow-hidden px-2"
+            onMouseEnter={() => setHover(i)}
+            onMouseLeave={() => setHover(null)}
+          >
+            {/* data-bar fill behind the row */}
+            <div
+              className="absolute inset-y-1 left-0 rounded-[5px] transition-[width] duration-500 ease-out"
+              style={{
+                width: `${pct}%`,
+                background: `color-mix(in oklab, ${c} ${active ? 26 : 16}%, transparent)`,
+                borderLeft: `2px solid color-mix(in oklab, ${c} ${active ? 90 : 70}%, transparent)`,
+              }}
+            />
+            <span className="relative z-[1] w-5 shrink-0 font-mono text-[11px] tabular-nums text-ink-4">
+              {String(i + 1).padStart(2, '0')}
+            </span>
+            <span className="relative z-[1] min-w-0 flex-1 truncate text-[12.5px] text-ink">
+              {r.label}
+              {r.sub && <span className="ml-1.5 text-[11px] text-ink-4">{r.sub}</span>}
+            </span>
+            <span className="relative z-[1] shrink-0 font-mono text-[12.5px] tabular-nums text-ink">
+              {r.display ?? String(r.value)}
+            </span>
           </div>
         );
       })}

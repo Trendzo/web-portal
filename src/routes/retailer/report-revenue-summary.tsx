@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DateRangePicker, type DateRangeValue } from '@/components/ui/date-range-picker';
 import { FreshnessLabel } from '@/components/ui/freshness-label';
-import { WaterfallChart } from '@/components/ui/waterfall-chart';
+import { PieChart } from '@/components/ui/pie-chart';
 import { ViewToggle, type ReportView } from '@/components/ui/view-toggle';
 
 type RevenueSummary = {
@@ -84,28 +84,38 @@ export function RevenueSummaryPanel() {
       {isLoading || !data ? (
         <Skeleton className="h-60" />
       ) : view === 'chart' ? (
-        <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Kpi label="Orders" value={data.ordersCount.toLocaleString('en-IN')} />
-            <Kpi label="Gross" value={formatPaise(data.grossPaise)} />
-            <Kpi label="Refunds" value={formatPaise(data.refundsPaise)} sub={`${data.refundsCount} refunds`} />
-            <Kpi label="Net money in" value={formatPaise(data.netMoneyInPaise)} accent />
-          </div>
-          <Card>
-            <CardContent className="p-5">
-              <div className="kicker mb-3">Where the money goes</div>
-              <WaterfallChart
-                steps={[
-                  { label: 'Gross sales', amountPaise: data.grossPaise, kind: 'start' },
-                  { label: 'Refunds', amountPaise: -data.refundsPaise, kind: 'deduction' },
-                  { label: 'Commission', amountPaise: -data.commissionPaise, kind: 'deduction' },
-                  { label: 'TCS', amountPaise: -data.tcsPaise, kind: 'deduction' },
-                  { label: 'Net money in', amountPaise: data.netMoneyInPaise, kind: 'total' },
+        <Card>
+          <CardContent className="p-5">
+            <div className="mb-1 flex items-baseline justify-between">
+              <div className="kicker">How gross sales split</div>
+              <div className="text-[12px] text-ink-3">
+                Gross <span className="font-mono text-ink">{formatPaise(data.grossPaise)}</span>
+              </div>
+            </div>
+            <p className="mb-5 text-[12px] text-ink-3">
+              Of every rupee billed, what you keep vs what's deducted.
+            </p>
+            <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+              <PieChart
+                formatValue={formatPaise}
+                centerValue={formatPaise(data.grossPaise)}
+                centerLabel="Gross"
+                slices={[
+                  { label: 'Net money in', value: data.netMoneyInPaise, color: 'var(--color-success)' },
+                  { label: 'Commission', value: data.commissionPaise, color: 'var(--color-danger)' },
+                  { label: 'TCS', value: data.tcsPaise, color: 'var(--color-warning)' },
+                  { label: 'Refunds', value: data.refundsPaise, color: 'var(--color-ink-4)' },
                 ]}
               />
-            </CardContent>
-          </Card>
-        </>
+              <div className="grid grid-cols-2 gap-3">
+                <Kpi label="Orders" value={data.ordersCount.toLocaleString('en-IN')} />
+                <Kpi label="Gross" value={formatPaise(data.grossPaise)} />
+                <Kpi label="Refunds" value={formatPaise(data.refundsPaise)} sub={`${data.refundsCount} refunds`} />
+                <Kpi label="Net money in" value={formatPaise(data.netMoneyInPaise)} accent />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       ) : (
         <Card>
           <CardContent className="p-0">

@@ -1,5 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { cn } from '@/lib/cn';
+import { GRAD, gradId } from './chart-palette';
+
+/** Bar path with only the cap (away from the baseline) rounded, base sits flat. */
+function barPath(x: number, y: number, w: number, h: number, rad: number, up: boolean) {
+  const r = Math.min(rad, w / 2, h);
+  if (up) {
+    // cap at top
+    return `M ${x} ${y + h} L ${x} ${y + r} Q ${x} ${y} ${x + r} ${y} L ${x + w - r} ${y} Q ${x + w} ${y} ${x + w} ${y + r} L ${x + w} ${y + h} Z`;
+  }
+  // cap at bottom (negative bars)
+  const b = y + h;
+  return `M ${x} ${y} L ${x + w} ${y} L ${x + w} ${b - r} Q ${x + w} ${b} ${x + w - r} ${b} L ${x + r} ${b} Q ${x} ${b} ${x} ${b - r} Z`;
+}
 
 type BarChartProps = {
   /** X-axis tick labels, one per bar. */
@@ -26,6 +39,7 @@ export function BarChart({
   height = 240,
   className,
 }: BarChartProps) {
+  const uid = useId().replace(/:/g, '');
   const [hover, setHover] = useState<number | null>(null);
 
   const width = 800;
@@ -74,6 +88,19 @@ export function BarChart({
           setHover(i >= 0 && i < labels.length ? i : null);
         }}
       >
+        <defs>
+          <linearGradient id={gradId(uid, 'pos')} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={GRAD.fill.top} />
+            <stop offset="100%" stopColor={color} stopOpacity={GRAD.fill.bottom} />
+          </linearGradient>
+          <linearGradient id={gradId(uid, 'neg')} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-danger)" stopOpacity={GRAD.fill.top} />
+            <stop offset="100%" stopColor="var(--color-danger)" stopOpacity={GRAD.fill.bottom} />
+          </linearGradient>
+          <filter id={`${gradId(uid, 'glow')}`} x="-30%" y="-30%" width="160%" height="160%">
+            <feDropShadow dx="0" dy="1" stdDeviation="3" floodColor={color} floodOpacity="0.4" />
+          </filter>
+        </defs>
         {yTicks.map((t, i) => (
           <line
             key={i}
@@ -115,19 +142,19 @@ export function BarChart({
         )}
 
         {values.map((v, i) => {
-          const top = v >= 0 ? y(v) : zeroY;
+          const up = v >= 0;
+          const top = up ? y(v) : zeroY;
           const h = Math.max(1.5, Math.abs(y(v) - zeroY));
+          const active = hover === i;
+          const lift = active ? 2 : 0;
           return (
-            <rect
+            <path
               key={i}
-              x={xCenter(i) - barW / 2}
-              y={top}
-              width={barW}
-              height={h}
-              rx={3}
-              fill={v < 0 ? 'var(--color-danger)' : color}
-              opacity={hover === null || hover === i ? 0.92 : 0.35}
-              style={{ transition: 'opacity 120ms ease' }}
+              d={barPath(xCenter(i) - barW / 2, top - (up ? lift : 0), barW, h, 5, up)}
+              fill={`url(#${gradId(uid, up ? 'pos' : 'neg')})`}
+              filter={active ? `url(#${gradId(uid, 'glow')})` : undefined}
+              opacity={hover === null || active ? 1 : 0.35}
+              style={{ transition: 'opacity 120ms ease, d 160ms ease' }}
             />
           );
         })}

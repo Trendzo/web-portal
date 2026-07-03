@@ -116,7 +116,8 @@ export function LineChart({
         <defs>
           {series.map((s, i) => (
             <linearGradient key={i} id={`g-${id}-${i}`} x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor={s.color} stopOpacity="0.18" />
+              <stop offset="0%" stopColor={s.color} stopOpacity="0.24" />
+              <stop offset="60%" stopColor={s.color} stopOpacity="0.06" />
               <stop offset="100%" stopColor={s.color} stopOpacity="0" />
             </linearGradient>
           ))}
@@ -151,19 +152,25 @@ export function LineChart({
           </text>
         ))}
 
-        {/* x-axis labels */}
-        {labels.map((label, i) => (
-          <text
-            key={i}
-            x={x(i)}
-            y={height - 10}
-            textAnchor="middle"
-            className="fill-ink-4"
-            style={{ fontSize: 11, fontFamily: 'var(--font-sans)' }}
-          >
-            {label}
-          </text>
-        ))}
+        {/* x-axis labels — thinned to ~10 max so dense series (e.g. 30 days) don't overlap;
+            the last tick is always shown so the range end is labelled. */}
+        {labels.map((label, i) => {
+          const every = Math.max(1, Math.ceil(labels.length / 10));
+          const isLast = i === labels.length - 1;
+          if (i % every !== 0 && !isLast) return null;
+          return (
+            <text
+              key={i}
+              x={x(i)}
+              y={height - 10}
+              textAnchor={isLast ? 'end' : i === 0 ? 'start' : 'middle'}
+              className="fill-ink-4"
+              style={{ fontSize: 11, fontFamily: 'var(--font-sans)' }}
+            >
+              {label}
+            </text>
+          );
+        })}
 
         {/* series — paint areas first so lines sit on top */}
         {series.map((s, i) => (
@@ -182,13 +189,28 @@ export function LineChart({
             d={linePath(s.values)}
             fill="none"
             stroke={s.color}
-            strokeWidth={2}
+            strokeWidth={2.5}
             strokeLinecap="round"
             strokeLinejoin="round"
             className="draw-line"
             style={{ animationDelay: `${i * 120}ms` }}
           />
         ))}
+
+        {/* endpoint marker on the primary series — anchors the eye at the latest value */}
+        {(() => {
+          const s = series[0];
+          if (!s || s.values.length === 0) return null;
+          const lastX = x(s.values.length - 1);
+          const lastV = s.values[s.values.length - 1] ?? 0;
+          const lastY = y(lastV);
+          return (
+            <g key="endpoint" style={{ opacity: hover == null ? 1 : 0 }}>
+              <circle cx={lastX} cy={lastY} r={6} fill={s.color} opacity={0.16} />
+              <circle cx={lastX} cy={lastY} r={3} fill="var(--color-bg)" stroke={s.color} strokeWidth={2} />
+            </g>
+          );
+        })()}
 
         {/* hover crosshair + dots */}
         {hover != null && (

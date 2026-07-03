@@ -136,7 +136,7 @@ export function SalesTrendPanel() {
                 ))}
               </div>
             )}
-            {chart.buckets.length <= 3 ? (
+            {chart.buckets.length <= 1 ? (
               <BarChart
                 labels={chart.buckets}
                 values={chart.series[0]?.values ?? []}

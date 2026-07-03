@@ -12,7 +12,21 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { History, Volume2, VolumeX } from 'lucide-react';
+import {
+  History,
+  Volume2,
+  VolumeX,
+  Inbox,
+  Package,
+  Truck,
+  Undo2,
+  DoorOpen,
+  PackageX,
+  PackageCheck,
+  CheckCircle2,
+  XCircle,
+  type LucideIcon,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatPaise } from '@/lib/status';
 import { playNewOrderChime, unlockAudio } from '@/lib/audio-alert';
@@ -92,20 +106,21 @@ type ViewKey =
 type ColView = {
   label: string;
   hint: string;
+  icon: LucideIcon;
   statuses: OrderStatus[];
   sort: (a: OrderListRow, b: OrderListRow) => number;
   terminal?: boolean;
 };
 const VIEWS: Record<ViewKey, ColView> = {
-  awaiting: { label: 'Awaiting acceptance', hint: 'New orders to accept', statuses: ['routing'], sort: sortAccept },
-  preparing: { label: 'Preparing', hint: 'Accepted · packing · at store', statuses: ['accepted', 'packed'], sort: sortAccept },
-  transit: { label: 'In transit & exceptions', hint: 'Out for delivery · returns', statuses: ['picked_up', 'out_for_delivery', 'at_door', 'undelivered', 'returning_to_store', 'returned_to_store'], sort: sortTransit },
-  returns: { label: 'Returns', hint: 'Coming back · at store', statuses: ['returning_to_store', 'returned_to_store'], sort: sortTransit },
-  at_door: { label: 'At the door', hint: 'Try-on in progress', statuses: ['at_door'], sort: sortTransit },
-  undelivered: { label: 'Undelivered', hint: 'Delivery failed · retrying', statuses: ['undelivered'], sort: sortTransit },
-  delivered: { label: 'Delivered', hint: 'Handed to customer', statuses: ['delivered'], sort: sortRecent, terminal: true },
-  completed: { label: 'Completed', hint: 'Closed & settled', statuses: ['closed'], sort: sortRecent, terminal: true },
-  cancelled: { label: 'Cancelled', hint: 'Cancelled · payment failed', statuses: ['cancelled', 'payment_failed'], sort: sortRecent, terminal: true },
+  awaiting: { label: 'Awaiting acceptance', hint: 'New orders to accept', icon: Inbox, statuses: ['routing'], sort: sortAccept },
+  preparing: { label: 'Preparing', hint: 'Accepted · packing · at store', icon: Package, statuses: ['accepted', 'packed'], sort: sortAccept },
+  transit: { label: 'In transit & exceptions', hint: 'Out for delivery · returns', icon: Truck, statuses: ['picked_up', 'out_for_delivery', 'at_door', 'undelivered', 'returning_to_store', 'returned_to_store'], sort: sortTransit },
+  returns: { label: 'Returns', hint: 'Coming back · at store', icon: Undo2, statuses: ['returning_to_store', 'returned_to_store'], sort: sortTransit },
+  at_door: { label: 'At the door', hint: 'Try-on in progress', icon: DoorOpen, statuses: ['at_door'], sort: sortTransit },
+  undelivered: { label: 'Undelivered', hint: 'Delivery failed · retrying', icon: PackageX, statuses: ['undelivered'], sort: sortTransit },
+  delivered: { label: 'Delivered', hint: 'Handed to customer', icon: PackageCheck, statuses: ['delivered'], sort: sortRecent, terminal: true },
+  completed: { label: 'Completed', hint: 'Closed & settled', icon: CheckCircle2, statuses: ['closed'], sort: sortRecent, terminal: true },
+  cancelled: { label: 'Cancelled', hint: 'Cancelled · payment failed', icon: XCircle, statuses: ['cancelled', 'payment_failed'], sort: sortRecent, terminal: true },
 };
 const VIEW_ORDER: ViewKey[] = ['awaiting', 'preparing', 'transit', 'returns', 'at_door', 'undelivered', 'delivered', 'completed', 'cancelled'];
 const DEFAULT_VIEWS: [ViewKey, ViewKey, ViewKey] = ['awaiting', 'preparing', 'transit'];
@@ -291,9 +306,17 @@ function BoardColumn({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {VIEW_ORDER.map((k) => (
-                <SelectItem key={k} value={k}>{VIEWS[k].label}</SelectItem>
-              ))}
+              {VIEW_ORDER.map((k) => {
+                const Icon = VIEWS[k].icon;
+                return (
+                  <SelectItem key={k} value={k}>
+                    <span className="flex items-center gap-2">
+                      <Icon className="size-4 shrink-0 text-ink-3" />
+                      {VIEWS[k].label}
+                    </span>
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
           <div className="truncate text-[11px] text-ink-4">{VIEWS[viewKey].hint}</div>

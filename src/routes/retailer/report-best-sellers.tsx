@@ -4,7 +4,7 @@ import { Download } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatPaise } from '@/lib/status';
 import { useServerCsv } from '@/lib/csv';
-import { unwrapMeta, unwrapRows } from '@/lib/report';
+import { unwrapMeta, unwrapRows, useReportCount, type ReportShellProps } from '@/lib/report';
 import { useStoreScope } from '@/lib/store-scope';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,10 +24,11 @@ type Row = {
 };
 
 /** Best sellers — ranked bars of units sold; gross rides along as the sub-label. */
-export function BestSellersPanel() {
+export function BestSellersPanel({ controls, collapsed, onCount }: ReportShellProps = {}) {
   const scope = useStoreScope();
   const [range, setRange] = useState<DateRangeValue>({ from: null, to: null });
-  const [view, setView] = useState<ReportView>('chart');
+  const [localView, setLocalView] = useState<ReportView>('chart');
+  const view = controls?.view ?? localView;
   const params = useMemo(() => {
     const p: Record<string, string> = { limit: '20' };
     if (range.from) p.since = range.from.toISOString();
@@ -43,20 +44,24 @@ export function BestSellersPanel() {
   const rows = unwrapRows<Row>(data);
   const meta = unwrapMeta(data);
   const exportCsv = useServerCsv('best_sellers', path, params);
+  useReportCount(onCount, rows.length);
 
+  if (collapsed) return null;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="w-full max-w-xs">
           <DateRangePicker value={range} onChange={setRange} placeholder="Last 30 days" />
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <FreshnessLabel generatedAtIst={meta?.generatedAtIst} />
-          <ViewToggle value={view} onChange={setView} />
-          <Button variant="outline" size="sm" iconLeft={<Download className="size-3.5" />} onClick={() => exportCsv()}>
-            CSV
-          </Button>
-        </div>
+        {!controls && (
+          <div className="flex flex-wrap items-center gap-3">
+            <FreshnessLabel generatedAtIst={meta?.generatedAtIst} />
+            <ViewToggle value={view} onChange={setLocalView} />
+            <Button variant="outline" size="sm" iconLeft={<Download className="size-3.5" />} onClick={() => exportCsv()}>
+              CSV
+            </Button>
+          </div>
+        )}
       </div>
 
       {isLoading ? (

@@ -1,4 +1,4 @@
-import { useMemo, type ComponentType } from 'react';
+import { useMemo, type ComponentType, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -17,6 +17,46 @@ import { GstSummaryPanel, GstHsnPanel } from './report-gst';
 type SubTab = { key: string; label: string; blurb: string; Panel: ComponentType };
 type TopTab = { key: string; label: string; subs: SubTab[] };
 
+/** A titled report block used when several reports are stacked under one tab. */
+function ReportSection({
+  title,
+  blurb,
+  children,
+  className,
+}: {
+  title: string;
+  blurb: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={className}>
+      <div className="mb-3">
+        <div className="kicker mb-0.5">{title}</div>
+        <p className="text-[12.5px] text-ink-3">{blurb}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** Sales domain stacks both reports — revenue summary above, trend below. */
+function SalesOverviewPanel() {
+  return (
+    <div className="space-y-8">
+      <RevenueSummaryPanel />
+      <ReportSection
+        title="Sales trend"
+        blurb="Gross revenue over time — by status, delivery method, or category."
+        className="border-t border-line pt-6"
+      >
+        <SalesTrendPanel />
+      </ReportSection>
+    </div>
+  );
+}
+
+
 /**
  * Analytics hub — the old Reports card launcher folded into one page.
  * Two-level navigation: top tabs are the domains (`?tab=`), inner Segmented
@@ -29,16 +69,10 @@ const TABS: TopTab[] = [
     label: 'Sales',
     subs: [
       {
-        key: 'summary',
-        label: 'Revenue summary',
-        blurb: 'Total sales, refunds, fees, TCS, and the money you keep.',
-        Panel: RevenueSummaryPanel,
-      },
-      {
-        key: 'trend',
-        label: 'Sales trend',
-        blurb: 'Gross revenue over time — by status, delivery method, or category.',
-        Panel: SalesTrendPanel,
+        key: 'overview',
+        label: 'Sales',
+        blurb: 'Revenue split, refunds, fees and TCS — plus gross revenue trend over time.',
+        Panel: SalesOverviewPanel,
       },
     ],
   },
@@ -164,17 +198,17 @@ export default function RetailerAnalytics() {
 
         {TABS.map((t) => (
           <TabsContent key={t.key} value={t.key}>
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-              {t.subs.length > 1 && (
-                <Segmented
-                  value={activeSub.key}
-                  onChange={setSub}
-                  options={subOptions}
-                />
-              )}
-              <p className="max-w-xl text-[12.5px] text-ink-3">{activeSub.blurb}</p>
+            {/* Cap report width so charts read as a focused column instead of
+                stretching edge-to-edge across a wide viewport. */}
+            <div className="max-w-4xl">
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                {t.subs.length > 1 && (
+                  <Segmented value={activeSub.key} onChange={setSub} options={subOptions} />
+                )}
+                <p className="max-w-xl text-[12.5px] text-ink-3">{activeSub.blurb}</p>
+              </div>
+              {t.key === activeTab.key && <Panel />}
             </div>
-            {t.key === activeTab.key && <Panel />}
           </TabsContent>
         ))}
       </Tabs>

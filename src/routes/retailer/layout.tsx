@@ -9,7 +9,6 @@ import {
   type SidebarGroup,
 } from '@/components/shell/SidebarShell';
 import { RoleGate } from '@/components/shell/RoleGate';
-import { AiQuotaChip } from '@/components/shell/AiQuotaChip';
 import { ImpersonationBanner } from '@/components/shell/ImpersonationBanner';
 import { ComplianceFloorBanner } from '@/components/shell/ComplianceFloorBanner';
 import { useRetailerBanners } from '@/lib/banner-triggers';
@@ -155,7 +154,6 @@ export default function RetailerLayout() {
         kindLabel="Retailer"
         groups={groups}
         searchHint="Search pages, products, orders…"
-        sidebarFooter={AiQuotaChip}
         paletteScope="retailer"
       />
     </RoleGate>

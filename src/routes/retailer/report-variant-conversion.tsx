@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Download } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useServerCsv } from '@/lib/csv';
-import { unwrapMeta, unwrapRows } from '@/lib/report';
+import { unwrapMeta, unwrapRows, useReportCount, type ReportShellProps } from '@/lib/report';
 import { useStoreScope } from '@/lib/store-scope';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,6 +18,7 @@ import { ViewToggle, type ReportView } from '@/components/ui/view-toggle';
 type Row = {
   variantId: string;
   listingId: string;
+  listingName: string;
   label: string;
   views: number;
   cartAdds: number;
@@ -31,10 +32,11 @@ type Row = {
 function bp(n: number) { return `${(n / 100).toFixed(1)}%`; }
 
 /** Variant conversion — ranked view → delivered conversion bars per variant. */
-export function VariantConversionPanel() {
+export function VariantConversionPanel({ controls, collapsed, onCount }: ReportShellProps = {}) {
   const scope = useStoreScope();
   const [listingId, setListingId] = useState('');
-  const [view, setView] = useState<ReportView>('chart');
+  const [localView, setLocalView] = useState<ReportView>('chart');
+  const view = controls?.view ?? localView;
   const params = useMemo(() => {
     const p: Record<string, string> = { limit: '100' };
     if (listingId.trim()) p.listingId = listingId.trim();
@@ -49,6 +51,7 @@ export function VariantConversionPanel() {
   const rows = unwrapRows<Row>(data);
   const meta = unwrapMeta(data);
   const exportCsv = useServerCsv('variant_conversion', path, params);
+  useReportCount(onCount, rows.length);
 
   // Chart ranks the variants shoppers actually convert on (top 20 by view→delivered).
   const chartRows = useMemo(
@@ -57,7 +60,7 @@ export function VariantConversionPanel() {
         .sort((a, b) => b.viewToDeliveredBp - a.viewToDeliveredBp)
         .slice(0, 20)
         .map((r) => ({
-          label: r.label,
+          label: r.listingName ? `${r.listingName} · ${r.label}` : r.label,
           value: r.viewToDeliveredBp,
           display: bp(r.viewToDeliveredBp),
           sub: `${r.views.toLocaleString('en-IN')} views · ${r.deliveredItems} delivered`,
@@ -65,6 +68,7 @@ export function VariantConversionPanel() {
     [rows],
   );
 
+  if (collapsed) return null;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -75,13 +79,15 @@ export function VariantConversionPanel() {
             onChange={(e) => setListingId(e.target.value)}
           />
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <FreshnessLabel generatedAtIst={meta?.generatedAtIst} />
-          <ViewToggle value={view} onChange={setView} />
-          <Button variant="outline" size="sm" iconLeft={<Download className="size-3.5" />} onClick={() => exportCsv()}>
-            CSV
-          </Button>
-        </div>
+        {!controls && (
+          <div className="flex flex-wrap items-center gap-3">
+            <FreshnessLabel generatedAtIst={meta?.generatedAtIst} />
+            <ViewToggle value={view} onChange={setLocalView} />
+            <Button variant="outline" size="sm" iconLeft={<Download className="size-3.5" />} onClick={() => exportCsv()}>
+              CSV
+            </Button>
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -113,7 +119,10 @@ export function VariantConversionPanel() {
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.variantId} className="border-t border-line">
-                    <td className="px-3 py-2 text-ink">{r.label}</td>
+                    <td className="px-3 py-2 text-ink">
+                      {r.listingName && <span className="text-ink">{r.listingName} </span>}
+                      <span className="text-ink-3">{r.label}</span>
+                    </td>
                     <td className="px-3 py-2 text-right font-mono">{r.views.toLocaleString('en-IN')}</td>
                     <td className="px-3 py-2 text-right font-mono">{r.cartAdds.toLocaleString('en-IN')}</td>
                     <td className="px-3 py-2 text-right font-mono">{r.deliveredItems.toLocaleString('en-IN')}</td>

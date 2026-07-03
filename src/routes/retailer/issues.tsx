@@ -112,20 +112,22 @@ export default function RetailerIssues() {
                         <span className="text-[11.5px] text-ink-3">{formatAge(d.createdAt)}</span>
                       </div>
 
-                      <div className="mt-2 flex items-center gap-1 text-[12px] text-ink-3">
-                        <AlertTriangle className="size-3 shrink-0" />
-                        <span className="capitalize">{d.targetKind}</span>:&nbsp;
-                        {d.targetKind === 'order' ? (
-                          <Link
-                            to={`/retailer/orders/${d.targetId}`}
-                            className="font-mono hover:text-accent inline-flex items-center gap-0.5"
-                          >
-                            {d.targetId} <ArrowUpRight className="size-3" />
-                          </Link>
-                        ) : (
-                          <span className="font-mono text-ink">{d.targetId}</span>
-                        )}
-                      </div>
+                      {d.targetKind && d.targetId && (
+                        <div className="mt-2 flex items-center gap-1 text-[12px] text-ink-3">
+                          <AlertTriangle className="size-3 shrink-0" />
+                          <span className="capitalize">{d.targetKind}</span>:&nbsp;
+                          {d.targetKind === 'order' ? (
+                            <Link
+                              to={`/retailer/orders/${d.targetId}`}
+                              className="font-mono hover:text-accent inline-flex items-center gap-0.5"
+                            >
+                              {d.targetId} <ArrowUpRight className="size-3" />
+                            </Link>
+                          ) : (
+                            <span className="font-mono text-ink">{d.targetId}</span>
+                          )}
+                        </div>
+                      )}
 
                       <p className="mt-2 text-[13px] text-ink line-clamp-2">{d.description}</p>
 
