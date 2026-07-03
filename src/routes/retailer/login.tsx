@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -8,6 +9,7 @@ import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import type { RetailerProfile } from '@/lib/types';
 import { AuthShell } from '@/components/forms/AuthShell';
+import { PhoneOtpLogin } from '@/components/forms/PhoneOtpLogin';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -27,6 +29,9 @@ export default function RetailerLogin() {
   const signIn = useAuth((s) => s.signIn);
   const expired = (location.state as { expired?: boolean } | null)?.expired === true;
 
+  // Phone OTP is the primary method; email + password is the fallback.
+  const [mode, setMode] = useState<'otp' | 'password'>('otp');
+
   const {
     register,
     handleSubmit,
@@ -36,27 +41,32 @@ export default function RetailerLogin() {
     defaultValues: { email: '', password: '' },
   });
 
+  /** Commit the session and route into the app — shared by both login methods. */
+  async function finishLogin(token: string, retailer: RetailerProfile) {
+    let permissions: Record<string, boolean> = {};
+    try {
+      const me = await api<{ permissions: Record<string, boolean> }>(
+        '/retailer/me/permissions',
+        { token },
+      );
+      permissions = me.permissions;
+    } catch {
+      /* fall through with empty permissions */
+    }
+    signIn({ kind: 'retailer', token, retailer, permissions });
+    // Delivery agents have a dedicated, focused surface — send them straight there.
+    navigate(retailer.subRole === 'delivery_agent' ? '/retailer/deliveries' : '/retailer/dashboard', {
+      replace: true,
+    });
+  }
+
   async function onSubmit(values: FormValues) {
     try {
       const { token, retailer } = await api<LoginResponse>('/auth/retailer/login', {
         method: 'POST',
         body: values,
       });
-      let permissions: Record<string, boolean> = {};
-      try {
-        const me = await api<{ permissions: Record<string, boolean> }>(
-          '/retailer/me/permissions',
-          { token },
-        );
-        permissions = me.permissions;
-      } catch {
-        /* fall through with empty permissions */
-      }
-      signIn({ kind: 'retailer', token, retailer, permissions });
-      // Delivery agents have a dedicated, focused surface — send them straight there.
-      navigate(retailer.subRole === 'delivery_agent' ? '/retailer/deliveries' : '/retailer/dashboard', {
-        replace: true,
-      });
+      await finishLogin(token, retailer);
     } catch (e) {
       if (e instanceof ApiError) {
         const appId = (e.details as { applicationId?: string } | undefined)?.applicationId;
@@ -101,27 +111,51 @@ export default function RetailerLogin() {
         </>
       }
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+      <div className="space-y-4">
         {expired && (
           <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft/40 px-3 py-2 text-[12.5px] text-warning">
             <Clock className="size-4 shrink-0 mt-0.5" />
             <span>Your session expired due to inactivity. Sign in again to continue.</span>
           </div>
         )}
-        <div>
-          <Label htmlFor="email" required>Email</Label>
-          <Input id="email" type="email" autoComplete="email" placeholder="you@store.com" {...register('email')} />
-          <FieldError>{errors.email?.message}</FieldError>
+
+        {mode === 'otp' ? (
+          <PhoneOtpLogin onAuthenticated={finishLogin} />
+        ) : (
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+            <div>
+              <Label htmlFor="email" required>Email</Label>
+              <Input id="email" type="email" autoComplete="email" placeholder="you@store.com" {...register('email')} />
+              <FieldError>{errors.email?.message}</FieldError>
+            </div>
+            <div>
+              <Label htmlFor="password" required>Password</Label>
+              <PasswordInput id="password" autoComplete="current-password" {...register('password')} />
+              <FieldError>{errors.password?.message}</FieldError>
+            </div>
+            <Button type="submit" variant="accent" size="lg" className="w-full" loading={isSubmitting}>
+              Sign in
+            </Button>
+          </form>
+        )}
+
+        <div className="relative py-1 text-center">
+          <span className="relative z-10 bg-bg px-2 text-[11.5px] uppercase tracking-wide text-ink-4">
+            or
+          </span>
+          <span aria-hidden className="absolute inset-x-0 top-1/2 border-t border-line" />
         </div>
-        <div>
-          <Label htmlFor="password" required>Password</Label>
-          <PasswordInput id="password" autoComplete="current-password" {...register('password')} />
-          <FieldError>{errors.password?.message}</FieldError>
-        </div>
-        <Button type="submit" variant="accent" size="lg" className="w-full" loading={isSubmitting}>
-          Sign in
+
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="w-full"
+          onClick={() => setMode((m) => (m === 'otp' ? 'password' : 'otp'))}
+        >
+          {mode === 'otp' ? 'Sign in with email & password' : 'Sign in with phone OTP'}
         </Button>
-      </form>
+      </div>
     </AuthShell>
   );
 }
