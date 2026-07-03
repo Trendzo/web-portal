@@ -35,6 +35,8 @@ export const AdminRetailerViewSchema = z.object({
   createdAt: z.string(),
   permanentSuspend: z.boolean().optional(),
   suspendReason: z.string().nullable().optional(),
+  posBillingEnabled: z.boolean().optional(),
+  posActivationPending: z.boolean().optional(),
 });
 
 export type AdminRetailerView = z.infer<typeof AdminRetailerViewSchema>;

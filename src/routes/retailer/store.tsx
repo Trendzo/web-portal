@@ -272,7 +272,87 @@ export function StoreStatusSection() {
           <PausePanel store={store} />
         </div>
       )}
+      <div className="mt-6">
+        <SectionHeading title="POS billing (counter sales)" />
+        <PosBillingPanel store={store} />
+      </div>
     </section>
+  );
+}
+
+/**
+ * POS / counter-billing activation on the Storefront page. POS is opt-in per retailer,
+ * enabled by admin. When off, the retailer can raise an activation request (reuses the
+ * change-request workflow); a pending request disables re-submitting. When on, shows an
+ * Active state. Mirrors the request/pending/enabled UX the task calls for.
+ */
+function PosBillingPanel({ store }: { store: StoreWithPause }) {
+  const qc = useQueryClient();
+  const canSubmit = usePermission('change_requests.submit');
+  const enabled = store.posBillingEnabled === true;
+
+  // The retailer's own change requests — used to detect an open POS activation request.
+  const { data: requests } = useQuery({
+    queryKey: ['retailer', 'change-requests'],
+    queryFn: () => api<Array<{ field: string; status: string }>>('/retailer/change-requests'),
+    enabled: !enabled,
+  });
+  const pending = (requests ?? []).some(
+    (r) => r.field === 'pos_billing_activation' && r.status === 'pending',
+  );
+
+  const request = useMutation({
+    mutationFn: () =>
+      api('/retailer/change-requests', {
+        method: 'POST',
+        body: {
+          field: 'pos_billing_activation',
+          currentValue: 'disabled',
+          requestedValue: 'enabled',
+          reason: 'Requesting activation of POS / counter billing for this store.',
+        },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['retailer', 'change-requests'] });
+      toast.success('Activation request sent to admin');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Failed to send request'),
+  });
+
+  return (
+    <div className="rounded-lg border border-line bg-bg p-5">
+      {enabled ? (
+        <div className="flex items-center gap-3">
+          <Badge tone="success">Active</Badge>
+          <p className="text-[13px] text-ink-2">
+            POS counter billing is enabled. Open the Register from the sidebar.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <Badge tone="neutral">Not enabled</Badge>
+            {pending && <Badge tone="warning">Request pending</Badge>}
+          </div>
+          <p className="text-[13px] text-ink-2">
+            The offline POS / counter-billing surface is disabled for your store. Request
+            activation and an admin will review it.
+          </p>
+          <Button
+            variant="accent"
+            disabled={!canSubmit || pending || request.isPending}
+            onClick={() => request.mutate()}
+          >
+            {pending ? 'Request pending' : 'Request billing activation'}
+          </Button>
+          {!canSubmit && (
+            <p className="text-[12px] text-ink-3">
+              You don't have permission to submit requests — ask the store owner.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

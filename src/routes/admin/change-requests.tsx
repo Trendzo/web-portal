@@ -28,6 +28,7 @@ function fieldLabel(f: ChangeRequest['field']): string {
     case 'address': return 'Address';
     case 'gstin': return 'GSTIN';
     case 'bank_account': return 'Bank account';
+    case 'pos_billing_activation': return 'POS billing activation';
   }
 }
 

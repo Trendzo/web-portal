@@ -211,7 +211,7 @@ export default function AdminStores() {
                       <span>{(store.platformFeeBp / 100).toFixed(1)}% fee</span>
                     </div>
                     <Button asChild variant="outline" size="sm" className="shrink-0">
-                      <Link to={`/admin/retailers/${store.legalEntityId}/stores/${store.id}`}>
+                      <Link to={`/admin/stores/${store.id}`}>
                         View
                       </Link>
                     </Button>

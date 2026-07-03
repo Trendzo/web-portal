@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, useSearchParams } from 'react-router-dom';
+import { createBrowserRouter, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import Landing from './landing';
 import AdminLogin from './admin/login';
 import AdminLayout from './admin/layout';
@@ -15,6 +15,7 @@ import AgentLayout from './agent/AgentLayout';
 import AgentDeliveries from './agent/deliveries';
 import AgentDeliveryDetail from './agent/delivery-detail';
 import { RoleGate } from '@/components/shell/RoleGate';
+import { PosGate } from '@/components/shell/PosGate';
 import RetailerDashboard from './retailer/dashboard';
 import RetailerStorePage, {
   StoreBasicsSection,
@@ -126,11 +127,10 @@ import AdminRetailerNew from './admin/retailer-new';
 import AdminStoreDetail from './admin/store-detail';
 import AdminRetailerStaff from './admin/retailer-staff';
 import AdminStoreListings from './admin/store-listings';
+import AdminStoreListingDetail from './admin/store-listing-detail';
 import AdminListingsSearch from './admin/listings-search';
 import AdminStoreInventory from './admin/store-inventory';
-import AdminStoreOrders from './admin/store-orders';
-import AdminStoreReturns from './admin/store-returns';
-import AdminStoreHeldItems from './admin/store-held-items';
+import AdminStoreFulfilment from './admin/store-fulfilment';
 import AdminStorePromotions from './admin/store-promotions';
 import AdminStoreVoucherBatch from './admin/store-voucher-batch';
 
@@ -148,6 +148,17 @@ function RedirectToMoneyTab({ tab, sub }: { tab: string; sub?: string }) {
   return <Navigate to={`/admin/money?${next.toString()}`} replace />;
 }
 
+/**
+ * Redirect the legacy standalone Orders / Returns / Held-items store pages into
+ * the merged Fulfilment hub, preserving the retailer + store path params and
+ * landing on the matching sub-tab.
+ */
+function StoreFulfilmentRedirect({ tab }: { tab: 'orders' | 'returns' | 'held' }) {
+  const { id, storeId } = useParams<{ id: string; storeId: string }>();
+  const suffix = tab === 'orders' ? '' : `?tab=${tab}`;
+  return <Navigate to={`/admin/retailers/${id}/stores/${storeId}/fulfilment${suffix}`} replace />;
+}
+
 export const router = createBrowserRouter([
   { path: '/', element: <Landing /> },
 
@@ -163,15 +174,22 @@ export const router = createBrowserRouter([
       { path: 'users', element: <AdminUsersHub /> },
       { path: 'retailers', element: <Navigate to="/admin/users?tab=retailers" replace /> },
       { path: 'stores', element: <AdminStores /> },
+      // Store detail, Stores-scoped entry. Same component as the retailer-scoped
+      // route below, so viewing from the Stores list keeps the Stores nav tab.
+      { path: 'stores/:storeId', element: <AdminStoreDetail /> },
       { path: 'retailers/new', element: <AdminRetailerNew /> },
       { path: 'retailers/:id', element: <AdminRetailerDetail /> },
       { path: 'retailers/:id/staff', element: <AdminRetailerStaff /> },
       { path: 'retailers/:id/stores/:storeId', element: <AdminStoreDetail /> },
       { path: 'retailers/:id/stores/:storeId/listings', element: <AdminStoreListings /> },
+      { path: 'retailers/:id/stores/:storeId/listings/:listingId', element: <AdminStoreListingDetail /> },
       { path: 'retailers/:id/stores/:storeId/inventory', element: <AdminStoreInventory /> },
-      { path: 'retailers/:id/stores/:storeId/orders', element: <AdminStoreOrders /> },
-      { path: 'retailers/:id/stores/:storeId/returns', element: <AdminStoreReturns /> },
-      { path: 'retailers/:id/stores/:storeId/held-items', element: <AdminStoreHeldItems /> },
+      // Fulfilment hub — Orders / Returns / Held items merged behind one entry.
+      // Legacy standalone paths redirect into the matching sub-tab.
+      { path: 'retailers/:id/stores/:storeId/fulfilment', element: <AdminStoreFulfilment /> },
+      { path: 'retailers/:id/stores/:storeId/orders', element: <StoreFulfilmentRedirect tab="orders" /> },
+      { path: 'retailers/:id/stores/:storeId/returns', element: <StoreFulfilmentRedirect tab="returns" /> },
+      { path: 'retailers/:id/stores/:storeId/held-items', element: <StoreFulfilmentRedirect tab="held" /> },
       { path: 'retailers/:id/stores/:storeId/promotions', element: <AdminStorePromotions /> },
       { path: 'retailers/:id/stores/:storeId/promotions/:promoId/vouchers', element: <AdminStoreVoucherBatch /> },
       { path: 'applications', element: <Navigate to="/admin/compliance?tab=applications" replace /> },
@@ -304,7 +322,9 @@ export const router = createBrowserRouter([
     path: '/retailer/pos',
     element: (
       <RoleGate kind="retailer">
-        <PosLayout />
+        <PosGate>
+          <PosLayout />
+        </PosGate>
       </RoleGate>
     ),
     children: [

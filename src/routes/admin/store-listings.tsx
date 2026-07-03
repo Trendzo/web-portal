@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Edit3, ImageOff, Plus, Search } from 'lucide-react';
+import { ArrowLeft, ImageOff, Plus, Search } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import { formatPaise, listingStatusMeta } from '@/lib/status';
+import { listingStatusMeta } from '@/lib/status';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -54,11 +54,11 @@ interface CategoryRow { id: string; label: string; }
 
 export default function AdminStoreListings() {
   const { id: retailerId, storeId } = useParams<{ id: string; storeId: string }>();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const [status, setStatus] = useState<'all' | 'draft' | 'active' | 'retired'>('all');
   const [q, setQ] = useState('');
   const [addOpen, setAddOpen] = useState(false);
-  const [variantsForListing, setVariantsForListing] = useState<ListingRow | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'store-listings', storeId, status],
@@ -197,9 +197,10 @@ export default function AdminStoreListings() {
                 return (
                   <tr
                     key={l.id}
-                    className={`transition-colors ${bulk.isSelected(l.id) ? 'bg-accent/5' : 'hover:bg-bg-2/40'}`}
+                    onClick={() => navigate(`/admin/retailers/${retailerId}/stores/${storeId}/listings/${l.id}`)}
+                    className={`cursor-pointer transition-colors ${bulk.isSelected(l.id) ? 'bg-accent/5' : 'hover:bg-bg-2/40'}`}
                   >
-                    <td className="w-10 px-3">
+                    <td className="w-10 px-3" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={bulk.isSelected(l.id)}
@@ -232,27 +233,16 @@ export default function AdminStoreListings() {
                       <Badge tone={meta.tone}>{meta.label}</Badge>
                     </td>
                     <td className="w-20 py-2 pr-4 text-right">
-                      {variantCount > 0 ? (
-                        <button
-                          type="button"
-                          onClick={() => setVariantsForListing(l)}
-                          className="font-mono tabular-nums text-[12.5px] text-ink underline-offset-2 hover:underline"
-                          title="Edit variants"
-                        >
-                          {String(variantCount).padStart(2, '0')}
-                        </button>
-                      ) : (
-                        <span className="font-mono tabular-nums text-[12.5px] text-ink-4">
-                          {String(variantCount).padStart(2, '0')}
-                        </span>
-                      )}
+                      <span className={`font-mono tabular-nums text-[12.5px] ${variantCount > 0 ? 'text-ink' : 'text-ink-4'}`}>
+                        {String(variantCount).padStart(2, '0')}
+                      </span>
                     </td>
                     <td className="w-24 py-2 pr-4 text-right">
                       <span className="font-mono tabular-nums text-[12.5px] text-ink">
                         {String(totalStock).padStart(3, '0')}
                       </span>
                     </td>
-                    <td className="w-36 py-2 pr-4 text-right">
+                    <td className="w-36 py-2 pr-4 text-right" onClick={(e) => e.stopPropagation()}>
                       {(l.status === 'active' || l.status === 'draft') && (
                         <Button
                           size="sm"
@@ -297,215 +287,7 @@ export default function AdminStoreListings() {
           void qc.invalidateQueries({ queryKey: ['admin', 'store-listings', storeId] });
         }}
       />
-
-      <AdminVariantsDialog
-        storeId={storeId ?? ''}
-        listing={variantsForListing}
-        onClose={() => setVariantsForListing(null)}
-        onSaved={() => void qc.invalidateQueries({ queryKey: ['admin', 'store-listings', storeId] })}
-      />
     </Page>
-  );
-}
-
-function AdminVariantsDialog({
-  storeId,
-  listing,
-  onClose,
-  onSaved,
-}: {
-  storeId: string;
-  listing: ListingRow | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [editing, setEditing] = useState<VariantSummary | null>(null);
-  // Reset edit target when the dialog itself closes
-  useEffect(() => {
-    if (!listing) setEditing(null);
-  }, [listing]);
-
-  return (
-    <>
-      <Dialog open={Boolean(listing)} onOpenChange={(o) => { if (!o) onClose(); }}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Variants — {listing?.name}</DialogTitle>
-            <DialogDescription>
-              Edit SKU, price, or active flag on behalf of the retailer. Stock adjustments live on the Inventory page.
-            </DialogDescription>
-          </DialogHeader>
-          {listing && (
-            <div className="overflow-hidden rounded border border-rule">
-              <table className="w-full text-[13px]">
-                <thead className="border-b border-rule bg-bg-2/60">
-                  <tr>
-                    <th className="py-2 px-3 text-left kicker text-ink-3">Variant</th>
-                    <th className="py-2 px-3 text-left kicker text-ink-3">SKU</th>
-                    <th className="py-2 px-3 text-right kicker text-ink-3">Price</th>
-                    <th className="py-2 px-3 text-right kicker text-ink-3">Stock</th>
-                    <th className="py-2 px-3 text-left kicker text-ink-3">Status</th>
-                    <th className="py-2 px-3 w-20" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-rule">
-                  {listing.variants.map((v) => (
-                    <tr key={v.id} className="hover:bg-bg-2/40">
-                      <td className={`px-3 py-2 ${v.isActive ? 'text-ink' : 'line-through decoration-ink-3 text-ink-3'}`}>
-                        {v.attributesLabel}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-[12.5px] text-ink-2">{v.sku ?? '—'}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums text-ink">{formatPaise(v.pricePaise)}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums text-ink-2">{v.stock}</td>
-                      <td className="px-3 py-2">
-                        <Badge tone={v.isActive ? 'success' : 'neutral'} flat>
-                          {v.isActive ? 'active' : 'inactive'}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <Button size="sm" variant="ghost" iconLeft={<Edit3 className="size-3.5" />} onClick={() => setEditing(v)}>
-                          Edit
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <AdminVariantEditDialog
-        storeId={storeId}
-        listingId={listing?.id ?? ''}
-        variant={editing}
-        onClose={() => setEditing(null)}
-        onSaved={() => {
-          setEditing(null);
-          onSaved();
-        }}
-      />
-    </>
-  );
-}
-
-function AdminVariantEditDialog({
-  storeId,
-  listingId,
-  variant,
-  onClose,
-  onSaved,
-}: {
-  storeId: string;
-  listingId: string;
-  variant: VariantSummary | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [sku, setSku] = useState('');
-  const [priceRupees, setPriceRupees] = useState('');
-  const [isActive, setIsActive] = useState(true);
-
-  useEffect(() => {
-    if (!variant) return;
-    setSku(variant.sku ?? '');
-    setPriceRupees((variant.pricePaise / 100).toString());
-    setIsActive(variant.isActive);
-  }, [variant]);
-
-  const save = useMutation({
-    mutationFn: () => {
-      if (!variant) throw new Error('no variant');
-      const body: Record<string, unknown> = {};
-      const trimmedSku = sku.trim().toUpperCase();
-      if (trimmedSku !== (variant.sku ?? '')) body.sku = trimmedSku || null;
-      const paise = Math.round(parseFloat(priceRupees) * 100);
-      if (Number.isFinite(paise) && paise > 0 && paise !== variant.pricePaise) body.pricePaise = paise;
-      if (isActive !== variant.isActive) body.isActive = isActive;
-      if (Object.keys(body).length === 0) throw new ApiError(400, 'no_changes', 'No changes to save');
-      return api(`/admin/stores/${storeId}/variants/${variant.id}`, { method: 'PATCH', body });
-    },
-    onSuccess: () => {
-      toast.success('Variant updated · retailer notified');
-      onSaved();
-    },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Save failed'),
-  });
-
-  const paise = Math.round(parseFloat(priceRupees) * 100);
-  const canSubmit = Number.isFinite(paise) && paise > 0 && Boolean(variant);
-
-  return (
-    <Dialog open={Boolean(variant)} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Edit variant</DialogTitle>
-          <DialogDescription>
-            Editing on behalf of the retailer. Change will be audited and the store owner notified with a deep link to the listing.
-          </DialogDescription>
-        </DialogHeader>
-        {variant && (
-          <div className="space-y-3">
-            <div className="rounded-xs border border-rule bg-bg-2/40 px-3 py-2 text-[12.5px] text-ink-3">
-              <span className="font-medium text-ink">{variant.attributesLabel}</span>
-              <span className="ml-2 text-ink-4">· listing {listingId}</span>
-            </div>
-            <div>
-              <Label htmlFor="adm-v-sku">SKU</Label>
-              <Input
-                id="adm-v-sku"
-                mono
-                className="uppercase"
-                value={sku}
-                onChange={(e) => setSku(e.target.value.toUpperCase())}
-                placeholder="Optional"
-              />
-            </div>
-            <div>
-              <Label htmlFor="adm-v-price" required>Price (₹)</Label>
-              <Input
-                id="adm-v-price"
-                mono
-                type="number"
-                min={0.01}
-                step={0.01}
-                value={priceRupees}
-                onChange={(e) => setPriceRupees(e.target.value)}
-              />
-              <FieldError>{canSubmit ? '' : 'Price must be greater than 0'}</FieldError>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border border-line px-4 py-3">
-              <div className="flex items-center gap-2.5">
-                <span className="text-[12.5px] font-medium text-ink">
-                  {isActive ? 'Active' : 'Inactive'}
-                </span>
-                <span className="text-[11.5px] text-ink-4">
-                  {isActive ? '— visible to buyers' : '— hidden from buyers'}
-                </span>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isActive}
-                onClick={() => setIsActive((v) => !v)}
-                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${isActive ? 'bg-success' : 'bg-ink-4'}`}
-              >
-                <span
-                  className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${isActive ? 'translate-x-4' : 'translate-x-0'}`}
-                />
-              </button>
-            </div>
-          </div>
-        )}
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button variant="ink" disabled={!canSubmit} loading={save.isPending} onClick={() => save.mutate()}>
-            Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 

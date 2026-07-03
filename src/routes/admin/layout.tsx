@@ -55,7 +55,15 @@ const GROUPS: SidebarGroup[] = [
           l.pathname.startsWith('/admin/retailers') ||
           l.pathname.startsWith('/admin/consumers'),
       },
-      { to: '/admin/stores', label: 'Stores', end: true, icon: Building2, action: 'store_management.view' },
+      {
+        to: '/admin/stores',
+        label: 'Stores',
+        end: false,
+        icon: Building2,
+        action: 'store_management.view',
+        // Stay active on the Stores-scoped store detail (/admin/stores/:storeId).
+        activeWhen: (l) => l.pathname === '/admin/stores' || l.pathname.startsWith('/admin/stores/'),
+      },
     ],
   },
   {

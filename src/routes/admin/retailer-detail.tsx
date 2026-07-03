@@ -256,6 +256,14 @@ export default function AdminRetailerDetail() {
           <AccountsOnStoreCard retailerId={r.id} focusedAccountId={r.id} />
 
           <PlatformFeeOverrideCard retailerId={r.id} retailerName={r.legalName} />
+
+          <PosBillingCard
+            retailerId={r.id}
+            retailerName={r.legalName}
+            hasStore={Boolean(r.storeId)}
+            enabled={r.posBillingEnabled === true}
+            pending={r.posActivationPending === true}
+          />
         </TabsContent>
 
         <TabsContent value="stores">
@@ -459,6 +467,72 @@ function PlatformFeeOverrideCard({ retailerId, retailerName }: { retailerId: str
             <Button variant="accent" disabled={saving} onClick={() => void apply()}>Save override</Button>
           </div>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PosBillingCard({
+  retailerId,
+  retailerName,
+  hasStore,
+  enabled,
+  pending,
+}: {
+  retailerId: string;
+  retailerName: string;
+  hasStore: boolean;
+  enabled: boolean;
+  pending: boolean;
+}) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const toggle = async (next: boolean, reason: string) => {
+    setBusy(true);
+    try {
+      await api(`/admin/retailers/${retailerId}/pos-billing`, {
+        method: 'POST',
+        body: { enabled: next, ...(reason.trim() ? { reason: reason.trim() } : {}) },
+      });
+      toast.success(`POS billing ${next ? 'enabled' : 'disabled'} for ${retailerName}`);
+      void qc.invalidateQueries({ queryKey: ['admin', 'retailers', retailerId] });
+    } catch {
+      toast.error('Failed to update POS billing');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card className="mt-4">
+      <CardContent className="p-6">
+        <div className="mb-3 flex items-center gap-3">
+          <SectionHeading kicker="Feature" title="POS billing (counter sales)" />
+          <Badge tone={enabled ? 'success' : 'neutral'}>{enabled ? 'Enabled' : 'Disabled'}</Badge>
+          {!enabled && pending && <Badge tone="warning">Activation requested</Badge>}
+        </div>
+        <p className="mb-3 text-[12.5px] text-ink-3">
+          Controls access to the offline POS / counter-billing surface for this retailer. Enable or
+          disable independent of any request. {pending && !enabled ? 'This retailer has a pending activation request.' : ''}
+        </p>
+        {!hasStore ? (
+          <p className="text-[13px] text-ink-3 italic">No store yet — provisioned on approval.</p>
+        ) : enabled ? (
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() => void toggle(false, 'Disabled by admin from retailer detail')}
+          >
+            Disable POS billing
+          </Button>
+        ) : (
+          <Button
+            variant="accent"
+            disabled={busy}
+            onClick={() => void toggle(true, 'Enabled by admin from retailer detail')}
+          >
+            Enable POS billing
+          </Button>
+        )}
       </CardContent>
     </Card>
   );

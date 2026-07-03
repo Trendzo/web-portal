@@ -36,6 +36,18 @@ interface InventoryRow {
   isActive: boolean;
 }
 
+// The backend paginates this endpoint: it returns an envelope object, NOT a
+// flat array. Reading it as an array (and calling `.map` on it) is what threw
+// `l.map is not a function` in the store view. Request the max page size since
+// this screen has no pagination UI yet.
+interface InventoryResponse {
+  rows: InventoryRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  lowStockThreshold: number;
+}
+
 export default function AdminStoreInventory() {
   const { id: retailerId, storeId } = useParams<{ id: string; storeId: string }>();
   const qc = useQueryClient();
@@ -44,10 +56,10 @@ export default function AdminStoreInventory() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'store-inventory', storeId],
-    queryFn: () => api<InventoryRow[]>(`/admin/stores/${storeId}/inventory`),
+    queryFn: () => api<InventoryResponse>(`/admin/stores/${storeId}/inventory?pageSize=200`),
     enabled: Boolean(storeId),
   });
-  const rows = data ?? [];
+  const rows = Array.isArray(data?.rows) ? data.rows : [];
   const bulk = useBulkSelect(rows);
 
   const bulkDeactivate = useMutation({

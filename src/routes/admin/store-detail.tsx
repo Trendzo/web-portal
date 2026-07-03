@@ -5,18 +5,15 @@ import { toast } from 'sonner';
 import {
   ArrowLeft,
   ArrowUpRight,
-  Boxes,
   ChevronDown,
   CircleDot,
   Coins,
   CalendarClock,
   Package,
-  PackageX,
   Pencil,
   ShoppingCart,
   ShieldAlert,
   Tag,
-  Undo2,
   Users,
   X,
 } from 'lucide-react';
@@ -54,6 +51,9 @@ interface AdminStoreView {
   pauseReason?: string | null;
   pauseUntil?: string | null;
   createdAt: string;
+  /** Owner retailer account. `retailer.id` (a `ret_…` id) is what the staff
+   *  endpoint keys on — NOT `legalEntityId`, which is a human legal-entity code. */
+  retailer?: { id: string; email: string; legalName: string; status: string } | null;
 }
 
 type EditDraft = {
@@ -71,10 +71,15 @@ type EditDraft = {
 type StatusTone = 'success' | 'warning' | 'danger' | 'neutral';
 
 export default function AdminStoreDetail() {
-  const { id: retailerId, storeId } = useParams<{ id: string; storeId: string }>();
+  // Shared by two entry points: the retailer-scoped route
+  // `/admin/retailers/:id/stores/:storeId` (id present) and the Stores-list
+  // route `/admin/stores/:storeId` (id absent — derived from the fetched store's
+  // legalEntityId below). Keeps one component so neither entry loses its nav tab.
+  const { id: routeRetailerId, storeId } = useParams<{ id: string; storeId: string }>();
+  const cameFromStores = !routeRetailerId;
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const TAB_KEYS = ['overview', 'compliance', 'accounts', 'operations'] as const;
+  const TAB_KEYS = ['overview', 'compliance', 'accounts'] as const;
   type TabKey = (typeof TAB_KEYS)[number];
   function parseTab(v: string | null): TabKey {
     return TAB_KEYS.includes(v as TabKey) ? (v as TabKey) : 'overview';
@@ -102,6 +107,10 @@ export default function AdminStoreDetail() {
     queryFn: () => api<AdminStoreView>(`/admin/stores/${storeId!}`),
     enabled: Boolean(storeId),
   });
+
+  // Retailer id: from the route when retailer-scoped, else recovered from the
+  // store record so deep-links and the accounts query still resolve.
+  const retailerId = routeRetailerId ?? data?.retailer?.id;
 
   // Accounts count drives a KPI tile + a deep-link button — fetched here so the
   // card and the headline number stay in sync, since the AccountsOnStoreCard
@@ -241,7 +250,11 @@ export default function AdminStoreDetail() {
         }
         actions={
           <Button asChild variant="ghost" size="sm" iconLeft={<ArrowLeft className="size-3.5" />}>
-            <Link to={`/admin/retailers/${retailerId}`}>Back to retailer</Link>
+            {cameFromStores ? (
+              <Link to="/admin/stores">Back to stores</Link>
+            ) : (
+              <Link to={`/admin/retailers/${retailerId}`}>Back to retailer</Link>
+            )}
           </Button>
         }
       />
@@ -279,6 +292,18 @@ export default function AdminStoreDetail() {
       <Card className="mb-5">
         <CardContent className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-[12.5px] text-ink-3">
+            {s.status === 'onboarding' && !s.permanentSuspend && (
+              <>
+                <span className="text-ink font-medium">Onboarding.</span>{' '}
+                Store is still completing setup and is not yet fulfilling orders. Lifecycle controls unlock once it goes active.
+              </>
+            )}
+            {s.status === 'terminated' && !s.permanentSuspend && (
+              <>
+                <span className="text-danger font-medium">Terminated.</span>{' '}
+                {s.suspendReason ?? 'No reason recorded'}
+              </>
+            )}
             {s.status === 'active' && 'Store is fulfilling orders. Pause briefly for downtime, suspend to block until policy review, terminate to end the relationship.'}
             {s.status === 'paused' && (
               <>
@@ -352,12 +377,23 @@ export default function AdminStoreDetail() {
         </CardContent>
       </Card>
 
+      {/* Quick actions — operator entry points hoisted above the tab bar so the
+          tools operators reach for constantly are one click away, not buried in
+          a tab. Each deep-links into the store-scoped operator view. */}
+      <div className="mb-5">
+        <p className="mb-2 kicker text-ink-3">Manage this store</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <OpsTile icon={Package}      label="Listings"   href={`/admin/retailers/${retailerId}/stores/${storeId}/listings`} />
+          <OpsTile icon={ShoppingCart} label="Fulfilment" href={`/admin/retailers/${retailerId}/stores/${storeId}/fulfilment`} />
+          <OpsTile icon={Tag}          label="Promotions" href={`/admin/retailers/${retailerId}/stores/${storeId}/promotions`} />
+        </div>
+      </div>
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
-          <TabsTrigger value="operations">Operations</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -462,23 +498,6 @@ export default function AdminStoreDetail() {
 
         <TabsContent value="accounts">
           {retailerId && <AccountsOnStoreCard retailerId={retailerId} />}
-        </TabsContent>
-
-        <TabsContent value="operations">
-          <div>
-            <SectionHeading kicker="Operations" title="Manage this store" />
-            <p className="mt-1 text-[12.5px] text-ink-3">
-              Each entry deep-links into the admin operator view scoped to this store.
-            </p>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            <OpsTile icon={Package}     label="Listings"   href={`/admin/retailers/${retailerId}/stores/${storeId}/listings`} />
-            <OpsTile icon={Boxes}       label="Inventory"  href={`/admin/retailers/${retailerId}/stores/${storeId}/inventory`} />
-            <OpsTile icon={ShoppingCart} label="Orders"    href={`/admin/retailers/${retailerId}/stores/${storeId}/orders`} />
-            <OpsTile icon={Undo2}       label="Returns"    href={`/admin/retailers/${retailerId}/stores/${storeId}/returns`} />
-            <OpsTile icon={PackageX}    label="Held items" href={`/admin/retailers/${retailerId}/stores/${storeId}/held-items`} />
-            <OpsTile icon={Tag}         label="Promotions" href={`/admin/retailers/${retailerId}/stores/${storeId}/promotions`} />
-          </div>
         </TabsContent>
       </Tabs>
 

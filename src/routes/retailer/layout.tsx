@@ -29,6 +29,8 @@ type MeResponse = { retailer: RetailerProfile; store: Store | null };
 function buildGroups(store: Store | null): SidebarGroup[] {
   const showStorefront = !store || store.status !== 'active';
   const showOrders = store && (store.status === 'active' || store.status === 'paused');
+  // Counter (offline POS) is a per-retailer opt-in on top of the store being live.
+  const showCounter = showOrders && store?.posBillingEnabled === true;
   return [
     {
       label: 'Workspace',
@@ -46,6 +48,10 @@ function buildGroups(store: Store | null): SidebarGroup[] {
               { to: '/retailer/disputes', label: 'Disputes', end: true, icon: AlertTriangle, action: 'disputes.view' },
             ],
           },
+        ]
+      : []),
+    ...(showCounter
+      ? [
           {
             label: 'Counter',
             items: [

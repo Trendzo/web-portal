@@ -24,6 +24,7 @@ const FIELD_OPTIONS: { value: ChangeRequestField; label: string }[] = [
 ];
 
 function fieldLabel(f: ChangeRequestField): string {
+  if (f === 'pos_billing_activation') return 'POS billing activation';
   return FIELD_OPTIONS.find((o) => o.value === f)?.label ?? f;
 }
 

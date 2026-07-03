@@ -55,6 +55,8 @@ export type Store = {
   platformFeeBp: number;
   payoutCadenceDays: number;
   delegationModeEnabled: boolean;
+  /** Per-retailer opt-in for the offline POS / counter-billing surface (admin-controlled). */
+  posBillingEnabled?: boolean;
   permanentSuspend?: boolean;
   suspendReason?: string | null;
   pauseReason?: string | null;
@@ -1233,7 +1235,12 @@ export type KycReverification = {
   documents: KycDocument[];
 };
 
-export type ChangeRequestField = 'legal_name' | 'address' | 'bank_account' | 'gstin';
+export type ChangeRequestField =
+  | 'legal_name'
+  | 'address'
+  | 'bank_account'
+  | 'gstin'
+  | 'pos_billing_activation';
 export type ChangeRequestStatus = 'pending' | 'under_review' | 'approved' | 'rejected';
 
 export type ChangeRequest = {
