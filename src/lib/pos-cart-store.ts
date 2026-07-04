@@ -141,11 +141,11 @@ export const usePosCart = create<PosCartState>((set, get) => ({
     })),
 
   setBillDiscountMode: (mode) =>
-    set((s) => ({
+    set({
       billDiscountMode: mode,
       billDiscountValue: 0,
       billDiscountPaise: 0,
-    })),
+    }),
 
   setCustomer: (customer) => set({ customer }),
   setTenders: (tenders) => set({ tenders }),
