@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Printer, Trash2 } from 'lucide-react';
+import { Printer, Settings2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { formatPaise } from '@/lib/status';
@@ -28,6 +28,8 @@ type LabelConfig = {
   showVariant: boolean;
   showPrice: boolean;
   showCompareAt: boolean;
+  showSku: boolean;
+  showProductId: boolean;
   showCode: boolean;
 };
 const DEFAULT_CONFIG: LabelConfig = {
@@ -36,6 +38,8 @@ const DEFAULT_CONFIG: LabelConfig = {
   showVariant: true,
   showPrice: true,
   showCompareAt: true,
+  showSku: false,
+  showProductId: false,
   showCode: false,
 };
 const CONFIG_KEY = 'pos.labelConfig';
@@ -55,6 +59,8 @@ const FIELD_TOGGLES: { key: keyof LabelConfig; label: string }[] = [
   { key: 'showVariant', label: 'Size / variant' },
   { key: 'showPrice', label: 'Price' },
   { key: 'showCompareAt', label: 'Compare-at price' },
+  { key: 'showSku', label: 'SKU' },
+  { key: 'showProductId', label: 'Product ID' },
   { key: 'showCode', label: 'Code text' },
 ];
 
@@ -67,6 +73,7 @@ export default function PosLabels() {
   const [picks, setPicks] = useState<Pick[]>([]);
   const [size, setSize] = useState<LabelSize>('md');
   const [config, setConfig] = useState<LabelConfig>(loadConfig);
+  const [showConfig, setShowConfig] = useState(false);
 
   useEffect(() => {
     try {
@@ -77,10 +84,28 @@ export default function PosLabels() {
   }, [config]);
 
   async function search() {
-    if (q.trim().length < 2) return;
+    if (q.trim().length < 4) return;
     const res = await api<PosLookupResult>(`/retailer/pos/lookup?q=${encodeURIComponent(q.trim())}`);
     setResults(res.exact ? [res.exact] : res.results);
   }
+
+  // Live suggestions as you type — debounced so fast typing sends one request, min 4 chars.
+  useEffect(() => {
+    const query = q.trim();
+    if (query.length < 4) {
+      setResults([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      try {
+        const res = await api<PosLookupResult>(`/retailer/pos/lookup?q=${encodeURIComponent(query)}`);
+        setResults(res.exact ? [res.exact] : res.results);
+      } catch {
+        /* ignore transient search errors */
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
 
   function add(r: PosLookupRow) {
     setPicks((p) =>
@@ -109,14 +134,16 @@ export default function PosLabels() {
         const hasCompare =
           config.showCompareAt && p.compareAtPaise != null && p.compareAtPaise > p.pricePaise;
         const priceRow = config.showPrice
-          ? `<div class="row">${hasCompare ? `<span class="cmp">${formatPaise(p.compareAtPaise!)}</span>` : ''}<span class="price">${formatPaise(p.pricePaise)}</span></div>`
+          ? `<div class="row">${hasCompare ? `<span class="cmp"><span class="k">MRP</span> ${formatPaise(p.compareAtPaise!)}</span>` : ''}<span class="price"><span class="k">Price</span> ${formatPaise(p.pricePaise)}</span></div>`
           : '';
         return Array.from({ length: p.count }, () => `
           <div class="label ${config.codeType}">
             ${config.showName ? `<div class="name">${escapeHtml(p.name)}</div>` : ''}
-            ${config.showVariant ? `<div class="attr">${escapeHtml(p.attributesLabel)}</div>` : ''}
+            ${config.showVariant ? `<div class="line"><span class="k">Size</span> ${escapeHtml(p.attributesLabel)}</div>` : ''}
+            ${config.showSku && p.sku ? `<div class="line"><span class="k">SKU</span> ${escapeHtml(p.sku)}</div>` : ''}
+            ${config.showProductId ? `<div class="line"><span class="k">ID</span> ${escapeHtml(p.listingId)}</div>` : ''}
             <div class="code">${codeSvg}</div>
-            ${config.showCode && humanCode ? `<div class="ctext">${escapeHtml(humanCode)}</div>` : ''}
+            ${config.showCode && humanCode ? `<div class="line"><span class="k">Code</span> ${escapeHtml(humanCode)}</div>` : ''}
             ${priceRow}
           </div>`);
       })
@@ -131,15 +158,18 @@ export default function PosLabels() {
       * { font-family: Arial, sans-serif; box-sizing: border-box; }
       body { margin: 0; display: flex; flex-wrap: wrap; gap: 2mm; }
       .label { width: ${dim.w}mm; height: ${dim.h}mm; border: 1px solid #eee; padding: 1mm 1.5mm; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
-      .name { font-size: 8px; font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .attr { font-size: 7px; color: #555; }
+      /* Uniform: every element is solid black, same weight — no muted text. */
+      * { color: #000; font-weight: 600; }
+      .name { font-size: 8px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .line { font-size: 6.5px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .k { text-transform: uppercase; letter-spacing: 0.02em; }
+      .k::after { content: ':'; }
       .code { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
       .label.barcode .code svg { width: 100%; height: auto; }
       .label.qr .code svg { height: 100%; width: auto; max-width: 100%; }
-      .ctext { font-size: 6.5px; color: #444; text-align: center; }
-      .row { display: flex; justify-content: flex-end; align-items: baseline; gap: 3px; }
-      .cmp { font-size: 7px; color: #888; text-decoration: line-through; }
-      .price { font-size: 10px; font-weight: 700; }
+      .row { display: flex; justify-content: flex-end; align-items: baseline; gap: 4px; }
+      .cmp { font-size: 7px; text-decoration: line-through; }
+      .price { font-size: 10px; }
     </style></head><body>${cells}</body></html>`;
     const iframe = document.createElement('iframe');
     iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
@@ -166,7 +196,7 @@ export default function PosLabels() {
           <div>
             <div className="flex gap-2">
               <Input
-                placeholder="Search products by name / SKU…"
+                placeholder="Search products by name / SKU (min 4 chars)…"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && search()}
@@ -189,48 +219,59 @@ export default function PosLabels() {
               ))}
             </div>
           </div>
-
-          {/* Label configuration */}
-          <div className="rounded-xl border border-line bg-bg p-4">
-            <div className="mb-3 text-[13px] font-medium text-ink">Label configuration</div>
-            <div className="mb-3">
-              <div className="mb-1.5 text-[11px] uppercase tracking-wide text-ink-4">Code type</div>
-              <Segmented
-                options={[
-                  { value: 'qr', label: 'QR code' },
-                  { value: 'barcode', label: 'Barcode' },
-                ]}
-                value={config.codeType}
-                onChange={(v) => setConfig((c) => ({ ...c, codeType: v }))}
-              />
-            </div>
-            <div className="mb-1.5 text-[11px] uppercase tracking-wide text-ink-4">Show on label</div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-              {FIELD_TOGGLES.map((f) => (
-                <label key={f.key} className="flex items-center gap-2 text-[12px] text-ink-3">
-                  <input
-                    type="checkbox"
-                    checked={config[f.key] as boolean}
-                    onChange={(e) => setConfig((c) => ({ ...c, [f.key]: e.target.checked }))}
-                  />
-                  {f.label}
-                </label>
-              ))}
-            </div>
-          </div>
         </div>
 
         <div className="rounded-xl border border-line bg-bg p-4">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex items-center justify-between gap-2">
             <Segmented
               options={(Object.keys(SIZES) as LabelSize[]).map((k) => ({ value: k, label: SIZES[k].label }))}
               value={size}
               onChange={setSize}
             />
-            <Button variant="accent" size="sm" iconLeft={<Printer className="size-4" />} disabled={picks.length === 0} onClick={print}>
-              Print sheet
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="icon-sm"
+                aria-label="Label settings"
+                aria-pressed={showConfig}
+                className={showConfig ? 'bg-bg-2 text-ink' : ''}
+                onClick={() => setShowConfig((v) => !v)}
+              >
+                <Settings2 className="size-4" />
+              </Button>
+              <Button variant="accent" size="sm" iconLeft={<Printer className="size-4" />} disabled={picks.length === 0} onClick={print}>
+                Print sheet
+              </Button>
+            </div>
           </div>
+
+          {/* Label configuration — toggled by the gear button */}
+          {showConfig && (
+            <div className="mb-3 rounded-lg border border-line bg-bg-2/40 p-3">
+              <div className="mb-2">
+                <div className="mb-1.5 text-[11px] uppercase tracking-wide text-ink-4">Code type</div>
+                <Segmented
+                  options={[
+                    { value: 'qr', label: 'QR code' },
+                    { value: 'barcode', label: 'Barcode' },
+                  ]}
+                  value={config.codeType}
+                  onChange={(v) => setConfig((c) => ({ ...c, codeType: v }))}
+                />
+              </div>
+              <div className="mb-1.5 text-[11px] uppercase tracking-wide text-ink-4">Show on label</div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                {FIELD_TOGGLES.map((f) => (
+                  <Toggle
+                    key={f.key}
+                    label={f.label}
+                    checked={config[f.key] as boolean}
+                    onChange={(v) => setConfig((c) => ({ ...c, [f.key]: v }))}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
           {picks.length === 0 ? (
             <Empty title="No labels selected" description="Search and add products to build a label sheet." />
           ) : (
@@ -259,6 +300,40 @@ export default function PosLabels() {
         </div>
       </div>
     </Page>
+  );
+}
+
+/** Small switch styled to the design tokens (accent track + white knob when on). */
+function Toggle({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="flex items-center gap-2 text-[12px] text-ink-3"
+    >
+      <span
+        className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
+          checked ? 'bg-accent' : 'bg-line'
+        }`}
+      >
+        <span
+          className={`inline-block size-3 rounded-full bg-bg shadow-sm transition-transform ${
+            checked ? 'translate-x-3.5' : 'translate-x-0.5'
+          }`}
+        />
+      </span>
+      {label}
+    </button>
   );
 }
 

@@ -21,31 +21,17 @@ const TENDERS: { value: TenderMethod; label: string }[] = [
 ];
 
 // ── Phone-scanner link (SSE) ──
-// A stable per-browser id so the app's device picker sees this register consistently
-// across reloads, and a human label so the cashier can identify it in that picker.
-const REGISTER_ID_KEY = 'pos.registerId';
-function getRegisterId(): string {
-  let id = localStorage.getItem(REGISTER_ID_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(REGISTER_ID_KEY, id);
+// Each browser (device) gets a stable 6-char A–Z code, persisted so every tab on this browser
+// shares one identity — the app's picker lists one entry per device using this code. Each tab
+// still opens its own SSE connection (unique id below); the backend groups them by this code.
+const DEVICE_CODE_KEY = 'pos.registerCode';
+function getDeviceCode(): string {
+  let code = localStorage.getItem(DEVICE_CODE_KEY);
+  if (!code || !/^[A-Z]{6}$/.test(code)) {
+    code = Array.from({ length: 6 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join('');
+    localStorage.setItem(DEVICE_CODE_KEY, code);
   }
-  return id;
-}
-function deriveRegisterLabel(): string {
-  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
-  const os = /Windows/.test(ua) ? 'Windows'
-    : /Macintosh|Mac OS/.test(ua) ? 'macOS'
-    : /Android/.test(ua) ? 'Android'
-    : /iPhone|iPad/.test(ua) ? 'iOS'
-    : /Linux/.test(ua) ? 'Linux'
-    : 'Device';
-  const browser = /Edg\//.test(ua) ? 'Edge'
-    : /Chrome\//.test(ua) ? 'Chrome'
-    : /Firefox\//.test(ua) ? 'Firefox'
-    : /Safari\//.test(ua) ? 'Safari'
-    : 'Browser';
-  return `${browser} · ${os}`;
+  return code;
 }
 
 export default function PosRegister() {
@@ -57,7 +43,7 @@ export default function PosRegister() {
   const [searchResults, setSearchResults] = useState<PosLookupResult['results']>([]);
   const [result, setResult] = useState<PosSaleResult | null>(null);
   const [scannerLinked, setScannerLinked] = useState(false);
-  const registerLabel = useMemo(deriveRegisterLabel, []);
+  const registerLabel = useMemo(getDeviceCode, []);
 
   // Stable idempotency key per bill — regenerated on reset via billNonce.
   const idempotencyKey = useMemo(
@@ -235,11 +221,12 @@ export default function PosRegister() {
   useEffect(() => {
     const token = getToken();
     if (!token) return;
-    const id = getRegisterId();
+    // Per-connection id (unique per tab); the device code is the shared label.
+    const connId = crypto.randomUUID();
     const url =
       `${BASE}/retailer/pos/scan/stream` +
       `?token=${encodeURIComponent(token)}` +
-      `&registerId=${encodeURIComponent(id)}` +
+      `&registerId=${encodeURIComponent(connId)}` +
       `&label=${encodeURIComponent(registerLabel)}`;
     const es = new EventSource(url);
     es.addEventListener('ready', () => setScannerLinked(true));
