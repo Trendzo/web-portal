@@ -77,7 +77,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 type StatusFilter = ListingStatus | 'all';
-type FlagFilter = 'all' | 'low' | 'out' | 'oversold' | 'in_stock';
+export type FlagFilter = 'all' | 'low' | 'out' | 'oversold' | 'in_stock';
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
   { value: 'all', label: 'All statuses' },
@@ -428,7 +428,7 @@ export default function RetailerInventory() {
 type BestSellerRow = { variantId: string; listingName: string; attributesLabel: string; sku: string | null; stock: number; unitsSold: number };
 type DeadStockRow = { variantId: string; listingName: string; label: string; totalStock: number };
 
-function HealthTab({ rows, savedThreshold }: { rows: InventoryRow[]; savedThreshold: number }) {
+export function HealthTab({ rows, savedThreshold }: { rows: InventoryRow[]; savedThreshold: number }) {
   const qc = useQueryClient();
   const [threshold, setThreshold] = useState(savedThreshold);
   useEffect(() => { setThreshold(savedThreshold); }, [savedThreshold]);
@@ -562,7 +562,7 @@ function HealthCard({ title, items }: { title: string; items: Array<{ key: strin
   );
 }
 
-function HistoryTab() {
+export function HistoryTab() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
@@ -631,7 +631,7 @@ function HistoryTab() {
 // Stat tile
 // ─────────────────────────────────────────────────────────────────────
 
-function StatTile({
+export function StatTile({
   label,
   value,
   tone = 'neutral',
@@ -663,7 +663,7 @@ function StatTile({
 // Flag pill (All / Low / Out)
 // ─────────────────────────────────────────────────────────────────────
 
-function FlagPill({
+export function FlagPill({
   label,
   value,
   current,

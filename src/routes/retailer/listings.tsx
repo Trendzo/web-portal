@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowUpRight, ImageOff, Plus, Search } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { canPublishProducts, deriveGate } from '@/lib/gate';
-import { listingStatusMeta } from '@/lib/status';
-import type { Listing, ListingStatus, RetailerProfile, Store } from '@/lib/types';
+import { listingStatusMeta, formatPaise } from '@/lib/status';
+import { cn } from '@/lib/cn';
+import { LOW_STOCK_THRESHOLD, stockToneOf } from '@/lib/inventory';
+import type { Category, InventoryRow, Listing, ListingStatus, RetailerProfile, Store } from '@/lib/types';
 import { GateNotice } from '@/components/retailer/gate-notice';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
   SelectContent,
@@ -21,6 +24,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+// Reuse the exact Inventory building blocks so the two pages stay in lock-step.
+import { FlagPill, HealthTab, HistoryTab, StatTile, type FlagFilter } from './inventory';
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: ListingStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All products' },
@@ -34,7 +39,8 @@ type MeResponse = { retailer: RetailerProfile; store: Store | null };
 export default function RetailerListings() {
   const [status, setStatus] = useState<ListingStatus | 'all'>('all');
   const [q, setQ] = useState('');
-  const [bulkMode, setBulkMode] = useState(false);
+  const [flag, setFlag] = useState<FlagFilter>('all');
+  const [categoryId, setCategoryId] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // Drives the gate banner. Only mutations on this page are gated server-side, but
@@ -53,11 +59,26 @@ export default function RetailerListings() {
     onSuccess: (data) => {
       toast.success(`Updated ${data.updated} product${data.updated === 1 ? '' : 's'}${data.skipped > 0 ? ` · ${data.skipped} skipped` : ''}`);
       setSelected(new Set());
-      setBulkMode(false);
       void qc.invalidateQueries({ queryKey: ['retailer', 'listings'] });
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Bulk update failed'),
   });
+
+  // Category list for the filter dropdown (matches Inventory's dropdown).
+  const categoriesQ = useQuery({
+    queryKey: ['retailer', 'categories'],
+    queryFn: () => api<Category[]>('/retailer/categories'),
+    enabled: canPublish,
+  });
+
+  // The Health tab lets the operator edit the low-stock threshold; read the saved
+  // value the same way Inventory does (a 1-row inventory page carries it).
+  const invMeta = useQuery({
+    queryKey: ['retailer', 'inventory', 'threshold'],
+    queryFn: () => api<{ lowStockThreshold: number }>('/retailer/inventory?page=1&pageSize=1'),
+    enabled: canPublish,
+  });
+  const threshold = invMeta.data?.lowStockThreshold ?? LOW_STOCK_THRESHOLD;
 
   const listings = useQuery({
     queryKey: ['retailer', 'listings', status],
@@ -86,11 +107,80 @@ export default function RetailerListings() {
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Delete failed'),
   });
 
-  const filtered = (listings.data ?? []).filter((l) => {
-    if (!q.trim()) return true;
-    const n = q.toLowerCase();
-    return l.name.toLowerCase().includes(n) || (l.brand?.name.toLowerCase().includes(n) ?? false);
+  // Flatten each product's variants into the InventoryRow shape the Health tab and
+  // the stat tiles expect. Single data source — no extra fetch, unlike Inventory.
+  const invRows = useMemo<InventoryRow[]>(
+    () =>
+      (listings.data ?? []).flatMap((l) =>
+        (l.variants ?? []).map((v) => ({
+          id: v.id,
+          listingId: l.id,
+          listingName: l.name,
+          listingStatus: l.status,
+          brandName: l.brand?.name ?? null,
+          sku: v.sku,
+          attributesLabel: v.attributesLabel,
+          pricePaise: v.pricePaise,
+          compareAtPrice: v.compareAtPrice,
+          stock: v.stock,
+          reserved: v.reserved,
+          isActive: v.isActive,
+        })),
+      ),
+    [listings.data],
+  );
+
+  // Product-level match helpers for the flag pills: a product "is low" when any of
+  // its variants is low, etc. Mirrors the Inventory flags, lifted to the product row.
+  const matchesFlag = (l: Listing, f: FlagFilter): boolean => {
+    const vs = l.variants ?? [];
+    if (f === 'low') return vs.some((v) => stockToneOf(v, threshold) === 'low');
+    if (f === 'out') return vs.some((v) => stockToneOf(v, threshold) === 'out');
+    if (f === 'oversold') return vs.some((v) => v.reserved > v.stock);
+    return true;
+  };
+
+  // Scope = search + category (used both for the pill counts and as the base the
+  // flag filter narrows further). Keeps pill badges honest against the visible set.
+  const scoped = (listings.data ?? []).filter((l) => {
+    if (q.trim()) {
+      const n = q.toLowerCase();
+      if (!(l.name.toLowerCase().includes(n) || (l.brand?.name.toLowerCase().includes(n) ?? false)))
+        return false;
+    }
+    if (categoryId && l.categoryId !== categoryId) return false;
+    return true;
   });
+  const filtered = scoped.filter((l) => matchesFlag(l, flag));
+
+  const flagCounts = useMemo(() => {
+    let low = 0;
+    let out = 0;
+    let oversold = 0;
+    for (const l of scoped) {
+      if (matchesFlag(l, 'low')) low += 1;
+      if (matchesFlag(l, 'out')) out += 1;
+      if (matchesFlag(l, 'oversold')) oversold += 1;
+    }
+    return { low, out, oversold };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scoped, threshold]);
+
+  // Catalog-wide tiles, computed from every loaded variant (full set, not paged).
+  const stats = useMemo(() => {
+    let units = 0;
+    let low = 0;
+    let out = 0;
+    for (const r of invRows) {
+      units += r.stock;
+      const tone = stockToneOf(r, threshold);
+      if (tone === 'out') out += 1;
+      else if (tone === 'low') low += 1;
+    }
+    return { variants: invRows.length, units, low, out };
+  }, [invRows, threshold]);
+
+  const noFilters = !q && !categoryId && flag === 'all';
 
   return (
     <Page>
@@ -104,21 +194,9 @@ export default function RetailerListings() {
         }
         actions={
           canPublish ? (
-            <div className="flex items-center gap-2">
-              <Button
-                variant={bulkMode ? 'ink' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  setBulkMode((b) => !b);
-                  setSelected(new Set());
-                }}
-              >
-                {bulkMode ? 'Exit bulk mode' : 'Bulk select'}
-              </Button>
-              <Button asChild variant="ink" caps iconLeft={<Plus className="size-3.5" />}>
-                <Link to="/retailer/listings/new">New product</Link>
-              </Button>
-            </div>
+            <Button asChild variant="ink" caps iconLeft={<Plus className="size-3.5" />}>
+              <Link to="/retailer/listings/new">New product</Link>
+            </Button>
           ) : undefined
         }
       />
@@ -126,109 +204,159 @@ export default function RetailerListings() {
       {!canPublish ? (
         <GateNotice gate={gate} />
       ) : (
-        <>
-          <div className="mb-6 flex flex-col gap-3 border-b border-rule pb-4 sm:flex-row sm:items-end sm:justify-between">
-            <div className="relative max-w-md flex-1">
-              <Search className="pointer-events-none absolute left-1 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
-              <Input
-                placeholder="Search by name or brand…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                className="!pl-7"
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="kicker text-ink-3 hidden sm:inline">Filter</span>
-              <Select value={status} onValueChange={(v) => setStatus(v as ListingStatus | 'all')}>
-                <SelectTrigger className="sm:w-44"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {STATUS_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+        <Tabs defaultValue="overview">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="health">Health</TabsTrigger>
+            <TabsTrigger value="history">History</TabsTrigger>
+          </TabsList>
 
-          {listings.isLoading ? (
-            <div className="overflow-hidden rounded border border-rule">
-              {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-[52px] rounded-none" />)}
+          <TabsContent value="overview">
+            {/* Stat tiles — a quick scan of catalog state before touching the table. */}
+            <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <StatTile label="Variants" value={stats.variants} />
+              <StatTile label="Units on hand" value={stats.units} />
+              <StatTile label="Low stock" value={stats.low} tone={stats.low > 0 ? 'warning' : 'neutral'} />
+              <StatTile label="Out of stock" value={stats.out} tone={stats.out > 0 ? 'danger' : 'neutral'} />
             </div>
-          ) : listings.isError ? (
-            <Empty
-              kicker="Connection lost"
-              title="Couldn't load products."
-              description={listings.error instanceof ApiError ? listings.error.message : 'Try again.'}
-              action={<Button variant="outline" onClick={() => listings.refetch()}>Retry</Button>}
-            />
-          ) : filtered.length === 0 ? (
-            <Empty
-              kicker={q ? 'No matches' : 'No products yet'}
-              title={q ? 'Nothing matches that search.' : 'No products yet.'}
-              description={
-                q
-                  ? 'Try a different keyword or clear the filter.'
-                  : 'Add your first product to begin selling.'
-              }
-              action={
-                !q && (
-                  <Button asChild variant="ink" caps iconLeft={<Plus className="size-3.5" />}>
-                    <Link to="/retailer/listings/new">Add first product</Link>
-                  </Button>
-                )
-              }
-            />
-          ) : (
-            <div className="overflow-hidden rounded border border-rule">
-              <table className="w-full text-[13px]">
-                <thead>
-                  <tr className="border-b border-rule bg-bg-2/60">
-                    {bulkMode && (
-                      <th className="w-10 px-3 py-2.5">
-                        <input
-                          type="checkbox"
-                          checked={selected.size === filtered.length && filtered.length > 0}
-                          onChange={(e) =>
-                            setSelected(e.target.checked ? new Set(filtered.map((l) => l.id)) : new Set())
+
+            {/* Filter row */}
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="relative max-w-md flex-1">
+                <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
+                <Input
+                  placeholder="Search by name or brand…"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  className="!pl-8"
+                />
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <FlagPill label="All" value="all" current={flag} onSelect={setFlag} count={scoped.length} />
+                <FlagPill label="Low" value="low" current={flag} onSelect={setFlag} count={flagCounts.low} tone="warning" />
+                <FlagPill label="Out" value="out" current={flag} onSelect={setFlag} count={flagCounts.out} tone="danger" />
+                <FlagPill label="Oversold" value="oversold" current={flag} onSelect={setFlag} count={flagCounts.oversold} tone="danger" />
+                <Select value={categoryId || '__all__'} onValueChange={(v) => setCategoryId(v === '__all__' ? '' : v)}>
+                  <SelectTrigger className="sm:w-40"><SelectValue placeholder="Category" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All categories</SelectItem>
+                    {(categoriesQ.data ?? []).map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={status} onValueChange={(v) => setStatus(v as ListingStatus | 'all')}>
+                  <SelectTrigger className="sm:w-44"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {STATUS_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {listings.isLoading ? (
+              <div className="overflow-hidden rounded border border-rule">
+                {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-[52px] rounded-none" />)}
+              </div>
+            ) : listings.isError ? (
+              <Empty
+                kicker="Connection lost"
+                title="Couldn't load products."
+                description={listings.error instanceof ApiError ? listings.error.message : 'Try again.'}
+                action={<Button variant="outline" onClick={() => listings.refetch()}>Retry</Button>}
+              />
+            ) : filtered.length === 0 ? (
+              <Empty
+                kicker={noFilters ? 'No products yet' : 'No matches'}
+                title={noFilters ? 'No products yet.' : 'Nothing matches your filters.'}
+                description={
+                  noFilters
+                    ? 'Add your first product to begin selling.'
+                    : 'Try a different keyword or clear the filters.'
+                }
+                action={
+                  noFilters ? (
+                    <Button asChild variant="ink" caps iconLeft={<Plus className="size-3.5" />}>
+                      <Link to="/retailer/listings/new">Add first product</Link>
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setQ('');
+                        setCategoryId('');
+                        setFlag('all');
+                        setStatus('all');
+                      }}
+                    >
+                      Clear filters
+                    </Button>
+                  )
+                }
+              />
+            ) : (
+              <div className="surface-card overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[13.5px]">
+                    <thead className="bg-bg-2/70 sticky top-0 z-10 backdrop-blur">
+                      <tr className="border-b border-line">
+                        <th className="kicker text-ink-3 px-3 py-2.5 text-left w-[3%]">
+                          <input
+                            type="checkbox"
+                            checked={filtered.length > 0 && filtered.every((l) => selected.has(l.id))}
+                            onChange={(e) =>
+                              setSelected(e.target.checked ? new Set(filtered.map((l) => l.id)) : new Set())
+                            }
+                            className="size-3.5 accent-ink cursor-pointer"
+                          />
+                        </th>
+                        <th className="kicker text-ink-3 px-3 py-2.5 text-left w-[5%]" />
+                        <th className="kicker text-ink-3 px-3 py-2.5 text-left w-[27%]">Product</th>
+                        <th className="kicker text-ink-3 px-3 py-2.5 text-left w-[16%]">SKU</th>
+                        <th className="kicker text-ink-3 px-3 py-2.5 text-right w-[15%]">Price</th>
+                        <th className="kicker text-ink-3 px-3 py-2.5 text-right w-[9%]">Stock</th>
+                        <th className="kicker text-ink-3 px-3 py-2.5 text-right w-[9%]">Status</th>
+                        <th className="kicker text-ink-3 px-3 py-2.5 text-right w-[16%]" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-line">
+                      {filtered.map((l) => (
+                        <ListingRow
+                          key={l.id}
+                          listing={l}
+                          threshold={threshold}
+                          selected={selected.has(l.id)}
+                          onSelectChange={(checked) =>
+                            setSelected((s) => {
+                              const next = new Set(s);
+                              if (checked) next.add(l.id);
+                              else next.delete(l.id);
+                              return next;
+                            })
                           }
-                          className="size-4 cursor-pointer accent-accent"
+                          onToggleStatus={(next) => toggleStatus.mutate({ id: l.id, next })}
                         />
-                      </th>
-                    )}
-                    <th className="w-14 py-2.5 pl-4 pr-2" />
-                    <th className="py-2.5 pr-4 text-left kicker text-ink-3">Product</th>
-                    <th className="py-2.5 pr-4 text-left kicker text-ink-3 w-28">Status</th>
-                    <th className="py-2.5 pr-4 text-right kicker text-ink-3 w-20">Variants</th>
-                    <th className="py-2.5 pr-4 text-right kicker text-ink-3 w-24">Stock</th>
-                    <th className="w-36 py-2.5 pr-4" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-rule">
-                  {filtered.map((l) => (
-                    <ListingRow
-                      key={l.id}
-                      listing={l}
-                      bulkMode={bulkMode}
-                      selected={selected.has(l.id)}
-                      onSelectChange={(checked) =>
-                        setSelected((s) => {
-                          const next = new Set(s);
-                          if (checked) next.add(l.id);
-                          else next.delete(l.id);
-                          return next;
-                        })
-                      }
-                      onToggleStatus={(next) => toggleStatus.mutate({ id: l.id, next })}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="health">
+            <HealthTab rows={invRows} savedThreshold={threshold} />
+          </TabsContent>
+
+          <TabsContent value="history">
+            <HistoryTab />
+          </TabsContent>
+        </Tabs>
       )}
 
-      {bulkMode && selected.size > 0 && (
+      {selected.size > 0 && (
         <BulkActionBar
           count={selected.size}
           ids={[...selected]}
@@ -264,38 +392,64 @@ function BulkActionBar({ count, ids: _ids, allDraft, onActivate, onDraft, onArch
   );
 }
 
-function ListingRow({ listing, bulkMode, selected, onSelectChange, onToggleStatus }: {
+function ListingRow({ listing, threshold, selected, onSelectChange, onToggleStatus }: {
   listing: Listing;
-  bulkMode: boolean;
+  threshold: number;
   selected: boolean;
   onSelectChange: (checked: boolean) => void;
   onToggleStatus?: (next: 'active' | 'draft') => void;
 }) {
   const navigate = useNavigate();
   const meta = listingStatusMeta(listing.status);
-  const variantCount = listing.variants?.length ?? 0;
-  const totalStock = listing.variants?.reduce((acc, v) => acc + v.stock, 0) ?? 0;
+  const variants = listing.variants ?? [];
+  const variantCount = variants.length;
+  const totalStock = variants.reduce((acc, v) => acc + v.stock, 0);
+
+  // Left-rule tone mirrors the flag pills: out beats low beats ok, product-wide.
+  const tone: 'ok' | 'low' | 'out' = variants.some((v) => stockToneOf(v, threshold) === 'out')
+    ? 'out'
+    : variants.some((v) => stockToneOf(v, threshold) === 'low')
+      ? 'low'
+      : 'ok';
+
+  // Price shown as the first→last variant range (single value when they're equal).
+  const prices = variants.map((v) => v.pricePaise);
+  const minPrice = prices.length ? Math.min(...prices) : null;
+  const maxPrice = prices.length ? Math.max(...prices) : null;
+  const priceLabel =
+    minPrice == null
+      ? '—'
+      : minPrice === maxPrice
+        ? formatPaise(minPrice)
+        : `${formatPaise(minPrice)} – ${formatPaise(maxPrice!)}`;
+
+  const firstSku = variants[0]?.sku ?? null;
+  const extraSku = variantCount > 1 ? variantCount - 1 : 0;
+
   const hero =
     listing.galleryUrls?.[0] ??
-    listing.variants?.find((v) => v.imageUrls && v.imageUrls.length > 0)?.imageUrls[0] ??
+    variants.find((v) => v.imageUrls && v.imageUrls.length > 0)?.imageUrls[0] ??
     null;
 
   return (
     <tr
-      className={`group cursor-pointer transition-colors ${selected ? 'bg-accent/5' : 'hover:bg-bg-2/40'}`}
+      className={cn(
+        'group cursor-pointer hover:bg-bg-2/60 transition-colors',
+        selected && 'bg-accent/5',
+        tone === 'low' && 'border-l-2 border-l-warning',
+        tone === 'out' && 'border-l-2 border-l-danger',
+      )}
       onClick={() => navigate(`/retailer/listings/${listing.id}`)}
     >
-      {bulkMode && (
-        <td className="w-10 px-3" onClick={(e) => e.stopPropagation()}>
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={(e) => onSelectChange(e.target.checked)}
-            className="size-4 cursor-pointer accent-accent"
-          />
-        </td>
-      )}
-      <td className="w-14 py-2 pl-4 pr-2">
+      <td className="px-3 py-3 align-middle" onClick={(e) => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={(e) => onSelectChange(e.target.checked)}
+          className="size-3.5 accent-ink cursor-pointer"
+        />
+      </td>
+      <td className="px-3 py-3 align-middle">
         <div className="size-9 overflow-hidden rounded-xs border border-rule bg-paper-2 shrink-0">
           {hero ? (
             <img
@@ -311,7 +465,7 @@ function ListingRow({ listing, bulkMode, selected, onSelectChange, onToggleStatu
           )}
         </div>
       </td>
-      <td className="py-2 pr-4">
+      <td className="px-3 py-3 align-middle">
         <div className="flex flex-col">
           <span className="font-display italic text-[15px] leading-snug text-ink truncate max-w-xs">
             {listing.name}
@@ -323,21 +477,31 @@ function ListingRow({ listing, bulkMode, selected, onSelectChange, onToggleStatu
           </span>
         </div>
       </td>
-      <td className="py-2 pr-4 w-28">
-        <Badge tone={meta.tone}>{meta.label}</Badge>
+      <td className="px-3 py-3 align-middle font-mono text-[12.5px] text-ink-2">
+        {firstSku ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="truncate">{firstSku}</span>
+            {extraSku > 0 && <span className="text-ink-4">+{extraSku}</span>}
+          </span>
+        ) : (
+          <span className="text-ink-4">—</span>
+        )}
+      </td>
+      <td className="px-3 py-3 align-middle text-right font-mono tabular text-[12.5px] text-ink whitespace-nowrap">
+        {priceLabel}
+      </td>
+      <td className="px-3 py-3 align-middle text-right font-mono tabular text-[12.5px] text-ink">
+        {String(totalStock).padStart(3, '0')}
+      </td>
+      <td className="px-3 py-3 align-middle text-right">
+        <Badge tone={meta.tone} nodot>{meta.label}</Badge>
         {listing.status === 'taken_down' && listing.takedownReason && (
-          <div className="mt-1 text-[11px] text-warning truncate max-w-[14rem]" title={listing.takedownReason}>
+          <div className="mt-1 text-[11px] text-warning truncate max-w-56 ml-auto" title={listing.takedownReason}>
             {listing.takedownReason}
           </div>
         )}
       </td>
-      <td className="py-2 pr-4 w-20 text-right">
-        <span className="font-mono tabular-nums text-[12.5px] text-ink">{String(variantCount).padStart(2, '0')}</span>
-      </td>
-      <td className="py-2 pr-4 w-24 text-right">
-        <span className="font-mono tabular-nums text-[12.5px] text-ink">{String(totalStock).padStart(3, '0')}</span>
-      </td>
-      <td className="py-2 pr-4 w-36 text-right">
+      <td className="px-3 py-3 align-middle text-right">
         <div className="flex items-center justify-end gap-2">
           {onToggleStatus && (listing.status === 'active' || listing.status === 'draft') && (
             <Button
