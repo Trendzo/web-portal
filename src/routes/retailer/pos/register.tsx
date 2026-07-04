@@ -248,14 +248,16 @@ export default function PosRegister() {
   const canComplete = !offline && cart.lines.length > 0 && payable > 0 && remaining === 0 && tenders.length > 0;
 
   return (
-    <div className="grid gap-4 p-4 lg:h-full lg:min-h-0 lg:grid-cols-[1fr_400px]">
-      {/* Left: scan + cart */}
-      <div className="flex min-h-0 flex-col gap-3">
-        <div className="flex items-center gap-1.5 text-[11px] text-ink-4" title="This register's name in the app scanner picker">
-          <span className={`size-1.5 rounded-full ${scannerLinked ? 'bg-success' : 'bg-ink-4/50'}`} />
-          {scannerLinked ? 'Phone scanner linked' : 'Register'} · {registerLabel}
-        </div>
-        <div className="relative">
+    <div className="flex h-full min-h-0 flex-col gap-2 p-4">
+      {/* Full-width scanner-link status — kept above the grid so both columns stay top-aligned. */}
+      <div className="flex items-center gap-1.5 text-[11px] text-ink-4" title="This register's name in the app scanner picker">
+        <span className={`size-1.5 rounded-full ${scannerLinked ? 'bg-success' : 'bg-ink-4/50'}`} />
+        {scannerLinked ? 'Phone scanner linked' : 'Register'} · {registerLabel}
+      </div>
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[1fr_400px]">
+        {/* Left: scan + cart */}
+        <div className="flex min-h-0 flex-col gap-3">
+          <div className="relative">
           <ScanLine className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-4" />
           <Input
             ref={scanRef}
@@ -508,6 +510,7 @@ export default function PosRegister() {
           )}
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 }
