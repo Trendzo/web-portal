@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, BarChart3, Bell, Building2, CalendarDays, FileText, LayoutDashboard, Package, Pencil, Receipt, ScanLine, Sparkles, SlidersHorizontal, Tag, Users, Wallet, Warehouse } from 'lucide-react';
+import { AlertTriangle, BarChart3, Bell, Building2, CalendarDays, FileText, LayoutDashboard, Package, Pencil, Receipt, ScanLine, Tag, Users, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
 import {
   SidebarShell,
@@ -64,10 +64,11 @@ function buildGroups(store: Store | null): SidebarGroup[] {
       label: 'Catalog',
       items: [
         { to: '/retailer/listings', label: 'Products', end: false, icon: Package, action: 'listings.view' },
-        { to: '/retailer/inventory', label: 'Inventory', end: true, icon: Warehouse, action: 'inventory.view' },
-        { to: '/retailer/pricing', label: 'Pricing', end: true, icon: Tag, action: 'listings.view' },
-        { to: '/retailer/attribute-templates', label: 'Attribute templates', end: false, icon: SlidersHorizontal, action: 'attribute_templates.view' },
-        { to: '/retailer/ai-catalog', label: 'AI catalog', end: false, icon: Sparkles, action: 'ai_catalog.generate' },
+        // Hidden from sidebar (routes still live) — 2026-07-04
+        // { to: '/retailer/inventory', label: 'Inventory', end: true, icon: Warehouse, action: 'inventory.view' },
+        // { to: '/retailer/pricing', label: 'Pricing', end: true, icon: Tag, action: 'listings.view' },
+        // { to: '/retailer/attribute-templates', label: 'Attribute templates', end: false, icon: SlidersHorizontal, action: 'attribute_templates.view' },
+        // { to: '/retailer/ai-catalog', label: 'AI catalog', end: false, icon: Sparkles, action: 'ai_catalog.generate' },
       ],
     },
     {
