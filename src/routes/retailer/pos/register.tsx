@@ -618,7 +618,7 @@ function CustomerCard() {
         className="flex w-full items-center justify-between text-[13px] font-medium text-ink"
         onClick={() => setOpen((o) => !o)}
       >
-        <span>{cart.customer.name || cart.customer.phone || 'Add customer (optional)'}</span>
+        <span>{cart.customer.name || 'Add customer (optional)'}</span>
         <span className="text-[11px] text-ink-4">{open ? 'Hide' : 'Edit'}</span>
       </button>
       {open && (
