@@ -314,35 +314,32 @@ export const router = createBrowserRouter([
       { path: ':id', element: <AgentDeliveryDetail /> },
     ],
   },
-  // Full-screen POS — its own focused shell (like the agent surface), mounted at the
-  // more-specific /retailer/pos path so it escapes the dashboard sidebar chrome. All POS
-  // surfaces (register, sales, held, day-summary, labels) live here as internal tabs, so
-  // the dashboard sidebar carries just one "Register" entry.
-  {
-    path: '/retailer/pos',
-    element: (
-      <RoleGate kind="retailer">
-        <PosGate>
-          <PosLayout />
-        </PosGate>
-      </RoleGate>
-    ),
-    children: [
-      { index: true, element: <PosRegister /> },
-      { path: 'new', element: <Navigate to="/retailer/pos" replace /> }, // back-compat
-      { path: 'sales', element: <PosSales /> },
-      { path: 'sales/:id', element: <PosSaleDetail /> },
-      { path: 'held', element: <PosHeld /> },
-      { path: 'day-summary', element: <PosDaySummary /> },
-      { path: 'labels', element: <PosLabels /> },
-    ],
-  },
   {
     path: '/retailer',
     element: <RetailerLayout />,
     children: [
       { index: true, element: <Navigate to="dashboard" replace /> },
       { path: 'dashboard', element: <RetailerDashboard /> },
+      // POS lives inside the dashboard sidebar shell so the cashier keeps quick
+      // navigation to the rest of the workspace. PosLayout adds an in-content tab
+      // strip for the POS sub-surfaces (register, sales, held, day-summary, labels).
+      {
+        path: 'pos',
+        element: (
+          <PosGate>
+            <PosLayout />
+          </PosGate>
+        ),
+        children: [
+          { index: true, element: <PosRegister /> },
+          { path: 'new', element: <Navigate to="/retailer/pos" replace /> }, // back-compat
+          { path: 'sales', element: <PosSales /> },
+          { path: 'sales/:id', element: <PosSaleDetail /> },
+          { path: 'held', element: <PosHeld /> },
+          { path: 'day-summary', element: <PosDaySummary /> },
+          { path: 'labels', element: <PosLabels /> },
+        ],
+      },
       {
         path: 'store',
         element: <RetailerStorePage />,

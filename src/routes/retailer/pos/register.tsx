@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Minus, Plus, ScanLine, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, BASE } from '@/lib/api';
+import { getToken } from '@/lib/auth';
 import { formatPaise } from '@/lib/status';
 import { usePosCart } from '@/lib/pos-cart-store';
-import type { PosLookupResult, PosQuote, PosSaleResult, Tender, TenderMethod } from '@/lib/pos-types';
+import type { DiscountMode, PosLookupResult, PosLookupRow, PosQuote, PosSaleResult, Tender, TenderMethod } from '@/lib/pos-types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Segmented } from '@/components/ui/segmented';
@@ -19,6 +20,34 @@ const TENDERS: { value: TenderMethod; label: string }[] = [
   { value: 'upi', label: 'UPI' },
 ];
 
+// ── Phone-scanner link (SSE) ──
+// A stable per-browser id so the app's device picker sees this register consistently
+// across reloads, and a human label so the cashier can identify it in that picker.
+const REGISTER_ID_KEY = 'pos.registerId';
+function getRegisterId(): string {
+  let id = localStorage.getItem(REGISTER_ID_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(REGISTER_ID_KEY, id);
+  }
+  return id;
+}
+function deriveRegisterLabel(): string {
+  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+  const os = /Windows/.test(ua) ? 'Windows'
+    : /Macintosh|Mac OS/.test(ua) ? 'macOS'
+    : /Android/.test(ua) ? 'Android'
+    : /iPhone|iPad/.test(ua) ? 'iOS'
+    : /Linux/.test(ua) ? 'Linux'
+    : 'Device';
+  const browser = /Edg\//.test(ua) ? 'Edge'
+    : /Chrome\//.test(ua) ? 'Chrome'
+    : /Firefox\//.test(ua) ? 'Firefox'
+    : /Safari\//.test(ua) ? 'Safari'
+    : 'Browser';
+  return `${browser} · ${os}`;
+}
+
 export default function PosRegister() {
   const cart = usePosCart();
   const qc = useQueryClient();
@@ -27,6 +56,8 @@ export default function PosRegister() {
   const [scanValue, setScanValue] = useState('');
   const [searchResults, setSearchResults] = useState<PosLookupResult['results']>([]);
   const [result, setResult] = useState<PosSaleResult | null>(null);
+  const [scannerLinked, setScannerLinked] = useState(false);
+  const registerLabel = useMemo(deriveRegisterLabel, []);
 
   // Stable idempotency key per bill — regenerated on reset via billNonce.
   const idempotencyKey = useMemo(
@@ -196,13 +227,47 @@ export default function PosRegister() {
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  // ── Phone scanner over SSE ──
+  // The retailer app pushes scanned items here; each arrives shaped as a PosLookupRow and is
+  // dropped straight into the cart (addRow dedupes by variantId → qty++). EventSource can't set
+  // an Authorization header, so the bearer token rides as a query param (auth is localStorage,
+  // not an httpOnly cookie). Read the store via getState() to keep the effect closure stable.
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    const id = getRegisterId();
+    const url =
+      `${BASE}/retailer/pos/scan/stream` +
+      `?token=${encodeURIComponent(token)}` +
+      `&registerId=${encodeURIComponent(id)}` +
+      `&label=${encodeURIComponent(registerLabel)}`;
+    const es = new EventSource(url);
+    es.addEventListener('ready', () => setScannerLinked(true));
+    es.onmessage = (e) => {
+      try {
+        const row = JSON.parse(e.data) as PosLookupRow;
+        usePosCart.getState().addRow(row);
+        setScannerLinked(true);
+        toast.success(`Scanned · ${row.name}`);
+      } catch {
+        /* ignore malformed frame */
+      }
+    };
+    es.onerror = () => setScannerLinked(false); // browser auto-reconnects
+    return () => es.close();
+  }, [registerLabel]);
+
   const offline = typeof navigator !== 'undefined' && !navigator.onLine;
   const canComplete = !offline && cart.lines.length > 0 && payable > 0 && remaining === 0 && tenders.length > 0;
 
   return (
-    <div className="grid gap-4 p-4 lg:grid-cols-[1fr_400px]">
+    <div className="grid gap-4 p-4 lg:h-full lg:min-h-0 lg:grid-cols-[1fr_400px]">
       {/* Left: scan + cart */}
       <div className="flex min-h-0 flex-col gap-3">
+        <div className="flex items-center gap-1.5 text-[11px] text-ink-4" title="This register's name in the app scanner picker">
+          <span className={`size-1.5 rounded-full ${scannerLinked ? 'bg-success' : 'bg-ink-4/50'}`} />
+          {scannerLinked ? 'Phone scanner linked' : 'Register'} · {registerLabel}
+        </div>
         <div className="relative">
           <ScanLine className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-4" />
           <Input
@@ -288,15 +353,16 @@ export default function PosRegister() {
                         </div>
                       </td>
                       <td className="px-2 py-2 text-right tabular-nums">{formatPaise(l.unitMrpPaise)}</td>
-                      <td className="px-2 py-2 text-right">
-                        <input
-                          className="w-16 rounded border border-line bg-bg px-1.5 py-1 text-right text-[12px] tabular-nums"
-                          value={l.lineDiscountPaise ? (l.lineDiscountPaise / 100).toString() : ''}
-                          placeholder="0"
-                          onChange={(e) =>
-                            cart.setLineDiscount(l.variantId, Math.round(Number(e.target.value || '0') * 100))
-                          }
-                        />
+                      <td className="px-2 py-2">
+                        <div className="flex justify-end">
+                          <DiscountField
+                            className="w-19"
+                            mode={l.discountMode}
+                            value={l.discountValue}
+                            onValue={(v) => cart.setLineDiscountValue(l.variantId, v)}
+                            onMode={(m) => cart.setLineDiscountMode(l.variantId, m)}
+                          />
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-right font-medium tabular-nums">{formatPaise(lineTotal)}</td>
                       <td className="pr-2">
@@ -325,13 +391,17 @@ export default function PosRegister() {
             )}
             <div className="flex items-center justify-between">
               <span className="text-ink-3">Bill discount</span>
-              <input
-                className="w-24 rounded border border-line bg-bg px-2 py-1 text-right text-[12px] tabular-nums"
-                value={cart.billDiscountPaise ? (cart.billDiscountPaise / 100).toString() : ''}
-                placeholder="0"
-                onChange={(e) => cart.setBillDiscount(Math.round(Number(e.target.value || '0') * 100))}
+              <DiscountField
+                className="w-28"
+                mode={cart.billDiscountMode}
+                value={cart.billDiscountValue}
+                onValue={cart.setBillDiscountValue}
+                onMode={cart.setBillDiscountMode}
               />
             </div>
+            {cart.billDiscountMode === 'pct' && (cart.billDiscountPaise ?? 0) > 0 && (
+              <Row label={`Bill discount (${cart.billDiscountValue}%)`} value={`− ${formatPaise(cart.billDiscountPaise)}`} />
+            )}
             <Row label="Taxable value" value={formatPaise(quote?.taxableValuePaise ?? 0)} />
             <Row label="CGST" value={formatPaise(quote?.cgstPaise ?? 0)} />
             <Row label="SGST" value={formatPaise(quote?.sgstPaise ?? 0)} />
@@ -455,6 +525,42 @@ export default function PosRegister() {
   );
 }
 
+/** Discount input with a ₹/% unit toggle. Value is rupees when flat, percent when pct. */
+function DiscountField({
+  mode,
+  value,
+  onValue,
+  onMode,
+  className = '',
+}: {
+  mode: DiscountMode;
+  value: number;
+  onValue: (v: number) => void;
+  onMode: (m: DiscountMode) => void;
+  className?: string;
+}) {
+  return (
+    <div className={`flex items-stretch overflow-hidden rounded border border-line ${className}`}>
+      <button
+        type="button"
+        title="Switch ₹ / %"
+        aria-label={mode === 'flat' ? 'Flat rupee discount, switch to percent' : 'Percent discount, switch to flat rupee'}
+        className="shrink-0 border-r border-line bg-bg-2 px-1.5 text-[12px] text-ink-3 hover:bg-line"
+        onClick={() => onMode(mode === 'flat' ? 'pct' : 'flat')}
+      >
+        {mode === 'flat' ? '₹' : '%'}
+      </button>
+      <input
+        inputMode="decimal"
+        className="w-full min-w-0 bg-bg px-1.5 py-1 text-right text-[12px] tabular-nums outline-none"
+        value={value ? value.toString() : ''}
+        placeholder="0"
+        onChange={(e) => onValue(Number(e.target.value || '0'))}
+      />
+    </div>
+  );
+}
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between">
@@ -464,10 +570,60 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+type PosCustomerRow = { name: string | null; phone: string | null; gstin: string | null };
+
 function CustomerCard() {
   const cart = usePosCart();
   const [open, setOpen] = useState(false);
   const [b2b, setB2b] = useState(false);
+  const phone = cart.customer.phone ?? '';
+  // Remember the last 10-digit number we queried so a re-render or a keystroke
+  // inside the same number doesn't re-fire the lookup.
+  const lastLookup = useRef('');
+
+  // Silent, non-blocking customer sync: once a full 10-digit phone is entered we
+  // fetch the matching saved customer and autofill blank fields. Best-effort —
+  // never blocks billing and never overwrites what the cashier typed.
+  useEffect(() => {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 10) {
+      lastLookup.current = '';
+      return;
+    }
+    const q = digits.slice(-10);
+    if (lastLookup.current === q) return;
+    lastLookup.current = q;
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await api<PosCustomerRow[]>(
+          `/retailer/pos/customers?phone=${encodeURIComponent(q)}`,
+        );
+        if (cancelled) return;
+        const match = rows.find((r) => (r.phone ?? '').replace(/\D/g, '').endsWith(q)) ?? rows[0];
+        if (!match) return;
+        const cur = usePosCart.getState().customer;
+        const next = { ...cur };
+        let changed = false;
+        if (match.name && !cur.name?.trim()) {
+          next.name = match.name;
+          changed = true;
+        }
+        if (match.gstin && !cur.gstin?.trim()) {
+          next.gstin = match.gstin;
+          setB2b(true);
+          changed = true;
+        }
+        if (changed) usePosCart.getState().setCustomer(next);
+      } catch {
+        /* lookup is best-effort — ignore transient failures */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phone]);
+
   return (
     <div className="rounded-xl border border-line bg-bg p-3">
       <button
@@ -481,14 +637,15 @@ function CustomerCard() {
       {open && (
         <div className="mt-2 space-y-2">
           <Input
+            placeholder="Phone"
+            inputMode="numeric"
+            value={cart.customer.phone ?? ''}
+            onChange={(e) => cart.setCustomer({ ...cart.customer, phone: e.target.value })}
+          />
+          <Input
             placeholder="Name"
             value={cart.customer.name ?? ''}
             onChange={(e) => cart.setCustomer({ ...cart.customer, name: e.target.value })}
-          />
-          <Input
-            placeholder="Phone"
-            value={cart.customer.phone ?? ''}
-            onChange={(e) => cart.setCustomer({ ...cart.customer, phone: e.target.value })}
           />
           <label className="flex items-center gap-2 text-[12px] text-ink-3">
             <input type="checkbox" checked={b2b} onChange={(e) => setB2b(e.target.checked)} />

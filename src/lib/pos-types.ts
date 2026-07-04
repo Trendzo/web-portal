@@ -1,6 +1,7 @@
 // Shapes for the offline POS (counter billing) surface. Money is always paise (int).
 
 export type PricingMode = 'tax_inclusive' | 'tax_exclusive';
+export type DiscountMode = 'flat' | 'pct';
 export type TenderMethod = 'cash' | 'card' | 'upi';
 
 export type PosLookupRow = {
@@ -13,6 +14,8 @@ export type PosLookupRow = {
   barcode: string | null;
   hsn: string | null;
   pricePaise: number;
+  /** Struck-through "was" price (paise). Null when the variant has none. */
+  compareAtPaise: number | null;
   availableQty: number;
   imageUrl: string | null;
 };
@@ -29,7 +32,12 @@ export type CartLine = {
   sku: string | null;
   unitMrpPaise: number;
   qty: number;
+  /** Derived-and-synced from discountMode/discountValue; the paise value sent to the server. */
   lineDiscountPaise: number;
+  /** ₹ flat or % — how discountValue is interpreted. */
+  discountMode: DiscountMode;
+  /** Raw user input: rupees when flat, percent when pct. */
+  discountValue: number;
   availableQty: number;
 };
 
