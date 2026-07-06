@@ -7,7 +7,8 @@ import { api, ApiError, BASE } from '@/lib/api';
 import { getToken } from '@/lib/auth';
 import { formatPaise } from '@/lib/status';
 import { usePosCart } from '@/lib/pos-cart-store';
-import type { DiscountMode, PosLookupResult, PosLookupRow, PosQuote, PosSaleResult, Tender, TenderMethod } from '@/lib/pos-types';
+import { printReceipt80mm } from '@/lib/pos-print';
+import type { DiscountMode, PosLookupResult, PosLookupRow, PosQuote, PosSaleDetail, PosSaleResult, Tender, TenderMethod } from '@/lib/pos-types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Segmented } from '@/components/ui/segmented';
@@ -137,6 +138,17 @@ export default function PosRegister() {
     tenders.reduce((s, t) => s + ((t.tenderedPaise ?? t.amountPaise) - t.amountPaise), 0),
   );
 
+  // Fetch the full sale + print the 80mm receipt. Runs automatically on completion
+  // (and via the Reprint button). Never blocks the flow — a print failure just toasts.
+  async function printSaleReceipt(saleId: string) {
+    try {
+      const detail = await api<PosSaleDetail>(`/retailer/pos/sales/${saleId}`);
+      printReceipt80mm(detail);
+    } catch {
+      toast.error('Could not load receipt to print');
+    }
+  }
+
   // ── Mutations ──
   const complete = useMutation({
     mutationFn: () =>
@@ -155,6 +167,8 @@ export default function PosRegister() {
     onSuccess: (res) => {
       setResult(res);
       setTenders([]);
+      // Print the receipt on sell (skip idempotent replays so a retry never double-prints).
+      if (!res.alreadyExisted) void printSaleReceipt(res.saleId);
       qc.invalidateQueries({ queryKey: ['retailer', 'pos', 'sales'] });
       qc.invalidateQueries({ queryKey: ['retailer', 'pos', 'day-summary'] });
       qc.invalidateQueries({ queryKey: ['retailer', 'inventory'] });
@@ -499,13 +513,20 @@ export default function PosRegister() {
                 )}
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" onClick={() => navigate(`/retailer/pos/sales/${result.saleId}`)}>
-                  View / print
+                <Button variant="outline" onClick={() => void printSaleReceipt(result.saleId)}>
+                  Reprint receipt
                 </Button>
                 <Button variant="accent" autoFocus onClick={newSale}>
                   New sale (Enter)
                 </Button>
               </div>
+              <button
+                type="button"
+                className="w-full text-center text-[12px] text-ink-4 hover:text-ink"
+                onClick={() => navigate(`/retailer/pos/sales/${result.saleId}`)}
+              >
+                View sale detail
+              </button>
             </div>
           )}
         </DialogContent>

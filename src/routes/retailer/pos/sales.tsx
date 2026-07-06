@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Receipt } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { DateRangePicker, type DateRangeValue } from '@/components/ui/date-range-picker';
 
 export default function PosSales() {
+  const navigate = useNavigate();
   const canView = usePermission('pos.view');
   const [q, setQ] = useState('');
   const [range, setRange] = useState<DateRangeValue>({ from: null, to: null });
@@ -66,11 +67,13 @@ export default function PosSales() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-t border-line hover:bg-bg-2">
+                <tr
+                  key={r.id}
+                  onClick={() => navigate(`/retailer/pos/sales/${r.id}`)}
+                  className="cursor-pointer border-t border-line hover:bg-bg-2"
+                >
                   <td className="px-3 py-2">
-                    <Link to={`/retailer/pos/sales/${r.id}`} className="font-medium text-accent hover:underline">
-                      {r.invoiceNumber ?? r.id.slice(0, 10)}
-                    </Link>
+                    <span className="font-medium text-accent">{r.invoiceNumber ?? r.id.slice(0, 10)}</span>
                   </td>
                   <td className="px-3 py-2 text-ink-3">{r.customerName || r.customerPhone || 'Walk-in'}</td>
                   <td className="px-3 py-2 text-ink-4">

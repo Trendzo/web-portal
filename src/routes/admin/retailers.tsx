@@ -170,11 +170,14 @@ export function RetailersPanel() {
     if (allowedStatuses && !allowedStatuses.includes(r.status)) return false;
     if (!q.trim()) return true;
     const n = q.toLowerCase();
+    const digits = n.replace(/\D/g, '');
     return (
       r.email.toLowerCase().includes(n) ||
       r.legalName.toLowerCase().includes(n) ||
       r.gstin.toLowerCase().includes(n) ||
-      r.id.toLowerCase().includes(n)
+      r.id.toLowerCase().includes(n) ||
+      // Phone: match on digits so "9179" finds "+919179621765".
+      (digits.length > 0 && r.phone.replace(/\D/g, '').includes(digits))
     );
   });
 
@@ -203,7 +206,7 @@ export function RetailersPanel() {
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-ink-3" />
             <Input
-              placeholder="Search name, email, GSTIN, ID…"
+              placeholder="Search name, email, phone, GSTIN, ID…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               className="!pl-9"

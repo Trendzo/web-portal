@@ -35,6 +35,7 @@ import AdminPromotions from './admin/promotions';
 import AdminPromotionNew from './admin/promotion-new';
 import AdminPromotionDetail from './admin/promotion-detail';
 import AdminPlatformRulesHub from './admin/platform-rules-hub';
+import AdminTerms from './admin/terms';
 import AdminConsumerDetail from './admin/consumer-detail';
 import RetailerPromotions from './retailer/promotions';
 import RetailerPromotionNew from './retailer/promotion-new';
@@ -206,6 +207,7 @@ export const router = createBrowserRouter([
       { path: 'promotions/:id', element: <AdminPromotionDetail /> },
       // Platform rules hub — Clubbing matrix + Feature controls.
       { path: 'platform-rules', element: <AdminPlatformRulesHub /> },
+      { path: 'terms', element: <AdminTerms /> },
       { path: 'clubbing', element: <Navigate to="/admin/platform-rules?tab=clubbing" replace /> },
       // Engagement (Loyalty / Community / Reviews) merged into the Platform rules
       // hub. Old paths — including the dissolved Customers hub — redirect there;

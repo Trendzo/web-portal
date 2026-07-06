@@ -109,9 +109,13 @@ export function printReceipt80mm(sale: PosSaleDetail): void {
     )
     .join('');
   const tenders = sale.payments
-    .filter((p) => p.direction === 'collect')
-    .map((p) => `<tr><td>${p.method.toUpperCase()}</td><td class="r">${formatPaise(p.amountPaise)}</td></tr>`)
+    .map((p) => `<tr><td>${p.direction === 'refund' ? 'REFUND ' : ''}${p.method.toUpperCase()}</td><td class="r">${formatPaise(p.amountPaise)}</td></tr>`)
     .join('');
+  // Exchange: returned lines credited against the new items — show the offset before TOTAL.
+  const returnedCredit = (sale.returnLines ?? []).reduce((s, r) => s + r.refundPaise, 0);
+  const returnedRow = returnedCredit > 0
+    ? `<tr><td>Returned credit</td><td class="r">- ${formatPaise(returnedCredit)}</td></tr>`
+    : '';
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Receipt</title>
   <style>
     @page { size: 80mm auto; margin: 2mm; }
@@ -141,7 +145,8 @@ export function printReceipt80mm(sale: PosSaleDetail): void {
     <tr><td>CGST</td><td class="r">${formatPaise(sale.cgstPaise)}</td></tr>
     <tr><td>SGST</td><td class="r">${formatPaise(sale.sgstPaise)}</td></tr>
     ${sale.roundOffPaise !== 0 ? `<tr><td>Round off</td><td class="r">${formatPaise(sale.roundOffPaise)}</td></tr>` : ''}
-    <tr class="grand"><td>TOTAL</td><td class="r">${formatPaise(sale.payablePaise)}</td></tr>
+    ${returnedRow}
+    <tr class="grand"><td>${returnedCredit > 0 ? 'NET' : 'TOTAL'}</td><td class="r">${formatPaise(sale.payablePaise)}</td></tr>
   </table>
   <hr>
   <table>${tenders}${sale.changePaise > 0 ? `<tr><td>Change</td><td class="r">${formatPaise(sale.changePaise)}</td></tr>` : ''}</table>

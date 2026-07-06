@@ -157,6 +157,15 @@ export type PosSaleDetail = {
     reference: string | null;
   }[];
   invoice: { id: string; invoiceNumber: string; pdfUrl: string | null } | null;
+  /** Present on return + exchange rows — the original lines handed back. */
+  returnLines?: {
+    id: string;
+    originalSaleItemId: string;
+    variantId: string;
+    qty: number;
+    refundPaise: number;
+    restock: boolean;
+  }[];
 };
 
 export type HeldBill = {
@@ -168,14 +177,60 @@ export type HeldBill = {
   heldAt: string | null;
 };
 
+export type PosDaySession = {
+  id: string;
+  businessDate: string;
+  status: 'open' | 'closed';
+  openingFloatPaise: number;
+  openedAt: string | null;
+  closedAt: string | null;
+  countedCashPaise: number | null;
+  expectedCashPaise: number | null;
+  cashVariancePaise: number | null;
+  note: string | null;
+};
+
+export type PosTenderNet = { collected: number; refunded: number; net: number };
+
 export type PosDaySummary = {
   date: string;
   saleCount: number;
   returnCount: number;
+  exchangeCount: number;
+  voidCount: number;
+  voidedPaise: number;
   itemCount: number;
+  // Finance
   grossPayablePaise: number;
+  netSalesPaise: number;
   taxableValuePaise: number;
   taxPaise: number;
+  cgstPaise: number;
+  sgstPaise: number;
+  igstPaise: number;
+  discountsPaise: number;
+  roundOffPaise: number;
+  changeGivenPaise: number;
   refundsPaise: number;
+  avgSalePaise: number;
+  avgBasketItems: number;
+  // Breakdowns
   byTender: Record<string, number>;
+  byTenderNet: Record<string, PosTenderNet>;
+  hourly: { hour: number; salesCount: number; revenuePaise: number }[];
+  topProducts: { name: string; qty: number; revenuePaise: number }[];
+  byCashier: { cashierId: string; name: string | null; saleCount: number; revenuePaise: number }[];
+  // Cash session
+  session: PosDaySession | null;
+  cashCollectedPaise: number;
+  cashRefundedPaise: number;
+  expectedCashPaise: number;
+};
+
+export type PosDayCurrent = {
+  date: string;
+  session: PosDaySession | null;
+  cashCollectedPaise: number;
+  cashRefundedPaise: number;
+  expectedCashPaise: number;
 };

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -40,10 +40,105 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { cn } from '@/lib/cn';
 import { GettingStartedChecklist } from '@/components/retailer/getting-started-checklist';
 
-type MeResponse = { retailer: RetailerProfile; store: Store | null };
+/** Legal gate — a store can't go live until the Retailer Terms are accepted (records IP server-side). */
+function TermsGate({ version }: { version: string }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const { data: terms } = useQuery({
+    queryKey: ['retailer', 'terms'],
+    queryFn: () => api<{ version: string; shortText: string; acceptedAt: string | null }>('/retailer/terms'),
+    enabled: open,
+  });
+  const accept = useMutation({
+    mutationFn: () =>
+      api('/retailer/terms/accept', { method: 'POST', body: { version: terms?.version ?? version } }),
+    onSuccess: () => {
+      toast.success('Terms accepted — you can now go live.');
+      setOpen(false);
+      void qc.invalidateQueries({ queryKey: ['retailer', 'me'] });
+      void qc.invalidateQueries({ queryKey: ['retailer', 'terms'] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not record acceptance'),
+  });
+  // Declining is recorded for audit, then the user is logged out. They'll be re-prompted
+  // on the next login until they accept (no separate "declined" account state).
+  const decline = useMutation({
+    mutationFn: () =>
+      api('/retailer/terms/decline', { method: 'POST', body: { version: terms?.version ?? version } }),
+    onSettled: () => {
+      useAuth.getState().signOut();
+    },
+  });
+  function onDecline() {
+    if (window.confirm('Declining the Retailer Terms will log you out. You must accept them to use your store. Continue?')) {
+      decline.mutate();
+    }
+  }
+  return (
+    <>
+      <div className="mb-4 flex flex-col gap-2 rounded-xl border border-warning/40 bg-warning/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-[14px] font-semibold text-ink">Accept the Retailer Terms to go live</div>
+          <div className="text-[12.5px] text-ink-3">
+            Your store can&apos;t start selling until you review and accept the Retailer Terms &amp; Conditions.
+          </div>
+        </div>
+        <Button variant="solid" className="shrink-0" onClick={() => setOpen(true)}>
+          Review &amp; accept
+        </Button>
+      </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Retailer Terms &amp; Conditions</DialogTitle></DialogHeader>
+          <div className="max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-bg-2/40 p-3 text-[12.5px] leading-relaxed text-ink-2">
+            {terms?.shortText ?? 'Loading…'}
+          </div>
+          <label className="flex items-center gap-2 text-[13px] text-ink">
+            <input
+              type="checkbox"
+              className="accent-accent"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+            />
+            I have read and accept the Retailer Terms &amp; Conditions.
+          </label>
+          <DialogFooter>
+            <Button variant="ghost" className="mr-auto text-danger" loading={decline.isPending} onClick={onDecline}>
+              Decline &amp; log out
+            </Button>
+            <Button variant="outline" onClick={() => setOpen(false)}>Not now</Button>
+            <Button
+              variant="solid"
+              disabled={!agreed || !terms}
+              loading={accept.isPending}
+              onClick={() => accept.mutate()}
+            >
+              Accept &amp; continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+type MeResponse = {
+  retailer: RetailerProfile;
+  store: Store | null;
+  termsAcceptanceRequired?: boolean;
+  currentTermsVersion?: string;
+};
 
 export default function RetailerDashboard() {
   const session = useAuth((s) => s.session);
@@ -85,6 +180,9 @@ export default function RetailerDashboard() {
 
   return (
     <Page>
+      {data?.termsAcceptanceRequired && (
+        <TermsGate version={data.currentTermsVersion ?? ''} />
+      )}
       <PageHeader
         {...(liveAndKicking ? { kicker: 'Analytics overview' } : {})}
         title={`Welcome back, ${firstName}`}

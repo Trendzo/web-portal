@@ -1,6 +1,7 @@
 import {
   BarChart3,
   Building2,
+  FileText,
   Folder,
   GanttChart,
   Inbox,
@@ -173,6 +174,13 @@ const GROUPS: SidebarGroup[] = [
           l.pathname.startsWith('/admin/loyalty') ||
           l.pathname.startsWith('/admin/community-moderation') ||
           l.pathname.startsWith('/admin/reviews-moderation'),
+      },
+      {
+        to: '/admin/terms',
+        label: 'Terms & Conditions',
+        end: false,
+        icon: FileText,
+        anyAction: ['platform_config.view', 'platform_config.edit'],
       },
     ],
   },
