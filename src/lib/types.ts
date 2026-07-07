@@ -6,7 +6,7 @@ export type Envelope<T> =
   | { success: false; error: { code: string; message: string; details?: unknown } };
 
 export type AdminSubRole = 'super_admin' | 'ops_admin' | 'support';
-export type RetailerSubRole = 'owner' | 'manager' | 'staff' | 'delivery_agent';
+export type RetailerSubRole = 'owner' | 'manager' | 'staff';
 
 export type ConsumerStatus = 'active' | 'suspended' | 'closed';
 export type RetailerStatus =
@@ -802,6 +802,8 @@ export type OrderDetail = {
   pickupCode?: string | null;
   doorWindowExpiresAt?: string | null;
   doorWindowExtendedAt?: string | null;
+  /** In-house delivery agent assigned at "ready for pickup" (null until assigned). */
+  assignedAgentId?: string | null;
 
   group: {
     id: string;
@@ -862,6 +864,8 @@ export type DeliveryRow = {
   doorWindowExpiresAt: string | null;
   placedAt: string;
   items: DeliveryItemRow[];
+  /** Store→agent handoff code, present while `packed` (ready for pickup). */
+  agentHandoffCode?: string | null;
 };
 
 export type DeliveryDetail = {
@@ -881,6 +885,8 @@ export type DeliveryDetail = {
   placedAt: string;
   items: OrderItem[];
   availableTransitions: AvailableTransition[];
+  /** Store→agent handoff code, present while `packed` (ready for pickup). */
+  agentHandoffCode?: string | null;
 };
 
 /** Per-item door decision the agent records. */

@@ -4,25 +4,18 @@
  * UI and identical react-query invalidation.
  */
 import { useRef, useState, type ReactNode } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ImagePlus, Loader2, X } from 'lucide-react';
 import { api, ApiError, BASE } from '@/lib/api';
 import { getToken } from '@/lib/auth';
 import { uploadMedia } from '@/lib/upload';
-import type { OrderDetail, RetailerSubRole } from '@/lib/types';
+import type { OrderDetail } from '@/lib/types';
 import type { OrderAction, OrderActionKey, OrderConfirmKind } from '@/lib/order-actions';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { FieldError, Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -135,8 +128,8 @@ export function useOrderActionRunner(orderId: string): RunnerResult {
     }
     if (action.kind === 'dialog' && action.confirm) {
       const confirm = action.confirm;
-      if (confirm === 'counter-return' || confirm === 'door-close') {
-        // Need item rows — make sure detail is loaded, then open.
+      if (confirm === 'counter-return' || confirm === 'door-close' || confirm === 'handover') {
+        // Need order detail (item rows / assigned-agent state) — load it, then open.
         void ensureDetail().then((d) => {
           if (d) setOpenConfirm(confirm);
         });
@@ -168,6 +161,17 @@ export function useOrderActionRunner(orderId: string): RunnerResult {
         />
       )}
 
+      {openConfirm === 'reject' && (
+        <RejectOrderDialog
+          onClose={close}
+          pending={post.isPending}
+          onConfirm={() => {
+            setPendingKey('reject');
+            post.mutate({ endpoint: 'reject' }, { onSuccess: close });
+          }}
+        />
+      )}
+
       {openConfirm === 'decline-return' && (
         <DeclineReturnDialog
           orderId={orderId}
@@ -182,11 +186,12 @@ export function useOrderActionRunner(orderId: string): RunnerResult {
 
       {openConfirm === 'handover' && (
         <HandoverDialog
+          orderId={orderId}
+          detail={detail}
           onClose={close}
-          pending={post.isPending}
-          onSubmit={(body) => {
-            setPendingKey('handover');
-            post.mutate({ endpoint: 'handover', body }, { onSuccess: close });
+          onSuccess={() => {
+            invalidate();
+            close();
           }}
         />
       )}
@@ -368,6 +373,36 @@ function ReasonDialog({
   );
 }
 
+function RejectOrderDialog({
+  onClose,
+  onConfirm,
+  pending,
+}: {
+  onClose: () => void;
+  onConfirm: () => void;
+  pending: boolean;
+}) {
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Reject this order?</DialogTitle>
+          <DialogDescription>
+            The order is offered to the next-best store automatically. If no other store can
+            fulfil it, it is cancelled and the customer refunded. This can’t be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="mt-4">
+          <Button variant="ghost" size="sm" onClick={onClose}>Keep order</Button>
+          <Button variant="danger" size="sm" loading={pending} onClick={onConfirm}>
+            Reject order
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function DeclineReturnDialog({
   orderId,
   onClose,
@@ -410,94 +445,128 @@ function DeclineReturnDialog({
   );
 }
 
-type StaffRow = { id: string; legalName: string; subRole: RetailerSubRole; status: string };
-type HandoverBody = { assignedAgentId?: string; agentName?: string; agentPhone?: string };
-const MANUAL = '__manual__';
-
+/**
+ * Store→driver handover. Drivers are dispatched by the admin desk (not assigned by the
+ * retailer), so this dialog either:
+ *   - verifies the handoff code the dispatched driver reads off their app (releases the
+ *     parcel → picked up), or
+ *   - hands the parcel to an external courier by name/phone (no app, no code).
+ * If no driver is dispatched yet, only the external-courier path is available.
+ */
 function HandoverDialog({
+  orderId,
+  detail,
   onClose,
-  onSubmit,
-  pending,
+  onSuccess,
 }: {
+  orderId: string;
+  detail: OrderDetail | null;
   onClose: () => void;
-  onSubmit: (body: HandoverBody) => void;
-  pending: boolean;
+  onSuccess: () => void;
 }) {
-  // Pick from the store's delivery-agent accounts so the order shows up in that
-  // agent's app. Falls back to free-text for an external courier with no account.
-  const { data: staff } = useQuery({
-    queryKey: ['retailer', 'staff'],
-    queryFn: () => api<StaffRow[]>('/retailer/staff'),
-  });
-  const agents = (staff ?? []).filter((s) => s.subRole === 'delivery_agent' && s.status === 'active');
-
-  const [choice, setChoice] = useState<string>('');
+  const dispatched = !!detail?.assignedAgentId;
+  // Verify the dispatched driver's code by default; fall back to external courier.
+  const [mode, setMode] = useState<'code' | 'external'>(dispatched ? 'code' : 'external');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
 
-  const isManual = choice === MANUAL || agents.length === 0;
+  const handover = useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      api(`/retailer/orders/${orderId}/handover`, { method: 'POST', body }),
+    onSuccess: () => {
+      toast.success('Handed over');
+      onSuccess();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Handover failed'),
+  });
+
   const nameOk = name.trim().length >= 2;
   const phoneOk = /^\d{10}$/.test(phone.trim());
-  const canSubmit = isManual ? nameOk && phoneOk : choice !== '' && choice !== MANUAL;
+  const codeOk = code.trim().length >= 4;
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Hand to delivery</DialogTitle>
-          <DialogDescription>Assign the agent collecting this order.</DialogDescription>
+          <DialogDescription>
+            {mode === 'code'
+              ? 'A driver has been dispatched. Ask them for the code shown in their app and enter it to release the parcel.'
+              : dispatched
+                ? 'Hand this parcel to an external courier instead (no app, no code).'
+                : 'No driver dispatched yet. Wait for dispatch, or hand to an external courier below.'}
+          </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3">
-          {agents.length > 0 && (
+
+        {mode === 'code' ? (
+          <div className="space-y-3">
             <div>
-              <Label required>Delivery agent</Label>
-              <Select value={choice} onValueChange={setChoice}>
-                <SelectTrigger><SelectValue placeholder="Select an agent" /></SelectTrigger>
-                <SelectContent>
-                  {agents.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>{a.legalName}</SelectItem>
-                  ))}
-                  <SelectItem value={MANUAL}>Someone else (external courier)…</SelectItem>
-                </SelectContent>
-              </Select>
-              {agents.length === 0 && (
-                <p className="mt-1 text-[11.5px] text-ink-3">
-                  No delivery-agent accounts yet — add one under Staff, or enter details below.
-                </p>
-              )}
+              <Label htmlFor="handoff-code" required>Handoff code</Label>
+              <Input
+                id="handoff-code"
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                mono
+                autoFocus
+                maxLength={16}
+                placeholder="Code from the driver's app"
+              />
+              <p className="mt-1 text-[11.5px] text-ink-3">
+                Only the dispatched driver can see this code. A mismatch means the wrong driver.
+              </p>
             </div>
-          )}
-          {isManual && (
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="agent-name" required>Courier name</Label>
+              <Input id="agent-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+            </div>
+            <div>
+              <Label htmlFor="agent-phone" required>Courier phone</Label>
+              <Input id="agent-phone" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="numeric" placeholder="10-digit mobile" />
+              {phone.trim() && !phoneOk && <FieldError>Enter a 10-digit number.</FieldError>}
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="mt-4">
+          {mode === 'code' ? (
             <>
-              <div>
-                <Label htmlFor="agent-name" required>Agent name</Label>
-                <Input id="agent-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-              </div>
-              <div>
-                <Label htmlFor="agent-phone" required>Agent phone</Label>
-                <Input id="agent-phone" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="numeric" placeholder="10-digit mobile" />
-                {phone.trim() && !phoneOk && <FieldError>Enter a 10-digit number.</FieldError>}
-              </div>
+              <Button variant="ghost" size="sm" onClick={() => setMode('external')}>
+                External courier instead
+              </Button>
+              <Button
+                variant="accent"
+                size="sm"
+                loading={handover.isPending}
+                disabled={!codeOk}
+                onClick={() => handover.mutate({ handoffCode: code.trim() })}
+              >
+                Verify &amp; hand over
+              </Button>
+            </>
+          ) : (
+            <>
+              {dispatched ? (
+                <Button variant="ghost" size="sm" onClick={() => setMode('code')}>
+                  Back to driver code
+                </Button>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+              )}
+              <Button
+                variant="accent"
+                size="sm"
+                loading={handover.isPending}
+                disabled={!nameOk || !phoneOk}
+                onClick={() => handover.mutate({ agentName: name.trim(), agentPhone: phone.trim() })}
+              >
+                Hand over
+              </Button>
             </>
           )}
-        </div>
-        <DialogFooter className="mt-4">
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button
-            variant="accent"
-            size="sm"
-            loading={pending}
-            disabled={!canSubmit}
-            onClick={() =>
-              onSubmit(
-                isManual
-                  ? { agentName: name.trim(), agentPhone: phone.trim() }
-                  : { assignedAgentId: choice },
-              )
-            }
-          >
-            Hand over
-          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

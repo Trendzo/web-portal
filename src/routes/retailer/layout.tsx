@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, BarChart3, Bell, Building2, CalendarDays, FileText, LayoutDashboard, Package, Pencil, Receipt, ScanLine, Tag, Users, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -138,20 +137,11 @@ export default function RetailerLayout() {
     staleTime: 5 * 60 * 1000,
     refetchOnMount: 'always',
   });
-  const subRole = useAuth((s) =>
-    s.session?.kind === 'retailer' ? s.session.retailer.subRole : undefined,
-  );
   const groups = useMemo(() => {
     const built = buildGroups(data?.store ?? null);
     return filterSidebarGroups(built, permissions);
   }, [data?.store, permissions]);
   useRetailerBanners();
-
-  // Delivery agents never use the full store dashboard — bounce them to their
-  // focused delivery surface (hooks above still run; this guard is after them).
-  if (subRole === 'delivery_agent') {
-    return <Navigate to="/retailer/deliveries" replace />;
-  }
 
   return (
     <RoleGate kind="retailer">

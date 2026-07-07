@@ -11,10 +11,6 @@ import AdminCategories from './admin/categories';
 import AdminBrands from './admin/brands';
 import RetailerLogin from './retailer/login';
 import RetailerLayout from './retailer/layout';
-import AgentLayout from './agent/AgentLayout';
-import AgentDeliveries from './agent/deliveries';
-import AgentDeliveryDetail from './agent/delivery-detail';
-import { RoleGate } from '@/components/shell/RoleGate';
 import { PosGate } from '@/components/shell/PosGate';
 import RetailerDashboard from './retailer/dashboard';
 import RetailerStorePage, {
@@ -301,21 +297,8 @@ export const router = createBrowserRouter([
   { path: '/retailer/application', element: <RetailerApplication /> },
   { path: '/retailer/application-status', element: <RetailerApplicationStatus /> },
   { path: '/retailer/login', element: <RetailerLogin /> },
-  // Delivery-agent surface — a separate, focused shell mounted at the more-specific
-  // /retailer/deliveries path so it doesn't fall under the full retailer dashboard
-  // (whose layout bounces delivery agents here). Gated to the delivery_agent sub-role.
-  {
-    path: '/retailer/deliveries',
-    element: (
-      <RoleGate kind="retailer" subRole="delivery_agent">
-        <AgentLayout />
-      </RoleGate>
-    ),
-    children: [
-      { index: true, element: <AgentDeliveries /> },
-      { path: ':id', element: <AgentDeliveryDetail /> },
-    ],
-  },
+  // The delivery-agent web surface was retired — drivers are now a standalone identity
+  // served by the dedicated driver app (backend `/driver/*`).
   {
     path: '/retailer',
     element: <RetailerLayout />,

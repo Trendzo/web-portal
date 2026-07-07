@@ -12,6 +12,7 @@
 import type { ReactNode } from 'react';
 import {
   AlertTriangle,
+  Ban,
   Box,
   Check,
   CheckCircle2,
@@ -32,6 +33,7 @@ import type { ButtonProps } from '@/components/ui/button';
 
 export type OrderActionKey =
   | 'accept'
+  | 'reject'
   | 'pack'
   | 'pickup-handover'
   | 'handover'
@@ -54,6 +56,7 @@ export type OrderActionKind = 'mutation' | 'dialog' | 'download' | 'returns';
 
 /** Dialog actions resolve to one of these shared confirm UIs in the runner. */
 export type OrderConfirmKind =
+  | 'reject'
   | 'request-cancel'
   | 'mark-undelivered'
   | 'handover'
@@ -87,6 +90,7 @@ type Def = Pick<OrderAction, 'label' | 'variant' | 'icon' | 'kind' | 'endpoint' 
 /** Stable label/variant/icon/kind per action — the design source of truth. */
 const ACTION_DEF: Record<OrderActionKey, Def> = {
   accept: { label: 'Accept order', variant: 'accent', icon: <Check className="size-3.5" />, kind: 'mutation', endpoint: 'accept' },
+  reject: { label: 'Reject order', variant: 'danger', icon: <Ban className="size-3.5" />, kind: 'dialog', confirm: 'reject' },
   pack: { label: 'Mark as packed', variant: 'accent', icon: <Box className="size-3.5" />, kind: 'mutation', endpoint: 'pack' },
   'pickup-handover': { label: 'Hand to customer', variant: 'accent', icon: <Store className="size-3.5" />, kind: 'dialog', confirm: 'pickup-handover' },
   handover: { label: 'Hand to delivery', variant: 'accent', icon: <Truck className="size-3.5" />, kind: 'dialog', confirm: 'handover' },
@@ -161,7 +165,7 @@ export function deriveOrderActions(
   switch (status) {
     case 'routing':
       gated('accept', 'accepted', { primary: true });
-      add('request-cancel');
+      add('reject');
       break;
     case 'accepted':
       gated('pack', 'packed', { primary: true });

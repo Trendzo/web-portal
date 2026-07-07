@@ -6,7 +6,10 @@ import { api, ApiError } from '@/lib/api';
 import type { RetailerProfile } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { OtpInput } from '@/components/ui/otp-input';
 import { FieldError, Label } from '@/components/ui/label';
+
+const OTP_LENGTH = 4;
 import {
   COUNTRY_CODES,
   buildIdentifier,
@@ -92,14 +95,14 @@ export function PhoneOtpLogin({
     }
   }
 
-  async function handleVerify(e?: FormEvent) {
-    e?.preventDefault();
+  async function handleVerify(codeOverride?: string) {
     setFieldError(null);
-    const code = otp.replace(/\D/g, '');
-    if (code.length < 4) {
+    const code = (codeOverride ?? otp).replace(/\D/g, '');
+    if (code.length !== OTP_LENGTH) {
       setFieldError('Enter the OTP you received');
       return;
     }
+    if (verifying) return;
     setVerifying(true);
     try {
       const data = await verifyOtp(code);
@@ -144,7 +147,14 @@ export function PhoneOtpLogin({
 
   if (step === 'otp') {
     return (
-      <form onSubmit={handleVerify} className="space-y-4" noValidate>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleVerify();
+        }}
+        className="space-y-4"
+        noValidate
+      >
         <button
           type="button"
           onClick={() => setStep('phone')}
@@ -154,18 +164,16 @@ export function PhoneOtpLogin({
           Change number
         </button>
         <div>
-          <Label htmlFor="otp" required hint={`Sent to +${dial} ${nationalDigits}`}>
-            Enter OTP
+          <Label required hint={`Sent to +${dial} ${nationalDigits}`}>
+            Enter the {OTP_LENGTH}-digit OTP
           </Label>
-          <Input
-            id="otp"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={8}
-            placeholder="6-digit code"
+          <OtpInput
             value={otp}
-            onChange={(e) => setOtp(e.target.value)}
+            onChange={setOtp}
+            length={OTP_LENGTH}
             autoFocus
+            disabled={verifying}
+            onComplete={(code) => void handleVerify(code)}
           />
           <FieldError>{fieldError}</FieldError>
         </div>

@@ -54,10 +54,7 @@ export default function RetailerLogin() {
       /* fall through with empty permissions */
     }
     signIn({ kind: 'retailer', token, retailer, permissions });
-    // Delivery agents have a dedicated, focused surface — send them straight there.
-    navigate(retailer.subRole === 'delivery_agent' ? '/retailer/deliveries' : '/retailer/dashboard', {
-      replace: true,
-    });
+    navigate('/retailer/dashboard', { replace: true });
   }
 
   async function onSubmit(values: FormValues) {
