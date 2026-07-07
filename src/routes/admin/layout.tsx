@@ -13,6 +13,7 @@ import {
   Sliders,
   Sparkles,
   Tag,
+  Truck,
   Users,
   Wallet,
   Zap,
@@ -91,6 +92,7 @@ const GROUPS: SidebarGroup[] = [
     label: 'Orders',
     items: [
       { to: '/admin/orders', label: 'All Orders', end: true, icon: Receipt, action: 'orders.view' },
+      { to: '/admin/dispatch', label: 'Dispatch', end: true, icon: Truck, action: 'dispatch.view' },
       {
         // Disputes & refunds hub — the dispute queue plus the refunds those
         // disputes trigger, surfaced as tabs under one entry.
