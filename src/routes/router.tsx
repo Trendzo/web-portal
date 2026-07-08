@@ -39,7 +39,6 @@ import RetailerPromotionDetail from './retailer/promotion-detail';
 import AdminOrdersList from './admin/orders/list';
 import AdminDeveloperHub from './admin/developer-hub';
 import AdminOrderDetail from './admin/orders/detail';
-import AdminDispatch from './admin/dispatch';
 import RetailerOrdersBoard from './retailer/orders/board';
 import RetailerOrdersHistory from './retailer/orders/history';
 import PosLayout from './retailer/pos/PosLayout';
@@ -221,7 +220,6 @@ export const router = createBrowserRouter([
       { path: 'developer', element: <AdminDeveloperHub /> },
       { path: 'orders/new', element: <Navigate to="/admin/developer?tab=place-test-order" replace /> },
       { path: 'orders/:id', element: <AdminOrderDetail /> },
-      { path: 'dispatch', element: <AdminDispatch /> },
       { path: 'refunds', element: <AdminRefunds /> },
       // Disputes & refunds hub — Disputes queue + Refunds, URL-synced tabs.
       { path: 'disputes', element: <AdminDisputesHub /> },

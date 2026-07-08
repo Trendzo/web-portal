@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RetailersPanel } from './retailers';
 import { ConsumersPanel } from './consumers';
+import { DriversPanel } from './drivers';
 
 function TabCount({ count }: { count: number | undefined }) {
   if (!count) return null;
@@ -57,6 +58,13 @@ export default function AdminUsersHub() {
           count: undefined as number | undefined,
           Panel: ConsumersPanel,
         },
+        {
+          key: 'drivers',
+          label: 'Drivers',
+          show: !perms || perms['drivers.view'] === true,
+          count: undefined as number | undefined,
+          Panel: DriversPanel,
+        },
       ].filter((t) => t.show),
     [perms, pendingRetailers],
   );
@@ -79,7 +87,7 @@ export default function AdminUsersHub() {
       <PageHeader
         kicker="Users"
         title="Users"
-        description="Everyone on the platform — selling retailers and buying consumers. Approve sign-ups, search the directory, and drill into any account."
+        description="Everyone on the platform — selling retailers, buying consumers, and delivery drivers. Approve sign-ups, search the directory, and manage any account."
       />
 
       <Tabs value={active} onValueChange={setTab}>

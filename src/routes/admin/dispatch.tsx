@@ -4,7 +4,6 @@ import { toast } from 'sonner';
 import { RefreshCw, Truck, UserX } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { formatPaise, formatAge } from '@/lib/status';
-import { Page, PageHeader } from '@/components/ui/page';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Empty } from '@/components/ui/empty';
@@ -63,7 +62,7 @@ function Td({ children, className }: { children?: React.ReactNode; className?: s
   return <td className={`px-4 py-3 align-middle ${className ?? ''}`}>{children}</td>;
 }
 
-export default function AdminDispatch() {
+export function DispatchPanel() {
   const qc = useQueryClient();
   const canManage = usePermission('dispatch.manage');
 
@@ -111,27 +110,26 @@ export default function AdminDispatch() {
   const openAssign = (o: PackedOrder) => { setTarget(o); setDriverId(o.assignedDriver?.id ?? ''); };
 
   return (
-    <Page>
-      <PageHeader
-        title="Dispatch"
-        description="Assign or reassign drivers to packed orders — manual override for when auto-dispatch fails. Assigning mints a fresh handoff code the store verifies at pickup."
-        actions={
-          <div className="flex items-center gap-3">
-            <div className="text-[12.5px] text-ink-3">
-              <span className="font-semibold text-ink">{activeDrivers.length}</span> active driver{activeDrivers.length === 1 ? '' : 's'} ·{' '}
-              <span className="font-semibold text-ink">{waiting}</span> awaiting
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              iconLeft={<RefreshCw className={`size-3.5 ${ordersQ.isFetching ? 'animate-spin' : ''}`} />}
-              onClick={() => void qc.invalidateQueries({ queryKey: ['admin', 'dispatch'] })}
-            >
-              Refresh
-            </Button>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[13px] text-ink-3">
+          Assign or reassign drivers to packed orders — manual override for when auto-dispatch fails. Assigning mints a fresh handoff code the store verifies at pickup.
+        </p>
+        <div className="flex items-center gap-3">
+          <div className="text-[12.5px] text-ink-3 whitespace-nowrap">
+            <span className="font-semibold text-ink">{activeDrivers.length}</span> active driver{activeDrivers.length === 1 ? '' : 's'} ·{' '}
+            <span className="font-semibold text-ink">{waiting}</span> awaiting
           </div>
-        }
-      />
+          <Button
+            variant="outline"
+            size="sm"
+            iconLeft={<RefreshCw className={`size-3.5 ${ordersQ.isFetching ? 'animate-spin' : ''}`} />}
+            onClick={() => void qc.invalidateQueries({ queryKey: ['admin', 'dispatch'] })}
+          >
+            Refresh
+          </Button>
+        </div>
+      </div>
 
       {ordersQ.isLoading ? (
         <div className="space-y-2">
@@ -257,6 +255,6 @@ export default function AdminDispatch() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Page>
+    </div>
   );
 }

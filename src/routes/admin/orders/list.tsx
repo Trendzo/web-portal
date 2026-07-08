@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { CopyableId } from '@/components/ui/copyable-id';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FiltersSheet, type OrderFilterValues } from './order-filters';
+import { DispatchPanel } from '../dispatch';
 
 
 export default function AdminOrdersList() {
@@ -171,7 +172,12 @@ export default function AdminOrdersList() {
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="dispatch">Dispatch</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="dispatch">
+          <DispatchPanel />
+        </TabsContent>
 
         <TabsContent value="timeout">
           <AcceptanceTimeoutPanel rows={timeoutCountQ.data ?? []} isLoading={timeoutCountQ.isLoading} />

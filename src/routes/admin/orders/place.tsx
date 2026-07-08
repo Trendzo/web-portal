@@ -7,7 +7,6 @@ import { api, ApiError } from '@/lib/api';
 import { formatPaise } from '@/lib/status';
 import type {
   AdminRetailerView,
-  ConsumerSummary,
   PlaceOrderResult,
   Store,
   TestConsumerCreated,
@@ -38,6 +37,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ConsumerCombobox } from '@/components/ui/consumer-combobox';
 import { CopyableId } from '@/components/ui/copyable-id';
 import { MockDataBadge } from '@/components/ui/mock-data-badge';
 import { RoleGate } from '@/components/shell/RoleGate';
@@ -105,11 +105,6 @@ function PlaceTestOrderInner() {
     enabled: !!storeId,
   });
 
-  // Existing consumers — searchable picker for the dev tool.
-  const consumerList = useQuery({
-    queryKey: ['admin', 'consumers', 'place-order'],
-    queryFn: () => api<ConsumerSummary[]>('/admin/consumers?limit=200'),
-  });
   // Addresses for the selected consumer.
   const addressList = useQuery({
     queryKey: ['admin', 'consumers', consumerId, 'addresses'],
@@ -273,28 +268,14 @@ function PlaceTestOrderInner() {
               )}
               <div>
                 <Label htmlFor="cid">Or pick an existing consumer</Label>
-                <Select
+                <ConsumerCombobox
                   value={consumerId}
-                  onValueChange={(v) => {
-                    setConsumerId(v);
-                    const c = (consumerList.data ?? []).find((x) => x.id === v);
-                    setConsumerName(c?.name ?? '');
+                  onChange={(c) => {
+                    setConsumerId(c.id);
+                    setConsumerName(c.name || c.email || '');
                     setAddressId('');
                   }}
-                  disabled={consumerList.isLoading}
-                >
-                  <SelectTrigger id="cid">
-                    <SelectValue placeholder={consumerList.isLoading ? 'Loading consumers…' : 'Pick a consumer'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(consumerList.data ?? []).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        <span className="font-medium">{c.name || c.email}</span>
-                        <span className="ml-2 font-mono text-[11px] text-ink-3">{c.email}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </div>
               {deliveryMethod !== 'pickup' && (
                 <div>

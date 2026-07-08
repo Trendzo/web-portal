@@ -58,6 +58,8 @@ export default function AdminOrderDetail() {
   const qc = useQueryClient();
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [handoverOpen, setHandoverOpen] = useState(false);
+  const [handoffCode, setHandoffCode] = useState('');
   const [doorOpen, setDoorOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [feeOverrideOpen, setFeeOverrideOpen] = useState(false);
@@ -244,8 +246,7 @@ export default function AdminOrderDetail() {
                       <Button
                         variant="ink"
                         size="sm"
-                        loading={agentVerb.isPending}
-                        onClick={() => agentVerb.mutate({ storeId: order!.storeId, verb: 'handover' })}
+                        onClick={() => { setHandoffCode(''); setHandoverOpen(true); }}
                       >
                         Handover to agent
                       </Button>
@@ -485,6 +486,55 @@ export default function AdminOrderDetail() {
                   }}
                 >
                   Confirm
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={handoverOpen} onOpenChange={setHandoverOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Hand to delivery</DialogTitle>
+                <DialogDescription>
+                  If a driver was dispatched, ask them for the handoff code shown in their app and enter it to release the parcel. No driver dispatched? Hand it to an external courier instead.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2">
+                <Label htmlFor="admin-handoff-code">Handoff code</Label>
+                <Input
+                  id="admin-handoff-code"
+                  value={handoffCode}
+                  onChange={(e) => setHandoffCode(e.target.value.toUpperCase())}
+                  placeholder="Code from the driver's app"
+                  maxLength={16}
+                />
+                <p className="text-[12px] text-ink-3">Only the dispatched driver can see this code. A mismatch means the wrong driver.</p>
+              </div>
+              <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+                <Button
+                  variant="ghost"
+                  loading={agentVerb.isPending}
+                  onClick={() =>
+                    agentVerb.mutate(
+                      { storeId: order!.storeId, verb: 'handover', body: { agentName: 'External courier (admin override)' } },
+                      { onSuccess: () => setHandoverOpen(false) },
+                    )
+                  }
+                >
+                  Hand over without code
+                </Button>
+                <Button
+                  variant="ink"
+                  loading={agentVerb.isPending}
+                  disabled={handoffCode.trim().length < 4}
+                  onClick={() =>
+                    agentVerb.mutate(
+                      { storeId: order!.storeId, verb: 'handover', body: { handoffCode: handoffCode.trim() } },
+                      { onSuccess: () => { setHandoverOpen(false); setHandoffCode(''); } },
+                    )
+                  }
+                >
+                  Verify &amp; hand over
                 </Button>
               </DialogFooter>
             </DialogContent>
