@@ -735,6 +735,8 @@ export type DeliveryAttempt = {
   outcome: DeliveryAttemptOutcome;
   notes: string | null;
   proofPhotos: string[];
+  /** Optional customer-signature capture (driver app). */
+  signatureUrl?: string | null;
   attemptedAt: string;
 };
 

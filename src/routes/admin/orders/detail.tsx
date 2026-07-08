@@ -39,6 +39,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CopyableId } from '@/components/ui/copyable-id';
 import { Timeline } from '@/components/ui/timeline';
+import { ProofPhotoStrip } from '@/components/ui/proof-photos';
 import { DoorVisitDialog } from '@/components/ui/door-visit-dialog';
 import { ReturnDialog } from '@/components/ui/return-dialog';
 import {
@@ -903,14 +904,17 @@ function Detail({
                 <>
                   <hr className="border-line my-3" />
                   <div className="kicker mb-2">Delivery attempts</div>
-                  <ul className="space-y-1 text-[12px]">
+                  <ul className="space-y-2 text-[12px]">
                     {order.deliveryAttempts.map((a) => (
-                      <li key={a.id} className="flex items-center justify-between">
-                        <span>
-                          #{a.attemptNumber} · {a.outcome}
-                          {a.notes && <span className="text-ink-3"> — {a.notes}</span>}
-                        </span>
-                        <span className="text-ink-3">{formatAge(a.attemptedAt)}</span>
+                      <li key={a.id}>
+                        <div className="flex items-center justify-between">
+                          <span>
+                            #{a.attemptNumber} · {a.outcome}
+                            {a.notes && <span className="text-ink-3"> — {a.notes}</span>}
+                          </span>
+                          <span className="text-ink-3">{formatAge(a.attemptedAt)}</span>
+                        </div>
+                        <ProofPhotoStrip photos={a.proofPhotos} signatureUrl={a.signatureUrl} />
                       </li>
                     ))}
                   </ul>
