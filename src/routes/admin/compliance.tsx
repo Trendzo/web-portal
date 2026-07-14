@@ -78,7 +78,9 @@ export function useComplianceData() {
   const deletionsActive = (deletions.data ?? []).filter((d) => d.status === 'pending');
 
   const counts: Record<Category, number> = {
-    kyc: kyc.data?.length ?? 0,
+    // Badge = what needs the reviewer, not every cycle that ever existed. Decided and
+    // retailer-side cycles used to inflate this, disagreeing with the pending-requests desk.
+    kyc: (kyc.data ?? []).filter((k) => k.status === 'submitted').length,
     floor: floorActive.length,
     exports: exportsActive.length,
     deletions: deletionsActive.length,

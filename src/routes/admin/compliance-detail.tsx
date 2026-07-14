@@ -2,18 +2,20 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, ExternalLink, FileText, ImageIcon } from 'lucide-react';
+import { ArrowLeft, Check, ExternalLink, FileText, ImageIcon, X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import { kycReverificationStatusMeta, formatAge } from '@/lib/status';
+import { kycDocumentStatusMeta, kycReverificationStatusMeta, formatAge } from '@/lib/status';
 import type { KycReverification, RequiredDocumentType } from '@/lib/types';
 import { Page, PageHeader, SectionHeading } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Empty } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MetaList } from '@/components/ui/meta-list';
 import { CopyableId } from '@/components/ui/copyable-id';
 import { ReasonActionDialog } from '@/components/admin/reason-action-dialog';
+import { PermissionGate } from '@/components/shell/PermissionGate';
 
 // Same canonical 5 the retailer-side renders, in the same order. Even if the
 // backend returns documents in a different order, the admin reviewer sees them
@@ -34,26 +36,55 @@ export default function AdminComplianceDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const [rejecting, setRejecting] = useState(false);
+  const [rejectDoc, setRejectDoc] = useState<{ docId: string; label: string } | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['admin', 'compliance', id],
     queryFn: () => api<KycReverification>(`/admin/compliance/kyc/${id}`),
     enabled: Boolean(id),
+  });
+
+  function refresh() {
+    void qc.invalidateQueries({ queryKey: ['admin', 'compliance', id] });
+    void qc.invalidateQueries({ queryKey: ['admin', 'compliance'] });
+  }
+
+  /** Review ONE document. This is what makes a partial rejection possible — the retailer
+   *  then only has to replace what actually failed. */
+  const decideDoc = useMutation({
+    mutationFn: ({ docId, decision, note }: { docId: string; decision: 'verified' | 'rejected'; note?: string }) =>
+      api(`/admin/compliance/kyc/${id}/documents/${docId}/decide`, {
+        method: 'POST',
+        body: { decision, ...(note ? { note } : {}) },
+      }),
+    onSuccess: (_d, v) => {
+      toast.success(v.decision === 'verified' ? 'Document verified' : 'Document rejected');
+      setRejectDoc(null);
+      refresh();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Action failed'),
   });
 
   const decide = useMutation({
     mutationFn: ({ decision, reason }: { decision: 'approved' | 'rejected'; reason?: string }) =>
       api(`/admin/compliance/kyc/${id}/decide`, { method: 'POST', body: { decision, reason } }),
     onSuccess: (_data, { decision }) => {
-      toast.success(decision === 'approved' ? 'KYC approved' : 'KYC rejected');
+      toast.success(decision === 'approved' ? 'KYC approved' : 'KYC sent back');
       setRejecting(false);
-      void qc.invalidateQueries({ queryKey: ['admin', 'compliance', id] });
-      void qc.invalidateQueries({ queryKey: ['admin', 'compliance'] });
+      refresh();
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Action failed'),
   });
 
-  if (isLoading || !data) return <Page><Skeleton className="h-72" /></Page>;
+  if (isLoading) return <Page><Skeleton className="h-72" /></Page>;
+  if (isError || !data) {
+    return (
+      <Page>
+        <PageHeader title="KYC cycle not found" />
+        <Empty kicker="Not found" title="No KYC re-verification matches this id." />
+      </Page>
+    );
+  }
   const meta = kycReverificationStatusMeta(data.status);
   const dueIn = Math.round((new Date(data.dueAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   const graceIn = Math.round(
@@ -66,6 +97,14 @@ export default function AdminComplianceDetail() {
   const verifiedCount = data.documents.filter((d) => d.status === 'verified').length;
   const rejectedCount = data.documents.filter((d) => d.status === 'rejected').length;
   const missingCount = DOC_SLOTS.length - submittedCount;
+
+  // Documents are only reviewable while the cycle sits with the reviewer.
+  const underReview = data.status === 'submitted';
+  // The cycle decision is DERIVED from the per-document review — approve requires every
+  // required doc verified; sending it back requires at least one rejected.
+  const allVerified = DOC_SLOTS.every(({ kind }) => docByKind.get(kind)?.status === 'verified');
+  const canApprove = underReview && allVerified;
+  const canSendBack = underReview && rejectedCount > 0;
 
   return (
     <Page>
@@ -117,19 +156,19 @@ export default function AdminComplianceDetail() {
           <CardContent className="p-6">
             <SectionHeading kicker="Documents" title="Submitted by retailer" />
             <p className="mt-1 text-[12.5px] text-ink-3">
-              Open each document in a new tab to review. Approve the whole cycle once every required document looks good.
+              {underReview
+                ? 'Review each document individually. Reject the ones that need replacing — the retailer only re-uploads those.'
+                : 'This cycle is not under review, so documents cannot be actioned.'}
             </p>
             <ul className="mt-4 space-y-2">
               {DOC_SLOTS.map(({ kind, label }) => {
                 const d = docByKind.get(kind);
                 const fileUrl = d?.fileUrl ?? null;
                 const status = d?.status ?? 'missing';
-                const statusTone =
-                  status === 'verified' ? 'success'
-                  : status === 'pending_review' ? 'warning'
-                  : status === 'rejected' ? 'danger'
-                  : 'neutral';
+                const docMeta = kycDocumentStatusMeta(status);
                 const previewable = fileUrl && isImageUrl(fileUrl);
+                const actionable = underReview && !!d && status !== 'missing';
+                const busy = decideDoc.isPending && decideDoc.variables?.docId === d?.id;
                 return (
                   <li
                     key={kind}
@@ -159,21 +198,59 @@ export default function AdminComplianceDetail() {
                         <div className="mt-0.5 text-[11.5px] text-ink-3">
                           {d?.uploadedAt ? `Uploaded ${formatAge(d.uploadedAt)}` : 'Not uploaded'}
                         </div>
-                        <div className="mt-1.5">
-                          <Badge tone={statusTone}>{status.replace(/_/g, ' ')}</Badge>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <Badge tone={docMeta.tone}>{docMeta.label}</Badge>
+                          {d?.reviewedAt && (
+                            <span className="text-[11px] text-ink-4">
+                              reviewed {formatAge(d.reviewedAt)}
+                            </span>
+                          )}
                         </div>
+                        {d?.reviewerNote && (
+                          <p className="mt-1.5 rounded-md border border-danger/30 bg-danger/5 px-2 py-1 text-[12px] text-danger">
+                            {d.reviewerNote}
+                          </p>
+                        )}
                       </div>
                     </div>
-                    {fileUrl && (
-                      <Button
-                        asChild
-                        variant="outline"
-                        size="sm"
-                        iconRight={<ExternalLink className="size-3.5" />}
-                      >
-                        <a href={fileUrl} target="_blank" rel="noreferrer">View</a>
-                      </Button>
-                    )}
+
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {fileUrl && (
+                        <Button
+                          asChild
+                          variant="outline"
+                          size="sm"
+                          iconRight={<ExternalLink className="size-3.5" />}
+                        >
+                          <a href={fileUrl} target="_blank" rel="noreferrer">View</a>
+                        </Button>
+                      )}
+                      {actionable && (
+                        <PermissionGate action="kyc.decide">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            loading={busy && decideDoc.variables?.decision === 'verified'}
+                            disabled={status === 'verified' || decideDoc.isPending}
+                            iconLeft={<Check className="size-3.5" />}
+                            className="text-success border-success/40 hover:bg-success/5"
+                            onClick={() => decideDoc.mutate({ docId: d!.id, decision: 'verified' })}
+                          >
+                            Verify
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={status === 'rejected' || decideDoc.isPending}
+                            iconLeft={<X className="size-3.5" />}
+                            className="text-danger border-danger/40 hover:bg-danger/5"
+                            onClick={() => setRejectDoc({ docId: d!.id, label })}
+                          >
+                            Reject
+                          </Button>
+                        </PermissionGate>
+                      )}
+                    </div>
                   </li>
                 );
               })}
@@ -193,42 +270,81 @@ export default function AdminComplianceDetail() {
                 ...(data.decisionReason ? [{ label: 'Last decision note', value: data.decisionReason }] : []),
               ]}
             />
-            <div className="mt-6 flex flex-wrap gap-2">
-              <Button
-                variant="accent"
-                loading={decide.isPending}
-                disabled={data.status === 'approved' || submittedCount < DOC_SLOTS.length}
-                title={submittedCount < DOC_SLOTS.length ? 'Retailer hasn\'t uploaded every document yet.' : undefined}
-                onClick={() => decide.mutate({ decision: 'approved' })}
-              >
-                Approve re-verification
-              </Button>
-              <Button
-                variant="outline"
-                className="text-danger border-danger/40 hover:bg-danger/5"
-                disabled={data.status === 'approved' || data.status === 'rejected'}
-                onClick={() => setRejecting(true)}
-              >
-                Reject
-              </Button>
-            </div>
-            {data.status === 'pending' && submittedCount === 0 && (
+            <PermissionGate action="kyc.decide">
+              <div className="mt-6 flex flex-wrap gap-2">
+                <Button
+                  variant="accent"
+                  loading={decide.isPending && decide.variables?.decision === 'approved'}
+                  disabled={!canApprove || decide.isPending}
+                  title={
+                    !underReview
+                      ? 'The retailer has not submitted this cycle for review.'
+                      : !allVerified
+                        ? 'Verify every required document first.'
+                        : undefined
+                  }
+                  onClick={() => decide.mutate({ decision: 'approved' })}
+                >
+                  Approve re-verification
+                </Button>
+                <Button
+                  variant="outline"
+                  className="text-danger border-danger/40 hover:bg-danger/5"
+                  disabled={!canSendBack || decide.isPending}
+                  title={
+                    !underReview
+                      ? 'The retailer has not submitted this cycle for review.'
+                      : rejectedCount === 0
+                        ? 'Reject at least one document so the retailer knows what to fix.'
+                        : undefined
+                  }
+                  onClick={() => setRejecting(true)}
+                >
+                  Send back
+                </Button>
+              </div>
+            </PermissionGate>
+            {!underReview && (
+              <p className="mt-3 text-[11.5px] text-ink-3">
+                {data.status === 'approved' || data.status === 'rejected'
+                  ? 'This cycle has been decided.'
+                  : 'Waiting for the retailer to upload and submit their documents.'}
+              </p>
+            )}
+            {underReview && !allVerified && rejectedCount === 0 && (
               <p className="mt-3 text-[11.5px] text-warning">
-                Retailer hasn't uploaded any document yet. No action available until at least one document arrives.
+                Review each document above — verify the good ones, reject the ones that need replacing.
               </p>
             )}
           </CardContent>
         </Card>
       </div>
 
+      {/* Cycle-level send-back. The rejected documents already carry their own notes; this
+          is the covering message for the whole cycle. */}
       <ReasonActionDialog
         open={rejecting}
-        title="Reject re-verification?"
-        description="The retailer will be asked to re-submit. Persistent rejection escalates the warning ladder."
-        confirmLabel="Reject"
+        title="Send back for changes?"
+        description={`${rejectedCount} document${rejectedCount === 1 ? '' : 's'} will be sent back. The retailer re-uploads only those and re-submits — nothing else is discarded.`}
+        confirmLabel="Send back"
         danger
+        loading={decide.isPending}
         onClose={() => setRejecting(false)}
         onConfirm={(reason) => decide.mutate({ decision: 'rejected', reason })}
+      />
+
+      {/* Per-document rejection — the note tells the retailer what's wrong with THIS file. */}
+      <ReasonActionDialog
+        open={rejectDoc !== null}
+        title={`Reject ${rejectDoc?.label ?? 'document'}?`}
+        description="Explain what's wrong with this document. The retailer sees this note and re-uploads just this file."
+        confirmLabel="Reject document"
+        danger
+        loading={decideDoc.isPending}
+        onClose={() => setRejectDoc(null)}
+        onConfirm={(note) =>
+          rejectDoc && decideDoc.mutate({ docId: rejectDoc.docId, decision: 'rejected', note })
+        }
       />
     </Page>
   );

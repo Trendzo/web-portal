@@ -18,7 +18,6 @@ import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RejectApplicationDialog } from '@/components/admin/reject-application-dialog';
-import { ReasonActionDialog } from '@/components/admin/reason-action-dialog';
 
 /** One request type the operator can triage from the Stores → Pending Requests view. */
 type RequestKind = 'application' | 'change' | 'kyc' | 'policy';
@@ -33,6 +32,9 @@ interface NormalizedRequest {
   badge: { label: string; tone: 'info' | 'warning' | 'danger' | 'neutral' };
   /** Detail flow opened on card click — same routes the KYC tab deep-links to. */
   detailHref: string;
+  /** No inline Accept/Reject — the decision needs the detail page (KYC is reviewed
+   *  document-by-document, so a blanket one-click approve would bypass the review). */
+  reviewOnly?: boolean;
 }
 
 const STALE_MS = 60_000;
@@ -69,8 +71,11 @@ export function usePendingRequests(storeId?: string) {
     staleTime: STALE_MS,
   });
   const kyc = useQuery({
-    queryKey: ['admin', 'compliance', 'kyc'],
-    queryFn: () => api<KycReverification[]>('/admin/compliance/kyc'),
+    queryKey: ['admin', 'compliance', 'kyc', 'submitted'],
+    // Only cycles the retailer has SUBMITTED are an admin task. `pending`/`overdue` are
+    // waiting on the retailer, and decided ones are done — the endpoint used to return
+    // every cycle that ever existed, which is why an approved one sat here forever.
+    queryFn: () => api<KycReverification[]>('/admin/compliance/kyc?status=submitted'),
     staleTime: STALE_MS,
   });
   const policy = useQuery({
@@ -110,17 +115,22 @@ export function usePendingRequests(storeId?: string) {
         detailHref: `/admin/change-requests/${cr.id}`,
       });
     }
+    // The query already filters to `submitted`, so no client-side status filtering here.
     for (const k of (kyc.data ?? []).filter((x) => !storeId || x.storeId === storeId)) {
-      const uploaded = k.documents.filter((d) => d.status !== 'missing').length;
-      const dueIn = Math.round((new Date(k.dueAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+      const reviewed = k.documents.filter(
+        (d) => d.status === 'verified' || d.status === 'rejected',
+      ).length;
       out.push({
         kind: 'kyc',
         id: k.id,
         title: k.storeName ?? `Store ${k.storeId ?? k.retailerId ?? ''}`,
-        subtitle: `${uploaded}/${k.documents.length} docs uploaded`,
-        age: dueIn < 0 ? `${-dueIn} days overdue` : `Due in ${dueIn} days`,
+        subtitle: `${reviewed}/${k.documents.length} documents reviewed`,
+        age: k.submittedAt ? `Submitted ${formatAge(k.submittedAt)}` : 'Submitted',
         badge: { label: 'Re-KYC', tone: 'warning' },
         detailHref: `/admin/compliance/${k.id}`,
+        // KYC is reviewed document-by-document — a one-click blanket approve from this
+        // desk would bypass that entirely (it used to approve a cycle with zero docs).
+        reviewOnly: true,
       });
     }
     for (const p of policyActive) {
@@ -150,7 +160,6 @@ export function PendingRequestsGrid({ storeId }: { storeId?: string } = {}) {
   const { items, isLoading } = usePendingRequests(storeId);
 
   const [rejectApp, setRejectApp] = useState<string | null>(null);
-  const [rejectKyc, setRejectKyc] = useState<string | null>(null);
 
   function invalidate(kind: RequestKind) {
     if (kind === 'application') void qc.invalidateQueries({ queryKey: ['admin', 'applications'] });
@@ -178,25 +187,18 @@ export function PendingRequestsGrid({ storeId }: { storeId?: string } = {}) {
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Action failed.'),
   });
 
-  const decideKyc = useMutation({
-    mutationFn: ({ id, decision, reason }: { id: string; decision: 'approved' | 'rejected'; reason?: string }) =>
-      api(`/admin/compliance/kyc/${id}/decide`, { method: 'POST', body: { decision, reason } }),
-    onSuccess: (_d, v) => { toast.success(v.decision === 'approved' ? 'KYC approved' : 'KYC rejected'); setRejectKyc(null); invalidate('kyc'); },
-    onError: (e) => toast.error(e instanceof Error ? e.message : 'Action failed.'),
-  });
-
+  // KYC has no inline decide: it is reviewed document-by-document on the detail page.
+  // A one-click blanket approve here used to approve a cycle with zero documents uploaded.
   function accept(r: NormalizedRequest) {
     if (r.kind === 'application') approveApp.mutate(r.id);
     else if (r.kind === 'change') decideChange.mutate({ id: r.id, decision: 'approved' });
-    else if (r.kind === 'kyc') decideKyc.mutate({ id: r.id, decision: 'approved' });
   }
   function reject(r: NormalizedRequest) {
     if (r.kind === 'application') setRejectApp(r.id);
     else if (r.kind === 'change') decideChange.mutate({ id: r.id, decision: 'rejected' });
-    else if (r.kind === 'kyc') setRejectKyc(r.id);
   }
 
-  const acting = approveApp.isPending || rejectAppMut.isPending || decideChange.isPending || decideKyc.isPending;
+  const acting = approveApp.isPending || rejectAppMut.isPending || decideChange.isPending;
 
   if (isLoading) {
     return (
@@ -230,6 +232,10 @@ export function PendingRequestsGrid({ storeId }: { storeId?: string } = {}) {
                 {r.kind === 'policy' ? (
                   <Button variant="outline" size="sm" className="w-full" onClick={() => navigate(r.detailHref)}>
                     Open
+                  </Button>
+                ) : r.reviewOnly ? (
+                  <Button variant="outline" size="sm" className="w-full" onClick={() => navigate(r.detailHref)}>
+                    Review documents
                   </Button>
                 ) : (
                   <div className="flex gap-2">
@@ -268,16 +274,6 @@ export function PendingRequestsGrid({ storeId }: { storeId?: string } = {}) {
         onConfirm={({ reason, mustReuploadDocKinds }) =>
           rejectApp && rejectAppMut.mutate({ id: rejectApp, reason, mustReuploadDocKinds })
         }
-      />
-      <ReasonActionDialog
-        open={rejectKyc !== null}
-        title="Reject re-KYC"
-        description="The retailer will be asked to re-submit. Persistent rejection escalates the warning ladder."
-        confirmLabel="Reject"
-        danger
-        loading={decideKyc.isPending}
-        onClose={() => setRejectKyc(null)}
-        onConfirm={(reason) => rejectKyc && decideKyc.mutate({ id: rejectKyc, decision: 'rejected', reason })}
       />
     </>
   );

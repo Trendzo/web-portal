@@ -38,6 +38,8 @@ export function mockKycDocuments(): KycDocument[] {
       status: 'verified',
       uploadedAt: new Date(now() - DAY * 350).toISOString(),
       fileUrl: 'https://example.com/docs/gstin.pdf',
+      reviewedAt: new Date(now() - DAY * 349).toISOString(),
+      reviewerNote: null,
     },
     {
       id: 'kyc_doc_pan',
@@ -46,6 +48,8 @@ export function mockKycDocuments(): KycDocument[] {
       status: 'pending_review',
       uploadedAt: new Date(now() - DAY * 1).toISOString(),
       fileUrl: 'https://example.com/docs/pan.pdf',
+      reviewedAt: null,
+      reviewerNote: null,
     },
     {
       id: 'kyc_doc_addr',
@@ -54,6 +58,8 @@ export function mockKycDocuments(): KycDocument[] {
       status: 'missing',
       uploadedAt: null,
       fileUrl: null,
+      reviewedAt: null,
+      reviewerNote: null,
     },
   ];
 }

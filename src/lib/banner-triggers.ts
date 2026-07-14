@@ -30,6 +30,24 @@ export function useKycBanner() {
 
     const gracePassed = now > graceEndsAt;
 
+    // Sent back for changes. This fell through to clearByKind() before, so a rejected
+    // cycle raised NO banner at all — the retailer had no idea they had to act.
+    if (data.status === 'rejected') {
+      pushBanner({
+        id: 'kyc-rejected',
+        kind: 'kyc',
+        tone: 'danger',
+        title: 'KYC documents need replacing',
+        body:
+          data.decisionReason ??
+          'Some documents were rejected. Re-upload the flagged ones and submit again.',
+        cta: { label: 'Fix KYC documents', href: '/retailer/kyc' },
+        dismissible: false,
+        portal: 'retailer',
+      });
+      return;
+    }
+
     if (gracePassed || data.status === 'overdue') {
       pushBanner({
         id: 'kyc-overdue',

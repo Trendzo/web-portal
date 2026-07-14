@@ -25,6 +25,10 @@ const DOC_SLOTS: { kind: RequiredDocumentType; label: string }[] = [
   { kind: 'shop_act_license', label: 'Shop-act license' },
 ];
 
+/** Cycle states that still accept uploads + a submit. Mirrors the server's writable set —
+ *  `rejected` is a WORKING state (fix the flagged docs and re-submit), not a dead end. */
+const WRITABLE_STATUSES: string[] = ['pending', 'rejected', 'overdue'];
+
 type LocalUpload = { url: string; filename: string };
 
 /**
@@ -67,8 +71,14 @@ export function KycReverificationPanel() {
     const kind = activeKindRef.current;
     activeKindRef.current = null;
     if (!kind || !data) return;
-    if (data.status !== 'pending') {
-      toast.error('Cycle is not accepting uploads.');
+    // A rejected (or overdue) cycle is still WRITABLE — that's the whole resubmission
+    // loop. Gating on `pending` meant a rejected retailer could never fix anything.
+    if (!WRITABLE_STATUSES.includes(data.status)) {
+      toast.error(
+        data.status === 'submitted'
+          ? 'Your documents are under review — wait for the outcome.'
+          : 'This cycle is closed.',
+      );
       return;
     }
     const allowed = ['application/pdf', 'image/jpeg', 'image/png'];
@@ -111,11 +121,15 @@ export function KycReverificationPanel() {
   // is what the UI iterates, not whatever order the server returned. Guarantees
   // the same labels + order the retailer saw at signup.
   const serverByKind = new Map(data.documents.map((d) => [d.kind, d]));
+  const writable = WRITABLE_STATUSES.includes(data.status);
+  // A REJECTED document does not count as satisfied — it must be replaced first.
+  // This previously only excluded `missing`, so a rejected cycle looked ready to submit.
   const allUploaded = DOC_SLOTS.every((s) => {
     const srv = serverByKind.get(s.kind);
-    return srv ? srv.status !== 'missing' : local[s.kind] != null;
+    if (!srv) return local[s.kind] != null;
+    return srv.status !== 'missing' && srv.status !== 'rejected';
   });
-  const canSubmit = data.status === 'pending' && allUploaded;
+  const canSubmit = writable && allUploaded;
   const anyBusy = Object.values(busy).some(Boolean);
 
   return (
@@ -135,6 +149,12 @@ export function KycReverificationPanel() {
                 Due in {dueIn} day{dueIn === 1 ? '' : 's'} · Grace ends in {graceIn} days
               </span>
             </div>
+            {data.status === 'rejected' && (
+              <div className="mb-4 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-[12.5px] text-danger">
+                <strong className="font-medium">Sent back for changes.</strong>{' '}
+                {data.decisionReason ?? 'Replace the documents marked below, then submit again.'}
+              </div>
+            )}
             <MetaList
               cols={1}
               items={[
@@ -149,7 +169,17 @@ export function KycReverificationPanel() {
                 iconLeft={<ShieldCheck className="size-4" />}
                 loading={submit.isPending}
                 disabled={!canSubmit || anyBusy}
-                title={!canSubmit ? 'Upload all required documents first.' : anyBusy ? 'Wait for uploads to finish.' : undefined}
+                title={
+                  !writable
+                    ? data.status === 'submitted'
+                      ? 'Your documents are under review.'
+                      : 'This cycle is closed.'
+                    : !allUploaded
+                      ? 'Upload (or replace) every required document first.'
+                      : anyBusy
+                        ? 'Wait for uploads to finish.'
+                        : undefined
+                }
                 onClick={() => submit.mutate(data.id)}
               >
                 Submit re-verification
@@ -177,49 +207,56 @@ export function KycReverificationPanel() {
                   : srv?.status === 'pending_review' ? 'warning'
                   : srv?.status === 'rejected' ? 'danger'
                   : 'neutral';
+                const locked = isBusy || !writable;
                 return (
                   <li
                     key={kind}
-                    className="flex items-center justify-between gap-3 rounded-md border border-line bg-bg-2/30 px-3 py-2"
+                    className="flex items-start justify-between gap-3 rounded-md border border-line bg-bg-2/30 px-3 py-2"
                   >
-                    <div className="flex min-w-0 flex-1 items-center gap-2 flex-wrap">
-                      <span className="text-[13px] text-ink-2 shrink-0">{label}</span>
-                      {srv && (
-                        <Badge tone={statusTone} flat>
-                          {srv.status.replace(/_/g, ' ')}
-                        </Badge>
-                      )}
-                      {uploadedFilename && (
-                        <span className="flex items-center gap-1 truncate text-[11.5px] text-success">
-                          <CheckCircle2 className="size-3 shrink-0" />
-                          <span className="truncate">{uploadedFilename}</span>
-                        </span>
-                      )}
-                      {!uploadedFilename && serverHasFile && (
-                        <a
-                          href={srv.fileUrl!}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 truncate text-[11.5px] text-ink-3 hover:text-ink hover:underline"
-                        >
-                          <FileText className="size-3 shrink-0" />
-                          View existing file
-                        </a>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-1 items-center gap-2 flex-wrap">
+                        <span className="text-[13px] text-ink-2 shrink-0">{label}</span>
+                        {srv && (
+                          <Badge tone={statusTone} flat>
+                            {srv.status.replace(/_/g, ' ')}
+                          </Badge>
+                        )}
+                        {uploadedFilename && (
+                          <span className="flex items-center gap-1 truncate text-[11.5px] text-success">
+                            <CheckCircle2 className="size-3 shrink-0" />
+                            <span className="truncate">{uploadedFilename}</span>
+                          </span>
+                        )}
+                        {!uploadedFilename && serverHasFile && (
+                          <a
+                            href={srv.fileUrl!}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 truncate text-[11.5px] text-ink-3 hover:text-ink hover:underline"
+                          >
+                            <FileText className="size-3 shrink-0" />
+                            View existing file
+                          </a>
+                        )}
+                      </div>
+                      {/* Exactly what's wrong with THIS file — replace only this one. */}
+                      {srv?.status === 'rejected' && (
+                        <p className="mt-1 text-[11.5px] text-danger">
+                          {srv.reviewerNote ?? 'Rejected — please upload a new file.'}
+                        </p>
                       )}
                     </div>
                     {/* Trigger uses <label htmlFor> rather than a programmatic click so the
                         file picker opens inside the original user gesture (Safari is strict
                         about this) and the browser restores the last-used directory. */}
                     <label
-                      htmlFor={isBusy || data.status !== 'pending' ? undefined : 'kyc-doc-file-input'}
+                      htmlFor={locked ? undefined : 'kyc-doc-file-input'}
                       onMouseDown={() => {
                         activeKindRef.current = kind;
                       }}
-                      aria-disabled={isBusy || data.status !== 'pending'}
+                      aria-disabled={locked}
                       className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-[12px] text-ink-2 transition-colors ${
-                        isBusy || data.status !== 'pending'
-                          ? 'cursor-not-allowed opacity-50'
-                          : 'cursor-pointer hover:bg-bg-3'
+                        locked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-bg-3'
                       }`}
                     >
                       {isBusy ? (

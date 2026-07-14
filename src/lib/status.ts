@@ -13,6 +13,7 @@ import type {
   EnforcementStep,
   IssueDecision,
   IssueStatus,
+  KycDocumentStatus,
   KycReverificationStatus,
   ListingStatus,
   Mechanism,
@@ -511,6 +512,21 @@ export function kycReverificationStatusMeta(s: KycReverificationStatus): { label
       return { label: 'Rejected', tone: 'danger' };
     case 'overdue':
       return { label: 'Overdue', tone: 'danger' };
+  }
+}
+
+/** Per-document review state. Exhaustive switch (no default) so a new document status
+ *  fails to compile rather than silently rendering as a grey chip. */
+export function kycDocumentStatusMeta(s: KycDocumentStatus): { label: string; tone: Tone } {
+  switch (s) {
+    case 'missing':
+      return { label: 'Not uploaded', tone: 'neutral' };
+    case 'pending_review':
+      return { label: 'Pending review', tone: 'warning' };
+    case 'verified':
+      return { label: 'Verified', tone: 'success' };
+    case 'rejected':
+      return { label: 'Rejected', tone: 'danger' };
   }
 }
 

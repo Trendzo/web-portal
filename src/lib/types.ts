@@ -1222,6 +1222,10 @@ export type KycDocument = {
   status: KycDocumentStatus;
   uploadedAt: string | null;
   fileUrl: string | null;
+  /** Per-document review outcome. Written by the admin; shown to the retailer so they
+   *  know exactly which document to replace, and why. */
+  reviewedAt: string | null;
+  reviewerNote: string | null;
 };
 
 export type KycReverificationStatus = 'pending' | 'submitted' | 'approved' | 'rejected' | 'overdue';

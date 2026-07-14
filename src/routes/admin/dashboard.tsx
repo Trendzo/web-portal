@@ -74,9 +74,10 @@ export default function AdminDashboard() {
     select: (rows) => rows.filter((p) => p.status === 'failed'),
   });
   const overdueKyc = useQuery({
-    queryKey: ['admin', 'compliance', 'kyc'],
-    queryFn: () => api<KycReverification[]>('/admin/compliance/kyc'),
-    select: (rows) => rows.filter((k) => new Date(k.dueAt).getTime() < Date.now()),
+    queryKey: ['admin', 'compliance', 'kyc', 'overdue'],
+    // `overdue` is now a real status (a sweep sets it past dueAt), so ask the server for
+    // it instead of re-deriving it client-side from dueAt.
+    queryFn: () => api<KycReverification[]>('/admin/compliance/kyc?status=overdue'),
   });
 
   const oldestRetailerAge = ageOfOldest(pendingRetailers.data, 'createdAt');
