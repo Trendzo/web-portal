@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useStoreRetailerId } from '@/hooks/useStoreRetailerId';
 import { PendingRequestsGrid } from '@/components/admin/pending-requests-grid';
+import { ClarificationThread } from '@/components/admin/clarification-thread';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -34,6 +35,15 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AccountsOnStoreCard } from '@/components/admin/accounts-on-store-card';
 import { PermissionGate } from '@/components/shell/PermissionGate';
 import { cn } from '@/lib/cn';
+
+type AppealMessage = {
+  id: string;
+  storeId: string;
+  authorKind: 'admin' | 'retailer' | 'system';
+  body: string;
+  attachments: string[];
+  createdAt: string;
+};
 
 interface AdminStoreView {
   id: string;
@@ -128,6 +138,19 @@ export default function AdminStoreDetail() {
     queryKey: ['admin', 'retailers', retailerId, 'staff'],
     queryFn: () => api<Array<{ id: string; subRole: string; status: string }>>(`/admin/retailers/${retailerId}/staff`),
     enabled: Boolean(retailerId),
+  });
+
+  const appealQ = useQuery({
+    queryKey: ['admin', 'store-appeal', storeId],
+    queryFn: () =>
+      api<{ storeStatus: string; messages: AppealMessage[] }>(`/admin/stores/${storeId}/appeal`),
+    enabled: Boolean(storeId),
+  });
+  const appealReply = useMutation({
+    mutationFn: (body: string) =>
+      api(`/admin/stores/${storeId}/appeal`, { method: 'POST', body: { body } }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'store-appeal', storeId] }),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Failed to send reply'),
   });
 
   const action = useMutation({
@@ -576,6 +599,39 @@ export default function AdminStoreDetail() {
             </p>
             <PendingRequestsGrid storeId={storeId} />
           </div>
+
+          {/* Suspend/terminate appeal thread — the retailer's in-band channel to
+              contest a suspension/termination. Shown once there's a thread or the
+              store is suspended/terminated. */}
+          {(s.status === 'suspended' || s.status === 'terminated' || (appealQ.data?.messages.length ?? 0) > 0) && (
+            <div className="mt-6">
+              <SectionHeading kicker="Appeal" title="Suspension / termination appeal" />
+              <p className="mt-1 mb-3 text-[12.5px] text-ink-3">
+                Messages between the retailer and ClosetX about this suspension/termination.
+                Lift the action from the ribbon above once resolved.
+              </p>
+              <Card>
+                <CardContent className="p-5">
+                  <ClarificationThread
+                    messages={(appealQ.data?.messages ?? []).map((m) => ({
+                      id: m.id,
+                      applicationId: m.storeId,
+                      authorKind: m.authorKind === 'admin' ? 'admin' : 'applicant',
+                      authorLabel:
+                        m.authorKind === 'admin' ? 'ClosetX admin' : m.authorKind === 'system' ? 'System' : 'Retailer',
+                      body: m.body,
+                      attachments: m.attachments,
+                      fieldKey: null,
+                      createdAt: m.createdAt,
+                    }))}
+                    canReply
+                    replyPending={appealReply.isPending}
+                    onReply={(text) => appealReply.mutate(text)}
+                  />
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="accounts">

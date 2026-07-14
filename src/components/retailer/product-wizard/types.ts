@@ -50,7 +50,8 @@ export function isVariantDraftComplete(v: VariantDraft, galleryLength: number): 
 /** Wizard-side mirror of the listing's `variantMode`. */
 export type VariantMode = 'single' | 'color_size' | 'custom';
 
-/** A size row under a color group — identity (attributes/label) is server-derived. */
+/** A size row under a color group — identity (attributes/label) is server-derived.
+ *  `size: ''` means the row has NO size (a one-size / colour-only variant). */
 export type SizeDraft = VariantDraft & { size: string };
 
 /** One color card in the grouped editor. */
@@ -64,7 +65,16 @@ export type GroupDraft = {
   colorHex: string | null;
   sortOrder: number;
   sizes: SizeDraft[];
+  /**
+   * "No colour" card — a size-only product. Its variants live in the listing's
+   * colour-less DEFAULT group server-side, so each variant's identity is just its
+   * size ("M") with no colour key. `name` is unused for display.
+   */
+  isNoColor?: boolean;
 };
+
+/** Sentinel for a row with no size (a one-size variant). */
+export const NO_SIZE = '';
 
 let groupKeyCounter = 0;
 export function nextGroupKey(): string {
@@ -124,9 +134,12 @@ export function seedVariantState(l: Listing): {
       name: g.name,
       colorHex: g.colorHex,
       sortOrder: g.sortOrder,
+      // The default group has no colour — it's the "no colour" (size-only) card.
+      isNoColor: g.isDefault,
       sizes: (byGroup.get(g.id) ?? []).map((d) => ({
         ...d,
-        size: sizeOf(d.attributes) ?? d.attributesLabel,
+        // A colour-only variant carries no size key — seed it as the no-size row.
+        size: sizeOf(d.attributes) ?? '',
       })),
     }));
   return { mode, groups, variants: flat };

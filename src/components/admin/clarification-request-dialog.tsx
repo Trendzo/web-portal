@@ -17,11 +17,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import type { ApplicationDocumentKind } from '@/lib/types';
 
 export type ClarificationFieldOption = {
   value: string;
   label: string;
 };
+
+const DOC_KINDS: { value: ApplicationDocumentKind; label: string }[] = [
+  { value: 'gst_certificate', label: 'GST certificate' },
+  { value: 'pan', label: 'PAN' },
+  { value: 'address_proof', label: 'Address proof' },
+  { value: 'bank_proof', label: 'Bank proof (cancelled cheque)' },
+  { value: 'storefront_photo', label: 'Storefront photo' },
+  { value: 'other', label: 'Other' },
+];
 
 type Props = {
   open: boolean;
@@ -32,7 +42,11 @@ type Props = {
   fields: ClarificationFieldOption[];
   loading?: boolean;
   onClose: () => void;
-  onConfirm: (payload: { fieldKey: string; question: string }) => void;
+  onConfirm: (payload: {
+    fieldKey: string;
+    question: string;
+    requestedDocKinds: ApplicationDocumentKind[];
+  }) => void;
 };
 
 /**
@@ -53,13 +67,24 @@ export function ClarificationRequestDialog({
 }: Props) {
   const [fieldKey, setFieldKey] = useState<string>(fields[0]?.value ?? '');
   const [question, setQuestion] = useState('');
+  const [picked, setPicked] = useState<Set<ApplicationDocumentKind>>(new Set());
 
   useEffect(() => {
     if (open) {
       setFieldKey(fields[0]?.value ?? '');
       setQuestion('');
+      setPicked(new Set());
     }
   }, [open, fields]);
+
+  function toggleDoc(kind: ApplicationDocumentKind) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
+  }
 
   const trimmed = question.trim();
   const questionError = trimmed.length === 0 ? '' : trimmed.length < 5 ? 'Question must be at least 5 characters' : '';
@@ -95,6 +120,27 @@ export function ClarificationRequestDialog({
             />
             <FieldError>{questionError}</FieldError>
           </div>
+          <div>
+            <Label hint="Optional — pick documents the applicant must (re)upload">
+              Request documents
+            </Label>
+            <div className="mt-1 grid grid-cols-2 gap-1.5">
+              {DOC_KINDS.map((d) => (
+                <label
+                  key={d.value}
+                  className="flex items-center gap-2 rounded-md border border-line bg-bg-2/40 px-2.5 py-1.5 text-[12.5px] text-ink-2 cursor-pointer hover:bg-bg-2/70"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5"
+                    checked={picked.has(d.value)}
+                    onChange={() => toggleDoc(d.value)}
+                  />
+                  <span>{d.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -102,7 +148,9 @@ export function ClarificationRequestDialog({
             variant="accent"
             disabled={disabled}
             loading={loading ?? false}
-            onClick={() => onConfirm({ fieldKey, question: trimmed })}
+            onClick={() =>
+              onConfirm({ fieldKey, question: trimmed, requestedDocKinds: Array.from(picked) })
+            }
           >
             Send request
           </Button>

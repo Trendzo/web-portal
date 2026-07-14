@@ -98,6 +98,8 @@ export function retailerStatusMeta(s: RetailerStatus): { label: string; tone: To
       return { label: 'Suspended', tone: 'danger' };
     case 'terminated':
       return { label: 'Terminated', tone: 'danger' };
+    case 'closed':
+      return { label: 'Closed', tone: 'warning' };
   }
 }
 

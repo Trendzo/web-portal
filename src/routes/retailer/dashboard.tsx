@@ -356,9 +356,17 @@ function Steps({ retailer, store }: { retailer: RetailerProfile; store: Store | 
 }
 
 function ClarificationPanel({ retailer }: { retailer: RetailerProfile }) {
+  const qc = useQueryClient();
   const { data } = useQuery({
     queryKey: ['retailer', 'application', 'messages'],
-    queryFn: () => api<ClarificationMessage[]>('/retailer/application/messages'),
+    // Retailer onboarding routes mount at prefix '' — the authed thread is /application/messages.
+    queryFn: () => api<ClarificationMessage[]>('/application/messages'),
+  });
+  const reply = useMutation({
+    mutationFn: (body: string) =>
+      api('/application/messages', { method: 'POST', body: { body } }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['retailer', 'application', 'messages'] }),
+    onError: () => toast.error('Failed to send reply'),
   });
   const messages = data ?? [];
   return (
@@ -377,7 +385,8 @@ function ClarificationPanel({ retailer }: { retailer: RetailerProfile }) {
           messages={messages}
           canReply
           replyAs="retailer"
-          onReply={(body) => toast.info(`Replies not yet wired: "${body.slice(0, 40)}…"`)}
+          replyPending={reply.isPending}
+          onReply={(body) => reply.mutate(body)}
         />
       </div>
     </section>

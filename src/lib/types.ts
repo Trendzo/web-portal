@@ -16,7 +16,8 @@ export type RetailerStatus =
   | 'active'
   | 'paused'
   | 'suspended'
-  | 'terminated';
+  | 'terminated'
+  | 'closed';
 export type StoreStatus = 'onboarding' | 'active' | 'paused' | 'suspended' | 'terminated';
 export type ListingStatus = 'draft' | 'active' | 'retired' | 'taken_down';
 export type Gender = 'her' | 'him' | 'unisex';
@@ -1163,7 +1164,8 @@ export type ResubmitSnapshot = {
 export type ClarificationMessage = {
   id: string;
   applicationId: string;
-  authorKind: 'admin' | 'retailer';
+  // Backend serializes the non-admin author as 'applicant' (pre-account).
+  authorKind: 'admin' | 'applicant';
   authorLabel: string;
   body: string;
   attachments: string[];
@@ -1248,7 +1250,9 @@ export type ChangeRequestField =
   | 'address'
   | 'bank_account'
   | 'gstin'
-  | 'pos_billing_activation';
+  | 'pos_billing_activation'
+  | 'account_deletion'
+  | 'account_reopen';
 export type ChangeRequestStatus = 'pending' | 'under_review' | 'approved' | 'rejected';
 
 export type ChangeRequest = {

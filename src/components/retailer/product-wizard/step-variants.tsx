@@ -16,7 +16,14 @@ import {
 import { ColorGroupEditor } from './color-group-editor';
 import { CustomOptionsBuilder } from './custom-options-builder';
 import { VariantRow } from './variant-row';
-import type { GroupDraft, VariantDraft, VariantMode } from './types';
+import { NO_SIZE, type GroupDraft, type VariantDraft, type VariantMode } from './types';
+
+/** Mirrors the server's derived identity: "M" | "Black" | "Black / M". */
+function variantLabel(g: GroupDraft, size: string): string {
+  if (g.isNoColor) return size || 'One size';
+  if (size === NO_SIZE) return g.name;
+  return `${g.name} / ${size}`;
+}
 
 type Props = {
   listing: Listing | null;
@@ -134,8 +141,18 @@ export function StepVariants(props: Props) {
     if (!draft) throw new Error('Set a price first');
     if (draft.pricePaise === null) throw new Error('Set a selling price');
     // Clear any color groups left over from a previous structure (cascades sizes).
+    const namedIds = new Set(namedServerGroups.map((g) => g.id));
     for (const g of namedServerGroups) {
       await api(`/retailer/groups/${g.id}`, { method: 'DELETE' });
+    }
+    // The default group survives group deletion, so its rows (a size-only product's
+    // sizes, or custom flat variants) must be cleared explicitly — a single product
+    // has exactly ONE variant, and the default-variant upsert would otherwise adopt
+    // whichever leftover row it found first.
+    for (const v of serverVariants) {
+      if (!namedIds.has(v.groupId)) {
+        await api(`/retailer/variants/${v.id}`, { method: 'DELETE' });
+      }
     }
     if (serverMode !== 'single') {
       await api(`/retailer/listings/${listingId}`, { method: 'PATCH', body: { variantMode: 'single' } });
@@ -156,33 +173,50 @@ export function StepVariants(props: Props) {
     // Validate before any network call.
     const nameSeen = new Set<string>();
     for (const g of groups) {
-      const key = g.name.trim().toLowerCase();
-      if (!key) throw new Error('Every color needs a name');
-      if (nameSeen.has(key)) throw new Error(`Color "${g.name}" appears twice`);
-      nameSeen.add(key);
+      // The "No colour" card maps to the server's colour-less default group — it has
+      // no name to validate and cannot collide with a colour.
+      if (!g.isNoColor) {
+        const key = g.name.trim().toLowerCase();
+        if (!key) throw new Error('Every color needs a name');
+        if (nameSeen.has(key)) throw new Error(`Color "${g.name}" appears twice`);
+        nameSeen.add(key);
+      }
+      if (g.sizes.length === 0) {
+        throw new Error(
+          g.isNoColor
+            ? 'Pick at least one size'
+            : `Add a size for "${g.name}" — or mark it No size if it's one-size`,
+        );
+      }
       const sizeSeen = new Set<string>();
       for (const s of g.sizes) {
         const sk = s.size.toLowerCase();
         if (sizeSeen.has(sk)) throw new Error(`Size ${s.size} appears twice under ${g.name}`);
         sizeSeen.add(sk);
-        if (s.pricePaise === null) throw new Error(`Set a price for ${g.name} / ${s.size}`);
+        const label = variantLabel(g, s.size);
+        if (s.pricePaise === null) throw new Error(`Set a price for ${label}`);
         if (s.compareAtPrice !== null && s.compareAtPrice <= s.pricePaise) {
-          throw new Error(`MRP must exceed selling price on ${g.name} / ${s.size}`);
+          throw new Error(`MRP must exceed selling price on ${label}`);
         }
       }
-    }
-    if (groups.every((g) => g.sizes.length === 0)) {
-      throw new Error('Add at least one size');
     }
 
     if (serverMode !== 'color_size') {
       await api(`/retailer/listings/${listingId}`, { method: 'PATCH', body: { variantMode: 'color_size' } });
     }
 
-    // 1. Create new groups, writing server ids back (retry-safe).
+    // 1. Resolve each card to a server group id (retry-safe).
+    //    - "No colour" -> the listing's colour-less DEFAULT group (get-or-create).
+    //    - a colour    -> a named group.
     const next = groups.map((g) => ({ ...g, sizes: [...g.sizes] }));
     for (const g of next) {
-      if (!g.id) {
+      if (g.id) continue;
+      if (g.isNoColor) {
+        const def = await api<VariantGroup>(`/retailer/listings/${listingId}/default-group`, {
+          method: 'POST',
+        });
+        g.id = def.id;
+      } else {
         const created = await api<VariantGroup>(`/retailer/listings/${listingId}/groups`, {
           method: 'POST',
           body: {
@@ -196,9 +230,11 @@ export function StepVariants(props: Props) {
     }
     setGroups(next);
 
-    // 2. Patch renamed / recolored / reordered groups.
+    // 2. Patch renamed / recolored / reordered groups. The default group carries no
+    //    colour identity — never rename or recolour it.
     const serverGroupById = new Map(serverGroups.map((g) => [g.id, g]));
     for (const g of next) {
+      if (g.isNoColor) continue;
       const orig = serverGroupById.get(g.id!);
       if (!orig) continue;
       const body: Record<string, unknown> = {};
@@ -230,7 +266,10 @@ export function StepVariants(props: Props) {
           await api(`/retailer/listings/${listingId}/groups/${g.id}/variants`, {
             method: 'POST',
             body: {
-              size: s.size,
+              // Omitting `size` makes a colour-only variant ("Black"). The server
+              // derives the identity; it rejects a size-less variant in the default
+              // group (that would leave no axes at all).
+              ...(s.size !== NO_SIZE ? { size: s.size } : {}),
               pricePaise: s.pricePaise,
               ...(s.compareAtPrice !== null ? { compareAtPrice: s.compareAtPrice } : {}),
               stock: s.stock ?? 0,

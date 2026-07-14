@@ -44,6 +44,8 @@ function fieldLabel(f: ChangeRequest['field']): string {
     case 'gstin': return 'GSTIN change';
     case 'bank_account': return 'Bank account change';
     case 'pos_billing_activation': return 'POS billing activation';
+    case 'account_deletion': return 'Account closure request';
+    case 'account_reopen': return 'Account reopen request';
   }
 }
 

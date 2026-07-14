@@ -12,6 +12,7 @@ type Props = {
   canReply?: boolean;
   /** Author role used when posting a new reply. Defaults to admin. */
   replyAs?: 'admin' | 'retailer';
+  replyPending?: boolean;
   onReply?: (body: string) => void;
 };
 
@@ -20,7 +21,7 @@ type Props = {
  * newest, with author-icon column. Used in admin/applications-detail and
  * retailer/dashboard pre-live block.
  */
-export function ClarificationThread({ messages, canReply = false, replyAs = 'admin', onReply }: Props) {
+export function ClarificationThread({ messages, canReply = false, replyAs = 'admin', replyPending = false, onReply }: Props) {
   const [reply, setReply] = useState('');
 
   if (messages.length === 0 && !canReply) {
@@ -61,10 +62,16 @@ export function ClarificationThread({ messages, canReply = false, replyAs = 'adm
                   <p className="mt-0.5 text-[13px] text-ink-2 leading-relaxed">{m.body}</p>
                   {m.attachments.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {m.attachments.map((att) => (
-                        <span key={att} className="rounded border border-line bg-bg px-1.5 py-0.5 font-mono text-[10.5px] text-ink-3">
-                          {att}
-                        </span>
+                      {m.attachments.map((att, i) => (
+                        <a
+                          key={att}
+                          href={att}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded border border-line bg-bg px-1.5 py-0.5 font-mono text-[10.5px] text-info underline hover:bg-bg-2/60"
+                        >
+                          Attachment {i + 1}
+                        </a>
                       ))}
                     </div>
                   )}
@@ -87,7 +94,8 @@ export function ClarificationThread({ messages, canReply = false, replyAs = 'adm
             <Button
               size="sm"
               variant="accent"
-              disabled={reply.trim().length < 3}
+              loading={replyPending}
+              disabled={reply.trim().length < 3 || replyPending}
               onClick={() => {
                 onReply?.(reply.trim());
                 setReply('');

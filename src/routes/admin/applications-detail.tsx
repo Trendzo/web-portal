@@ -64,14 +64,23 @@ export default function AdminApplicationsDetail() {
   });
 
   const clarifyMutation = useMutation({
-    mutationFn: ({ fieldKey, question }: { fieldKey: string; question: string }) =>
-      api(`/admin/applications/${id}/clarifications`, { method: 'POST', body: { fieldKey, question } }),
+    mutationFn: (body: { fieldKey: string; question: string; requestedDocKinds: ApplicationDocumentKind[] }) =>
+      api(`/admin/applications/${id}/clarifications`, { method: 'POST', body }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'applications', id] });
       toast.success('Clarification request sent.');
       setRequesting(false);
     },
     onError: () => toast.error('Failed to send clarification request.'),
+  });
+
+  const replyMutation = useMutation({
+    mutationFn: (body: string) =>
+      api(`/admin/applications/${id}/messages`, { method: 'POST', body: { body } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'applications', id] });
+    },
+    onError: () => toast.error('Failed to send reply.'),
   });
 
   if (!id) return <Page><PageHeader title="Missing id" /></Page>;
@@ -186,7 +195,12 @@ export default function AdminApplicationsDetail() {
               title="Conversation with applicant"
               hint={messages.length ? `${messages.length} messages` : undefined}
             />
-            <ClarificationThread messages={messages} />
+            <ClarificationThread
+              messages={messages}
+              canReply={a.status !== 'approved'}
+              replyPending={replyMutation.isPending}
+              onReply={(text) => replyMutation.mutate(text)}
+            />
           </CardContent>
         </Card>
       </div>
@@ -202,8 +216,11 @@ export default function AdminApplicationsDetail() {
       <ClarificationRequestDialog
         open={requesting}
         fields={FIELD_OPTIONS}
+        loading={clarifyMutation.isPending}
         onClose={() => setRequesting(false)}
-        onConfirm={({ fieldKey, question }) => clarifyMutation.mutate({ fieldKey, question })}
+        onConfirm={({ fieldKey, question, requestedDocKinds }) =>
+          clarifyMutation.mutate({ fieldKey, question, requestedDocKinds })
+        }
       />
     </Page>
   );

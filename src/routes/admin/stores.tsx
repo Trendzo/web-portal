@@ -101,6 +101,10 @@ export default function AdminStores() {
   });
 
   const filtered = (data ?? []).filter((s) => {
+    // The default "All stores" view hides terminated / permanently-suspended
+    // storefronts — they're dead relationships that otherwise clutter the list.
+    // Reach them via the explicit "Terminated" status filter.
+    if (status === 'all' && (s.status === 'terminated' || s.permanentSuspend)) return false;
     if (retailerIdFilter && s.retailer?.id !== retailerIdFilter) return false;
     if (!q) return true;
     const lq = q.toLowerCase();

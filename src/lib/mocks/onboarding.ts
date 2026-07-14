@@ -63,7 +63,7 @@ export function mockClarificationThread(applicationId: string): ClarificationMes
     {
       id: 'msg_2',
       applicationId,
-      authorKind: 'retailer',
+      authorKind: 'applicant',
       authorLabel: 'Aurora Boutique',
       body: 'Updated bank account uploaded. Please re-run penny drop.',
       attachments: ['bank_statement_v2.pdf'],
