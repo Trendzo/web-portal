@@ -12,10 +12,15 @@ import {
   CircleDot,
   Coins,
   CalendarClock,
+  Clock,
+  ImageOff,
+  MapPin,
   Package,
   Pencil,
+  Receipt,
   ShoppingCart,
   ShieldAlert,
+  SlidersHorizontal,
   Tag,
   Users,
   X,
@@ -35,6 +40,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AccountsOnStoreCard } from '@/components/admin/accounts-on-store-card';
 import { PermissionGate } from '@/components/shell/PermissionGate';
 import { cn } from '@/lib/cn';
+import { gstStateNameFor } from '@/lib/states';
 
 type AppealMessage = {
   id: string;
@@ -50,15 +56,29 @@ interface AdminStoreView {
   legalEntityId: string;
   legalName: string;
   gstin: string;
+  pan?: string | null;
+  gstScheme?: 'regular' | 'composition' | null;
   address: string;
   stateCode: string;
+  lat?: number | null;
+  lng?: number | null;
+  openingHours?: Record<string, { open: string; close: string }[]> | null;
+  galleryImageUrls?: string[] | null;
   status: string;
   permanentSuspend?: boolean;
   suspendReason?: string | null;
+  suspendedAt?: string | null;
+  suspendedByAccountId?: string | null;
   contactPhone?: string | null;
   managerName?: string | null;
   platformFeeBp: number;
+  deliveryOverridePaise?: number | null;
+  handlingFeePaise?: number | null;
+  convenienceFeePaise?: number | null;
   payoutCadenceDays: number;
+  delegationModeEnabled?: boolean;
+  posBillingEnabled?: boolean;
+  lowStockThreshold?: number;
   pauseVisibility?: 'visible' | 'hidden' | null;
   pauseReason?: string | null;
   pauseUntil?: string | null;
@@ -79,6 +99,11 @@ type EditDraft = {
   payoutCadenceDays: number;
   /** §12 F3a — required when platformFeeBp changes. Recorded on the audit row. */
   platformFeeReason: string;
+  /** lat/lng kept as raw input strings; parsed + validated on save. */
+  lat: string;
+  lng: string;
+  /** Single open/close slot per weekday — the common case; empty day = closed. */
+  openingHours: Record<string, { open: string; close: string }[]>;
 };
 
 type StatusTone = 'success' | 'warning' | 'danger' | 'neutral';
@@ -184,6 +209,18 @@ export default function AdminStoreDetail() {
       const server = data!;
       const feeChanged = d.platformFeeBp !== server.platformFeeBp;
 
+      // Location + hours are non-verified direct fields (backend PATCH accepts them
+      // straight). Send only what actually changed so we never clobber lat/lng with
+      // NaN or overwrite hours with an empty object on an untouched form.
+      const extras: Record<string, unknown> = {};
+      const latNum = d.lat.trim() === '' ? null : Number(d.lat);
+      const lngNum = d.lng.trim() === '' ? null : Number(d.lng);
+      if (latNum !== null && !Number.isNaN(latNum) && latNum !== server.lat) extras.lat = latNum;
+      if (lngNum !== null && !Number.isNaN(lngNum) && lngNum !== server.lng) extras.lng = lngNum;
+      if (JSON.stringify(d.openingHours) !== JSON.stringify(server.openingHours ?? {})) {
+        extras.openingHours = d.openingHours;
+      }
+
       if (mode === 'change_request') {
         // Verified fields (legal name / address / GSTIN) → change requests; all other
         // changed fields have no change-request type, so they still apply directly.
@@ -203,6 +240,7 @@ export default function AdminStoreDetail() {
         if ((d.managerName || null) !== (server.managerName ?? null)) direct.managerName = d.managerName || null;
         if (feeChanged) { direct.platformFeeBp = d.platformFeeBp; direct.platformFeeReason = d.platformFeeReason; }
         if (d.payoutCadenceDays !== server.payoutCadenceDays) direct.payoutCadenceDays = d.payoutCadenceDays;
+        Object.assign(direct, extras);
         if (Object.keys(direct).length > 0) {
           calls.push(api(`/admin/stores/${storeId}`, { method: 'PATCH', body: direct }));
         }
@@ -224,6 +262,7 @@ export default function AdminStoreDetail() {
           platformFeeBp: d.platformFeeBp,
           payoutCadenceDays: d.payoutCadenceDays,
           ...(feeChanged ? { platformFeeReason: d.platformFeeReason } : {}),
+          ...extras,
         },
       });
     },
@@ -271,6 +310,10 @@ export default function AdminStoreDetail() {
   const statusLabel = s.status === 'terminated' || s.permanentSuspend ? 'terminated' : s.status;
   const accountsCount = accountsQ.data?.length ?? 0;
   const activeStaffCount = (accountsQ.data ?? []).filter((a) => a.status === 'active').length;
+  // GST codes read as opaque numbers; show the state name when the code resolves,
+  // else fall back to the raw code so nothing is hidden.
+  const stateName = gstStateNameFor(s.stateCode);
+  const stateLabel = stateName ? `${stateName} (${s.stateCode})` : s.stateCode;
 
   function startEdit() {
     setDraft({
@@ -283,6 +326,9 @@ export default function AdminStoreDetail() {
       platformFeeBp: s.platformFeeBp,
       platformFeeReason: '',
       payoutCadenceDays: s.payoutCadenceDays,
+      lat: s.lat != null ? String(s.lat) : '',
+      lng: s.lng != null ? String(s.lng) : '',
+      openingHours: s.openingHours ?? {},
     });
     setApplyMode('immediate');
     setChangeReason('');
@@ -314,7 +360,7 @@ export default function AdminStoreDetail() {
             <span className="text-ink-4">·</span>
             <span className="font-mono">{s.gstin}</span>
             <span className="text-ink-4">·</span>
-            <span>{s.address}, {s.stateCode}</span>
+            <span>{s.address}, {stateLabel}</span>
             <span className="text-ink-4">·</span>
             <span>created {new Date(s.createdAt).toLocaleDateString()}</span>
           </span>
@@ -508,6 +554,18 @@ export default function AdminStoreDetail() {
                       toast.error('Reason (≥3 chars) is required when changing the platform fee.');
                       return;
                     }
+                    // Reject half-filled hours: a day must have both open and close, or neither.
+                    const partialDay = Object.entries(draft.openingHours).find(
+                      ([, slots]) => slots[0] && (!slots[0].open || !slots[0].close),
+                    );
+                    if (partialDay) {
+                      toast.error(`Opening hours for ${partialDay[0]} need both open and close times.`);
+                      return;
+                    }
+                    if ((draft.lat.trim() && Number.isNaN(Number(draft.lat))) || (draft.lng.trim() && Number.isNaN(Number(draft.lng)))) {
+                      toast.error('Latitude / longitude must be valid numbers.');
+                      return;
+                    }
                     const verifiedChanged =
                       draft.legalName !== s.legalName ||
                       draft.address !== s.address ||
@@ -530,12 +588,129 @@ export default function AdminStoreDetail() {
                 <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
                   <ProfileRow label="Legal name" value={s.legalName} />
                   <ProfileRow label="GSTIN" value={s.gstin} mono />
+                  <ProfileRow label="PAN" value={s.pan || '—'} mono />
+                  <ProfileRow
+                    label="GST scheme"
+                    value={
+                      s.gstScheme === 'composition'
+                        ? 'Composition · Bill of Supply'
+                        : s.gstScheme === 'regular'
+                          ? 'Regular · Tax Invoice'
+                          : '—'
+                    }
+                  />
                   <ProfileRow label="Address" value={s.address} />
-                  <ProfileRow label="State" value={s.stateCode} mono />
+                  <ProfileRow label="State" value={stateLabel} />
                   <ProfileRow label="Contact phone" value={s.contactPhone ?? '—'} mono />
-                  <ProfileRow label="Manager" value={s.managerName ?? '—'} />
+                  <ProfileRow label="Manager" value={s.managerName || 'Not assigned'} />
                 </dl>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Fees & payout — the full economics of the store in one place. Only the
+              platform fee is a KPI tile above; the retailer-set delivery/handling/
+              convenience fees live only here, so this is the one view that answers
+              "what does this store charge and when does it get paid?". */}
+          {/* Fees & payout — only the two fields an admin can actually set per store
+              (platform fee + payout cadence). Delivery/handling/convenience are
+              platform-wide or have no per-store write path, so they're omitted here.
+              Edit opens the same store edit form the Profile card uses. */}
+          <Card className="mt-5">
+            <CardContent className="p-5">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <SectionHeading kicker="Economics" title="Fees & payout" />
+                {!editing && (
+                  <PermissionGate action="store_management.edit">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      iconLeft={<Pencil className="size-3" />}
+                      onClick={() => {
+                        startEdit();
+                        setActiveTab('overview');
+                      }}
+                    >
+                      Edit
+                    </Button>
+                  </PermissionGate>
+                )}
+              </div>
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+                <ProfileRow label="Platform fee" value={`${(s.platformFeeBp / 100).toFixed(2)}%`} mono />
+                <ProfileRow label="Payout cadence" value={`Every ${s.payoutCadenceDays} days`} />
+              </dl>
+              {editing && (
+                <p className="mt-3 text-[12.5px] text-ink-3">Editing in the form above ↑</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Configuration — operational capability flags. Small on/off chips so an
+              operator can read the store's mode at a glance without opening settings. */}
+          <Card className="mt-5">
+            <CardContent className="p-5">
+              <SectionHeading kicker="Setup" title="Configuration" />
+              <div className="mt-3 flex flex-wrap gap-2">
+                <ConfigChip icon={Receipt} label="POS billing" on={!!s.posBillingEnabled} />
+                <ConfigChip icon={SlidersHorizontal} label="Delegation mode" on={!!s.delegationModeEnabled} />
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-bg-2/60 px-2.5 py-1 text-[12.5px] text-ink-2">
+                  <Package className="size-3.5 text-ink-3" />
+                  Low-stock threshold
+                  <span className="font-mono tabular-nums text-ink">{s.lowStockThreshold ?? 5}</span>
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Location & storefront — geolocation, hours and photos. Turns the abstract
+              record into a real place: an operator can confirm the pin, the trading
+              hours and what the store actually looks like. */}
+          <Card className="mt-5">
+            <CardContent className="p-5">
+              <SectionHeading kicker="Storefront" title="Location & storefront" />
+              <div className="mt-3 grid grid-cols-1 gap-5 lg:grid-cols-2">
+                <div className="space-y-4">
+                  <div>
+                    <p className="kicker mb-1">Location</p>
+                    {s.lat != null && s.lng != null ? (
+                      <>
+                        <p className="font-mono text-[13px] text-ink">
+                          {s.lat.toFixed(5)}, {s.lng.toFixed(5)}
+                        </p>
+                        <a
+                          className="mt-1 inline-flex items-center gap-1 text-[12.5px] text-info hover:underline"
+                          href={`https://www.openstreetmap.org/?mlat=${s.lat}&mlon=${s.lng}#map=16/${s.lat}/${s.lng}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <MapPin className="size-3.5" /> Open in map
+                        </a>
+                        <div className="mt-2 overflow-hidden rounded-lg border border-line">
+                          <iframe
+                            title="Store location"
+                            className="h-44 w-full"
+                            loading="lazy"
+                            src={`https://www.openstreetmap.org/export/embed.html?bbox=${s.lng - 0.01}%2C${s.lat - 0.01}%2C${s.lng + 0.01}%2C${s.lat + 0.01}&layer=mapnik&marker=${s.lat}%2C${s.lng}`}
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-[13px] text-ink-3">No coordinates on file</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="kicker mb-1">Opening hours</p>
+                    <OpeningHours hours={s.openingHours} />
+                  </div>
+                </div>
+
+                <div>
+                  <p className="kicker mb-1">Store photos</p>
+                  <GalleryStrip urls={s.galleryImageUrls} />
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -583,6 +758,15 @@ export default function AdminStoreDetail() {
                 <ProfileRow
                   label="Pause until"
                   value={s.pauseUntil ? new Date(s.pauseUntil).toLocaleString() : '—'}
+                />
+                <ProfileRow
+                  label="Suspended at"
+                  value={s.suspendedAt ? new Date(s.suspendedAt).toLocaleString() : '—'}
+                />
+                <ProfileRow
+                  label="Suspended by"
+                  value={s.suspendedByAccountId ?? '—'}
+                  mono={!!s.suspendedByAccountId}
                 />
               </dl>
             </CardContent>
@@ -774,6 +958,151 @@ function OpsTile({
   );
 }
 
+function ConfigChip({
+  icon: Icon,
+  label,
+  on,
+}: {
+  icon: typeof Package;
+  label: string;
+  on: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12.5px]',
+        on ? 'border-success/30 bg-success-soft/50 text-success' : 'border-line bg-bg-2/60 text-ink-3',
+      )}
+    >
+      <Icon className="size-3.5" />
+      {label}
+      <span className="font-medium">{on ? 'On' : 'Off'}</span>
+    </span>
+  );
+}
+
+// Weekday order for opening-hours rendering; keys match the stored jsonb shape.
+const DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+const DAY_LABEL: Record<string, string> = {
+  mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun',
+};
+
+function OpeningHours({ hours }: { hours: Record<string, { open: string; close: string }[]> | null | undefined }) {
+  const entries = hours ? Object.entries(hours).filter(([, slots]) => slots && slots.length > 0) : [];
+  if (entries.length === 0) {
+    return <p className="text-[13px] text-ink-3">No hours set</p>;
+  }
+  // Preserve a stable weekday order, then append any non-standard keys as-is.
+  const ordered = [
+    ...DAY_ORDER.filter((d) => hours?.[d]?.length),
+    ...Object.keys(hours ?? {}).filter((k) => !DAY_ORDER.includes(k as never) && hours?.[k]?.length),
+  ];
+  return (
+    <dl className="space-y-1">
+      {ordered.map((day) => (
+        <div key={day} className="flex items-center gap-2 text-[13px]">
+          <dt className="flex w-10 items-center gap-1 text-ink-3">
+            <Clock className="size-3" /> {DAY_LABEL[day] ?? day}
+          </dt>
+          <dd className="font-mono tabular-nums text-ink">
+            {(hours?.[day] ?? []).map((slot) => `${slot.open}–${slot.close}`).join(', ')}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function GalleryStrip({ urls }: { urls: string[] | null | undefined }) {
+  const list = (urls ?? []).filter(Boolean);
+  if (list.length === 0) {
+    return (
+      <div className="flex h-24 items-center justify-center gap-2 rounded-lg border border-dashed border-line text-[12.5px] text-ink-3">
+        <ImageOff className="size-4" /> No photos uploaded
+      </div>
+    );
+  }
+  return (
+    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+      {list.map((url, i) => (
+        <a
+          key={`${url}-${i}`}
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="group aspect-square overflow-hidden rounded-lg border border-line bg-bg-2"
+        >
+          <img
+            src={url}
+            alt={`Store photo ${i + 1}`}
+            loading="lazy"
+            className="size-full object-cover transition-transform group-hover:scale-105"
+          />
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function OpeningHoursEditor({
+  value,
+  onChange,
+}: {
+  value: Record<string, { open: string; close: string }[]>;
+  onChange: (next: Record<string, { open: string; close: string }[]>) => void;
+}) {
+  function setDay(day: string, field: 'open' | 'close', v: string) {
+    const slot = value[day]?.[0] ?? { open: '', close: '' };
+    const nextSlot = { ...slot, [field]: v };
+    const next = { ...value };
+    // Only record a day when BOTH ends are filled; otherwise drop it (= closed).
+    if (nextSlot.open || nextSlot.close) next[day] = [nextSlot]; // keep partial while typing
+    else delete next[day];
+    onChange(next);
+  }
+  function clearDay(day: string) {
+    const next = { ...value };
+    delete next[day];
+    onChange(next);
+  }
+  return (
+    <div className="mt-1 space-y-1.5 rounded-lg border border-line bg-bg-2/40 p-3">
+      {DAY_ORDER.map((day) => {
+        const slot = value[day]?.[0];
+        return (
+          <div key={day} className="flex items-center gap-2 text-[13px]">
+            <span className="w-9 text-ink-3">{DAY_LABEL[day]}</span>
+            <input
+              type="time"
+              value={slot?.open ?? ''}
+              onChange={(e) => setDay(day, 'open', e.target.value)}
+              className="rounded border border-line-2 bg-bg px-2 py-1 font-mono text-[12.5px]"
+            />
+            <span className="text-ink-4">–</span>
+            <input
+              type="time"
+              value={slot?.close ?? ''}
+              onChange={(e) => setDay(day, 'close', e.target.value)}
+              className="rounded border border-line-2 bg-bg px-2 py-1 font-mono text-[12.5px]"
+            />
+            {(slot?.open || slot?.close) && (
+              <button
+                type="button"
+                onClick={() => clearDay(day)}
+                className="ml-1 text-ink-4 hover:text-danger"
+                aria-label={`Clear ${DAY_LABEL[day]}`}
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+        );
+      })}
+      <p className="pt-1 text-[11px] text-ink-4">Leave a day blank to mark it closed.</p>
+    </div>
+  );
+}
+
 function EditForm({
   draft,
   serverPlatformFeeBp,
@@ -909,6 +1238,38 @@ function EditForm({
             }}
           />
         </div>
+        <div>
+          <Label htmlFor="ed-lat">Latitude</Label>
+          <Input
+            id="ed-lat"
+            mono
+            inputMode="decimal"
+            placeholder="19.0596"
+            value={draft.lat}
+            onChange={(e) => onChange((d) => (d ? { ...d, lat: e.target.value } : d))}
+          />
+        </div>
+        <div>
+          <Label htmlFor="ed-lng">Longitude</Label>
+          <Input
+            id="ed-lng"
+            mono
+            inputMode="decimal"
+            placeholder="72.8295"
+            value={draft.lng}
+            onChange={(e) => onChange((d) => (d ? { ...d, lng: e.target.value } : d))}
+          />
+        </div>
+      </div>
+
+      {/* Opening hours — one open/close slot per weekday (the common case). Leave a
+          day blank to mark it closed; both fields are required to record a slot. */}
+      <div className="mt-5">
+        <Label>Opening hours</Label>
+        <OpeningHoursEditor
+          value={draft.openingHours}
+          onChange={(next) => onChange((d) => (d ? { ...d, openingHours: next } : d))}
+        />
       </div>
 
       {/* Apply mode — verified fields (legal name / address / GSTIN) can be written

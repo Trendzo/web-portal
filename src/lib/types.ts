@@ -1941,6 +1941,44 @@ export type ReviewFlag = {
   status: 'open' | 'approved' | 'taken_down' | 'edited';
 };
 
+// Reels — consumer short videos with a social layer, moderated like community posts.
+export type ReelStatus = 'active' | 'taken_down' | 'hidden_pending_review';
+export type ReelCommentStatus = 'active' | 'taken_down' | 'hidden_pending_review';
+
+/** One row of GET /admin/reels (list). */
+export type AdminReelRow = {
+  id: string;
+  consumerId: string;
+  authorName: string | null;
+  caption: string | null;
+  thumbnailUrl: string;
+  videoUrl: string;
+  status: ReelStatus;
+  likeCount: number;
+  commentCount: number;
+  saveCount: number;
+  viewCount: number;
+  takedownReason: string | null;
+  createdAt: string;
+};
+
+export type AdminReelComment = {
+  id: string;
+  body: string;
+  status: ReelCommentStatus;
+  authorName: string | null;
+  consumerId: string;
+  takedownReason: string | null;
+  createdAt: string;
+};
+
+/** GET /admin/reels/:id — reel plus all comments (any status) for moderation. */
+export type AdminReelDetail = AdminReelRow & {
+  durationSec: number | null;
+  product: { id: string; name: string } | null;
+  comments: AdminReelComment[];
+};
+
 // ─────────────────────────────────────────────────────────────────────
 // §21 Analytics & Reporting (rollup row shapes)
 // ─────────────────────────────────────────────────────────────────────

@@ -51,3 +51,19 @@ export function gstStateCodeFor(stateName: string): string | null {
   }
   return null;
 }
+
+/** Reverse map: 2-digit GST code → state name. Built once from GST_STATE_CODES. */
+const GST_STATE_NAMES: Record<string, string> = Object.fromEntries(
+  Object.entries(GST_STATE_CODES).map(([name, code]) => [code, name]),
+);
+
+/**
+ * Resolve a 2-digit GST state code to its state name, or null if unknown.
+ * Accepts a leading-zero or bare code (e.g. '7' or '07' → 'Delhi').
+ */
+export function gstStateNameFor(code: string | number | null | undefined): string | null {
+  if (code === null || code === undefined) return null;
+  const raw = String(code).trim();
+  if (!raw) return null;
+  return GST_STATE_NAMES[raw] ?? GST_STATE_NAMES[raw.padStart(2, '0')] ?? null;
+}

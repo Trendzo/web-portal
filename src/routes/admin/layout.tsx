@@ -2,6 +2,7 @@ import {
   BarChart3,
   Building2,
   FileText,
+  Film,
   Folder,
   GanttChart,
   Inbox,
@@ -206,6 +207,7 @@ const GROUPS: SidebarGroup[] = [
       { to: '/admin/listings', label: 'Listings Search', end: true, icon: Package, action: 'moderation.view' },
       { to: '/admin/collections', label: 'Featured Selections', end: false, icon: Folder, action: 'moderation.view' },
       { to: '/admin/catalog-moderation', label: 'Catalog Moderation', end: true, icon: ShieldAlert, action: 'moderation.decide' },
+      { to: '/admin/reels', label: 'Reels', end: true, icon: Film, action: 'community.moderate' },
     ],
   },
   {
