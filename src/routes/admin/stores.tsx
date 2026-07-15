@@ -30,7 +30,6 @@ interface AdminStoreListItem {
   address: string;
   stateCode: string;
   status: StoreStatus;
-  permanentSuspend: boolean;
   platformFeeBp: number;
   payoutCadenceDays: number;
   createdAt: string;
@@ -101,10 +100,9 @@ export default function AdminStores() {
   });
 
   const filtered = (data ?? []).filter((s) => {
-    // The default "All stores" view hides terminated / permanently-suspended
-    // storefronts — they're dead relationships that otherwise clutter the list.
-    // Reach them via the explicit "Terminated" status filter.
-    if (status === 'all' && (s.status === 'terminated' || s.permanentSuspend)) return false;
+    // The default "All stores" view hides terminated storefronts — dead relationships
+    // that otherwise clutter the list. Reach them via the explicit "Terminated" filter.
+    if (status === 'all' && s.status === 'terminated') return false;
     if (retailerIdFilter && s.retailer?.id !== retailerIdFilter) return false;
     if (!q) return true;
     const lq = q.toLowerCase();
@@ -230,8 +228,8 @@ export default function AdminStores() {
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((store) => {
-            const meta = storeStatusMeta(store.status === 'suspended' && store.permanentSuspend ? 'terminated' : store.status);
-            const label = store.status === 'suspended' && store.permanentSuspend ? 'terminated' : store.status;
+            const meta = storeStatusMeta(store.status);
+            const label = meta.label;
             return (
               <Card key={store.id} className="flex flex-col">
                 <CardContent className="flex flex-1 flex-col p-4">
@@ -264,7 +262,7 @@ export default function AdminStores() {
                           Suspend
                         </Button>
                       )}
-                      {store.status !== 'terminated' && !store.permanentSuspend && (
+                      {store.status !== 'terminated' && (
                         <Button
                           variant="outline"
                           size="sm"

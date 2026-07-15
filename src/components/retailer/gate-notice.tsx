@@ -41,6 +41,19 @@ function configFor(gate: Exclude<Gate, { state: 'ready' }>): Config {
         ),
         cta: { label: 'View invoices', href: '/retailer/invoices' },
       };
+    case 'account_closed':
+      return {
+        kicker: 'Account closed',
+        kickerTone: 'info',
+        title: <>This business account is closed.</>,
+        body: (
+          <>
+            The storefront is offline at your request. Your data is kept — request a
+            reopen from the store Status page and an admin will restore everything.
+          </>
+        ),
+        cta: { label: 'Request reopen', href: '/retailer/store/status' },
+      };
     case 'no_store':
       return {
         kicker: 'Store not provisioned',

@@ -11,14 +11,15 @@
 
 import { z } from 'zod';
 
+// Mirrors the backend retailer_account_status enum EXACTLY. The old version carried
+// four store-lifecycle members the account can never have (approved_no_store /
+// onboarding / paused / suspended) while OMITTING 'closed' — so any owner-closed
+// account crashed the admin retailer page with "Malformed retailer payload".
 export const RetailerStatusSchema = z.enum([
   'pending_approval',
-  'approved_no_store',
-  'onboarding',
   'active',
-  'paused',
-  'suspended',
   'terminated',
+  'closed',
 ]);
 
 export const RetailerSubRoleSchema = z.enum(['owner', 'manager', 'staff']);
@@ -33,7 +34,6 @@ export const AdminRetailerViewSchema = z.object({
   storeId: z.string().nullable(),
   subRole: RetailerSubRoleSchema,
   createdAt: z.string(),
-  permanentSuspend: z.boolean().optional(),
   suspendReason: z.string().nullable().optional(),
   posBillingEnabled: z.boolean().optional(),
   posActivationPending: z.boolean().optional(),

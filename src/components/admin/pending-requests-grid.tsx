@@ -20,7 +20,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { RejectApplicationDialog } from '@/components/admin/reject-application-dialog';
 
 /** One request type the operator can triage from the Stores → Pending Requests view. */
-type RequestKind = 'application' | 'change' | 'kyc' | 'policy';
+type RequestKind = 'application' | 'change' | 'kyc' | 'policy' | 'appeal';
+
+/** GET /admin/stores/appeals/pending — appeal threads whose latest message is the retailer's. */
+type AppealQueueRow = {
+  storeId: string;
+  storeName: string | null;
+  storeStatus: string | null;
+  lastMessageAt: string;
+  lastMessagePreview: string;
+};
 
 interface NormalizedRequest {
   kind: RequestKind;
@@ -57,7 +66,7 @@ function fieldLabel(f: ChangeRequest['field']): string {
  * and the Stores "Pending Requests" button badge — one fetch per source, counts
  * always agree. Excludes data-export / account-deletion compliance items; this
  * surface is scoped to store/retailer *requests* (applications, verified-field
- * change requests, re-KYC, and policy breaches).
+ * change requests, re-KYC, policy breaches, and suspend/terminate appeals awaiting a reply).
  */
 export function usePendingRequests(storeId?: string) {
   const apps = useQuery({
@@ -76,6 +85,12 @@ export function usePendingRequests(storeId?: string) {
     // waiting on the retailer, and decided ones are done — the endpoint used to return
     // every cycle that ever existed, which is why an approved one sat here forever.
     queryFn: () => api<KycReverification[]>('/admin/compliance/kyc?status=submitted'),
+    staleTime: STALE_MS,
+  });
+  const appeals = useQuery({
+    queryKey: ['admin', 'store-appeals', 'pending'],
+    // Threads whose latest message is from the RETAILER — awaiting an admin reply.
+    queryFn: () => api<AppealQueueRow[]>('/admin/stores/appeals/pending'),
     staleTime: STALE_MS,
   });
   const policy = useQuery({
@@ -133,6 +148,19 @@ export function usePendingRequests(storeId?: string) {
         reviewOnly: true,
       });
     }
+    for (const a of (appeals.data ?? []).filter((x) => !storeId || x.storeId === storeId)) {
+      out.push({
+        kind: 'appeal',
+        id: a.storeId,
+        title: a.storeName ?? `Store ${a.storeId}`,
+        subtitle: a.lastMessagePreview,
+        age: `${a.storeStatus ?? 'blocked'} · replied ${formatAge(a.lastMessageAt)}`,
+        badge: { label: 'Appeal', tone: 'danger' },
+        detailHref: `/admin/stores/${a.storeId}?tab=compliance`,
+        // Appeals are a conversation + a lifecycle decision — no one-click accept.
+        reviewOnly: true,
+      });
+    }
     for (const p of policyActive) {
       out.push({
         kind: 'policy',
@@ -145,12 +173,12 @@ export function usePendingRequests(storeId?: string) {
       });
     }
     return out;
-  }, [apps.data, changes.data, kyc.data, policyActive, storeId]);
+  }, [apps.data, changes.data, kyc.data, appeals.data, policyActive, storeId]);
 
   return {
     items,
     count: items.length,
-    isLoading: apps.isLoading || changes.isLoading || kyc.isLoading || policy.isLoading,
+    isLoading: apps.isLoading || changes.isLoading || kyc.isLoading || policy.isLoading || appeals.isLoading,
   };
 }
 

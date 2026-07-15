@@ -65,7 +65,6 @@ interface AdminStoreView {
   openingHours?: Record<string, { open: string; close: string }[]> | null;
   galleryImageUrls?: string[] | null;
   status: string;
-  permanentSuspend?: boolean;
   suspendReason?: string | null;
   suspendedAt?: string | null;
   suspendedByAccountId?: string | null;
@@ -136,7 +135,7 @@ export default function AdminStoreDetail() {
     );
   }
   const qc = useQueryClient();
-  const [dialog, setDialog] = useState<null | 'pause' | 'suspend' | 'terminate' | 'reverify'>(null);
+  const [dialog, setDialog] = useState<null | 'pause' | 'suspend' | 'terminate' | 'reverify' | 'restore'>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<EditDraft | null>(null);
   // Verified store fields (legal name / address / GSTIN) can be applied directly
@@ -179,7 +178,7 @@ export default function AdminStoreDetail() {
   });
 
   const action = useMutation({
-    mutationFn: ({ verb, reason }: { verb: 'pause' | 'resume' | 'suspend' | 'unsuspend' | 'ban' | 'unban'; reason?: string }) =>
+    mutationFn: ({ verb, reason }: { verb: 'pause' | 'suspend' | 'ban'; reason?: string }) =>
       api(`/admin/stores/${storeId}/${verb}`, { method: 'POST', body: reason ? { reason } : {} }),
     onSuccess: (_d, vars) => {
       toast.success(`Store ${vars.verb}`);
@@ -187,6 +186,36 @@ export default function AdminStoreDetail() {
       void qc.invalidateQueries({ queryKey: ['admin', 'stores'] });
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Action failed'),
+  });
+
+  // Single restore path — the server maps the store's state to the right lift and
+  // reports which one it took (`restoreMode`) so the toast can say what happened.
+  const restoreMut = useMutation({
+    mutationFn: (reason: string) =>
+      api<{
+        restoreMode:
+          | 'account_reinstated'
+          | 'account_reopened'
+          | 'resumed'
+          | 'unsuspended'
+          | 'reinstated';
+      }>(`/admin/stores/${storeId}/restore`, { method: 'POST', body: reason ? { reason } : {} }),
+    onSuccess: (d) => {
+      toast.success(
+        {
+          account_reinstated: 'Account ban lifted — store restored',
+          account_reopened: 'Account reopened — store and logins restored',
+          resumed: 'Store resumed',
+          unsuspended: 'Suspension lifted — store is live',
+          reinstated: 'Store reinstated',
+        }[d.restoreMode] ?? 'Store operations resumed',
+      );
+      setDialog(null);
+      void qc.invalidateQueries({ queryKey: ['admin', 'stores'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'retailers'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'change-requests', 'pending'] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Restore failed'),
   });
 
   const reverifyMut = useMutation({
@@ -302,12 +331,17 @@ export default function AdminStoreDetail() {
 
   const s = data;
   const tone: StatusTone =
-    s.permanentSuspend ? 'danger'
-    : s.status === 'active' ? 'success'
+    s.status === 'active' ? 'success'
     : s.status === 'paused' ? 'warning'
-    : s.status === 'suspended' ? 'danger'
+    : s.status === 'suspended' || s.status === 'terminated' ? 'danger'
     : 'neutral';
-  const statusLabel = s.status === 'terminated' || s.permanentSuspend ? 'terminated' : s.status;
+  const statusLabel = s.status;
+  // Why the store is down decides what "Resume store operations" will actually do —
+  // surfaced in the ribbon copy and the confirm dialog, decided again server-side.
+  const closureSuspended =
+    s.status === 'suspended' && s.suspendReason === 'account_closed_by_owner';
+  const cascadeBanned =
+    s.status === 'terminated' && (s.suspendReason ?? '').startsWith('account_termination[');
   const accountsCount = accountsQ.data?.length ?? 0;
   const activeStaffCount = (accountsQ.data ?? []).filter((a) => a.status === 'active').length;
   // GST codes read as opaque numbers; show the state name when the code resolves,
@@ -409,16 +443,18 @@ export default function AdminStoreDetail() {
       <Card className="mb-5">
         <CardContent className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-[12.5px] text-ink-3">
-            {s.status === 'onboarding' && !s.permanentSuspend && (
+            {s.status === 'onboarding' && (
               <>
                 <span className="text-ink font-medium">Onboarding.</span>{' '}
                 Store is still completing setup and is not yet fulfilling orders. Lifecycle controls unlock once it goes active.
               </>
             )}
-            {s.status === 'terminated' && !s.permanentSuspend && (
+            {s.status === 'terminated' && (
               <>
                 <span className="text-danger font-medium">Terminated.</span>{' '}
-                {s.suspendReason ?? 'No reason recorded'}
+                {cascadeBanned
+                  ? 'This store went down with its retailer account ban — resuming lifts the account ban and restores its stores together.'
+                  : (s.suspendReason ?? 'No reason recorded')}
               </>
             )}
             {s.status === 'active' && 'Store is fulfilling orders. Pause briefly for downtime, suspend to block until policy review, terminate to end the relationship.'}
@@ -429,16 +465,12 @@ export default function AdminStoreDetail() {
                 {s.pauseVisibility === 'hidden' && ' · hidden from consumer catalog'}
               </>
             )}
-            {s.status === 'suspended' && !s.permanentSuspend && (
+            {s.status === 'suspended' && (
               <>
                 <span className="text-danger font-medium">Suspended.</span>{' '}
-                {s.suspendReason ?? 'No reason recorded'}
-              </>
-            )}
-            {s.permanentSuspend && (
-              <>
-                <span className="text-danger font-medium">Terminated.</span>{' '}
-                {s.suspendReason ?? 'No reason recorded'}
+                {closureSuspended
+                  ? 'The owner closed this account (reversible) — resuming reopens the account and store together.'
+                  : (s.suspendReason ?? 'No reason recorded')}
               </>
             )}
           </div>
@@ -469,24 +501,16 @@ export default function AdminStoreDetail() {
                 </DropdownMenu>
               </>
             )}
-            {s.status === 'paused' && (
-              <PermissionGate action="store_management.edit">
-                <Button variant="ink" size="sm" onClick={() => action.mutate({ verb: 'resume' })}>
-                  Resume store
-                </Button>
-              </PermissionGate>
-            )}
-            {s.status === 'suspended' && !s.permanentSuspend && (
-              <PermissionGate action="retailer.reinstate">
-                <Button variant="ink" size="sm" onClick={() => action.mutate({ verb: 'unsuspend' })}>
-                  Lift suspension
-                </Button>
-              </PermissionGate>
-            )}
-            {s.permanentSuspend && (
-              <PermissionGate action="retailer.reinstate">
-                <Button variant="ink" size="sm" onClick={() => action.mutate({ verb: 'unban' })}>
-                  Reinstate store
+            {/* THE restore affordance — one button, one place, every non-operating
+                state. The backend /restore endpoint lifts the full chain (account
+                ban / owner closure / store pause-suspend-terminate) so the operator
+                never hunts for the right lever on another page. */}
+            {(s.status === 'paused' || s.status === 'suspended' || s.status === 'terminated') && (
+              <PermissionGate
+                action={s.status === 'paused' ? 'store_management.edit' : 'retailer.reinstate'}
+              >
+                <Button variant="ink" size="sm" onClick={() => setDialog('restore')}>
+                  Resume store operations
                 </Button>
               </PermissionGate>
             )}
@@ -751,11 +775,6 @@ export default function AdminStoreDetail() {
                   tone={s.suspendReason ? 'danger' : 'neutral'}
                 />
                 <ProfileRow
-                  label="Permanent ban"
-                  value={s.permanentSuspend ? 'Yes' : 'No'}
-                  tone={s.permanentSuspend ? 'danger' : 'neutral'}
-                />
-                <ProfileRow
                   label="Pause until"
                   value={s.pauseUntil ? new Date(s.pauseUntil).toLocaleString() : '—'}
                 />
@@ -850,6 +869,26 @@ export default function AdminStoreDetail() {
         onClose={() => setDialog(null)}
         onConfirm={(reason) => action.mutate({ verb: 'ban', reason })}
         loading={action.isPending}
+      />
+      <ReasonActionDialog
+        open={dialog === 'restore'}
+        title="Resume store operations"
+        description={
+          s.status === 'paused'
+            ? 'The store is paused. Resuming puts the storefront back live immediately.'
+            : closureSuspended
+              ? 'The owner closed this account. Resuming reopens the retailer account and the store together, and clears any pending reopen request from the desk.'
+              : cascadeBanned
+                ? 'This store went down with its retailer account ban. Resuming lifts the account ban and restores its stores — including this one.'
+                : s.status === 'suspended'
+                  ? 'Lifts the admin suspension — listings return to the consumer catalog and fulfilment resumes.'
+                  : 'Lifts the termination and puts the store back live.'
+        }
+        confirmLabel="Resume operations"
+        minReasonLength={0}
+        onClose={() => setDialog(null)}
+        onConfirm={(reason) => restoreMut.mutate(reason)}
+        loading={restoreMut.isPending}
       />
       <ReasonActionDialog
         open={dialog === 'reverify'}

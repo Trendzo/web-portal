@@ -225,10 +225,22 @@ export default function AdminRetailerDetail() {
               />
 
               <div className="mt-6 flex flex-wrap gap-2">
-                {(r as { permanentSuspend?: boolean }).permanentSuspend ? (
-                  <Button variant="outline" onClick={() => unbanMut.mutate()} loading={unbanMut.isPending}>
-                    Lift ban
-                  </Button>
+                {r.status === 'terminated' ? (
+                  // ONE restore surface platform-wide: the store page's "Resume store
+                  // operations" (its /restore lifts the account ban + stores together).
+                  // Only a pre-store account (e.g. rejected applicant) keeps a direct
+                  // reinstate here — there is no store page to send the operator to.
+                  r.storeId ? (
+                    <Button asChild variant="outline">
+                      <Link to={`/admin/retailers/${r.id}/stores/${r.storeId}`}>
+                        Resume store operations
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button variant="outline" onClick={() => unbanMut.mutate()} loading={unbanMut.isPending}>
+                      Reinstate account
+                    </Button>
+                  )
                 ) : (
                   <Button variant="outline" className="text-danger border-danger/40 hover:bg-danger/5" onClick={() => setBanning(true)}>
                     Terminate (permanent)

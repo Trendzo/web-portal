@@ -9,15 +9,9 @@ export type AdminSubRole = 'super_admin' | 'ops_admin' | 'support';
 export type RetailerSubRole = 'owner' | 'manager' | 'staff';
 
 export type ConsumerStatus = 'active' | 'suspended' | 'closed';
-export type RetailerStatus =
-  | 'pending_approval'
-  | 'approved_no_store'
-  | 'onboarding'
-  | 'active'
-  | 'paused'
-  | 'suspended'
-  | 'terminated'
-  | 'closed';
+/** Retailer ACCOUNT lifecycle — mirrors the backend enum exactly. Store-level states
+ *  (onboarding/paused/suspended) live on StoreStatus, never on the account. */
+export type RetailerStatus = 'pending_approval' | 'active' | 'terminated' | 'closed';
 export type StoreStatus = 'onboarding' | 'active' | 'paused' | 'suspended' | 'terminated';
 export type ListingStatus = 'draft' | 'active' | 'retired' | 'taken_down';
 export type Gender = 'her' | 'him' | 'unisex';
@@ -39,7 +33,6 @@ export type RetailerProfile = {
   storeId: string | null;
   /** Present on the login response; used to route delivery agents to their surface. */
   subRole?: RetailerSubRole;
-  permanentSuspend?: boolean;
   suspendReason?: string | null;
 };
 
@@ -58,7 +51,6 @@ export type Store = {
   delegationModeEnabled: boolean;
   /** Per-retailer opt-in for the offline POS / counter-billing surface (admin-controlled). */
   posBillingEnabled?: boolean;
-  permanentSuspend?: boolean;
   suspendReason?: string | null;
   pauseReason?: string | null;
   contactPhone?: string | null;
@@ -1040,7 +1032,7 @@ export type RetailerStaff = {
   phone: string;
   gstin: string;
   subRole: RetailerSubRole;
-  status: 'pending_approval' | 'active' | 'terminated';
+  status: 'pending_approval' | 'active' | 'terminated' | 'closed';
   createdAt: string;
 };
 

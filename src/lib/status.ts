@@ -87,16 +87,8 @@ export function retailerStatusMeta(s: RetailerStatus): { label: string; tone: To
   switch (s) {
     case 'pending_approval':
       return { label: 'Pending approval', tone: 'warning' };
-    case 'approved_no_store':
-      return { label: 'Approved · awaiting store', tone: 'info' };
-    case 'onboarding':
-      return { label: 'Onboarding', tone: 'info' };
     case 'active':
       return { label: 'Active', tone: 'success' };
-    case 'paused':
-      return { label: 'Paused', tone: 'warning' };
-    case 'suspended':
-      return { label: 'Suspended', tone: 'danger' };
     case 'terminated':
       return { label: 'Terminated', tone: 'danger' };
     case 'closed':

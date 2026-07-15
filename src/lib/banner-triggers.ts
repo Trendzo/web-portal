@@ -221,9 +221,12 @@ export function useAdminActionBanner() {
   useEffect(() => {
     if (!data) return;
     const { retailer, store } = data;
-    const accountBanned = Boolean(retailer.permanentSuspend);
-    const storeBanned = Boolean(store?.permanentSuspend);
-    const suspended = store?.status === 'suspended' && !storeBanned;
+    // `status` is the single source of truth: 'terminated' = the relationship ended.
+    // (This used to key on a redundant permanentSuspend boolean the API no longer sends —
+    // Boolean(undefined) would have silently killed this banner.)
+    const accountBanned = retailer.status === 'terminated';
+    const storeBanned = store?.status === 'terminated';
+    const suspended = store?.status === 'suspended';
     const paused = store?.status === 'paused';
 
     if (accountBanned || storeBanned) {

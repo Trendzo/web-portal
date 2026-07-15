@@ -34,8 +34,7 @@ interface StaffRow {
   legalName: string;
   phone: string;
   subRole: 'owner' | 'manager' | 'staff';
-  status: 'pending_approval' | 'active' | 'terminated';
-  permanentSuspend?: boolean;
+  status: 'pending_approval' | 'active' | 'terminated' | 'closed';
   createdAt: string;
 }
 

@@ -43,21 +43,23 @@ const COL_SPECS: ReadonlyArray<ColumnSpec<RetailerCol>> = [
   { key: 'gstin', label: 'GSTIN', defaultHidden: true },
 ];
 
-type FilterStatus = 'all' | 'pending' | 'active' | 'suspended' | 'terminated';
+// Account statuses only — suspension is a STORE-level state and never appears on the
+// account, so the old 'Suspended' option always returned zero rows.
+type FilterStatus = 'all' | 'pending' | 'active' | 'closed' | 'terminated';
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: FilterStatus; label: string }> = [
   { value: 'all', label: 'All retailers' },
   { value: 'pending', label: 'Pending' },
   { value: 'active', label: 'Active' },
-  { value: 'suspended', label: 'Suspended' },
+  { value: 'closed', label: 'Closed' },
   { value: 'terminated', label: 'Terminated' },
 ];
 
 const FILTER_STATUS_MAP: Record<FilterStatus, RetailerStatus[] | null> = {
   all: null,
-  pending: ['pending_approval', 'approved_no_store', 'onboarding'],
+  pending: ['pending_approval'],
   active: ['active'],
-  suspended: ['suspended', 'paused'],
+  closed: ['closed'],
   terminated: ['terminated'],
 };
 
@@ -66,7 +68,7 @@ function parseStatus(v: string | null): FilterStatus {
     case 'all':
     case 'pending':
     case 'active':
-    case 'suspended':
+    case 'closed':
     case 'terminated':
       return v;
     default:

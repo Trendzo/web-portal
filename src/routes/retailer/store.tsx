@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { usePermission } from '@/lib/use-permission';
+import { ClarificationThread } from '@/components/admin/clarification-thread';
 import { KycReverificationPanel } from './kyc';
 import { cn } from '@/lib/cn';
 import type { StoreVisibilityWhilePaused } from '@/lib/types';
@@ -31,7 +32,22 @@ type StoreWithPause = Store & {
   pauseUntil: string | null;
   pauseVisibility: StoreVisibilityWhilePaused | null;
 };
-type MeResponse = { retailer: RetailerProfile; store: StoreWithPause | null };
+type MeResponse = {
+  retailer: RetailerProfile;
+  store: StoreWithPause | null;
+  /** In-flight owner-filed lifecycle request, if any — drives "pending" states below. */
+  pendingAccountRequest: 'account_deletion' | 'account_reopen' | null;
+};
+
+/** GET /retailer/account/appeal — one suspend/terminate appeal-thread message. */
+type AppealMessage = {
+  id: string;
+  storeId: string;
+  authorKind: 'admin' | 'retailer' | 'system';
+  body: string;
+  attachments: string[];
+  createdAt: string;
+};
 
 /** Outlet context shared with every store-settings section page. */
 type StoreCtx = { store: StoreWithPause };
@@ -276,7 +292,211 @@ export function StoreStatusSection() {
         <SectionHeading title="POS billing (counter sales)" />
         <PosBillingPanel store={store} />
       </div>
+      <AppealPanel store={store} />
+      <AccountLifecyclePanel />
     </section>
+  );
+}
+
+/**
+ * Suspend/terminate appeal thread (retailer side of the admin store-detail thread).
+ * Rendered while the store is suspended/terminated, and kept visible afterwards as
+ * long as a thread exists so the retailer can re-read the resolution.
+ */
+function AppealPanel({ store }: { store: StoreWithPause }) {
+  const qc = useQueryClient();
+  const { data: me } = useQuery({
+    queryKey: ['retailer', 'me'],
+    queryFn: () => api<MeResponse>('/retailer/me'),
+  });
+  // A self-closed account also leaves the store suspended — that's not an admin
+  // action to appeal; the Reopen panel below is the right lever there.
+  const blocked =
+    (store.status === 'suspended' || store.status === 'terminated') &&
+    me?.retailer.status !== 'closed';
+  const appealQ = useQuery({
+    queryKey: ['retailer', 'account-appeal'],
+    queryFn: () =>
+      api<{ storeStatus: string; canAppeal: boolean; messages: AppealMessage[] }>(
+        '/retailer/account/appeal',
+      ),
+  });
+  const reply = useMutation({
+    mutationFn: (body: string) =>
+      api('/retailer/account/appeal', { method: 'POST', body: { body } }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['retailer', 'account-appeal'] });
+      toast.success('Message sent to ClosetX');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Failed to send message'),
+  });
+
+  const messages = appealQ.data?.messages ?? [];
+  if (!blocked && messages.length === 0) return null;
+
+  return (
+    <div className="mt-6">
+      <SectionHeading title="Appeal this action" />
+      <div className="rounded-lg border border-line bg-bg p-5">
+        <p className="mb-4 text-[13px] text-ink-2">
+          {blocked
+            ? 'Your store was suspended or terminated by ClosetX. Use this thread to contest the action or ask what is needed to restore it — replies from the team appear here.'
+            : 'Past appeal conversation about a suspension/termination on this store.'}
+        </p>
+        <ClarificationThread
+          messages={messages.map((m) => ({
+            id: m.id,
+            applicationId: m.storeId,
+            authorKind: m.authorKind === 'admin' ? 'admin' : 'applicant',
+            authorLabel:
+              m.authorKind === 'admin' ? 'ClosetX admin' : m.authorKind === 'system' ? 'System' : 'You',
+            body: m.body,
+            attachments: m.attachments,
+            fieldKey: null,
+            createdAt: m.createdAt,
+          }))}
+          canReply={appealQ.data?.canAppeal ?? false}
+          replyAs="retailer"
+          replyPending={reply.isPending}
+          onReply={(text) => reply.mutate(text)}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Business-account closure (active account) / reopen (closed account). Both file an
+ * admin-reviewed change request; `pendingAccountRequest` from /retailer/me keeps the
+ * button disabled while one is in flight. Owner/manager gate is enforced server-side.
+ */
+function AccountLifecyclePanel() {
+  const qc = useQueryClient();
+  const canSubmit = usePermission('change_requests.submit');
+  const { data } = useQuery({
+    queryKey: ['retailer', 'me'],
+    queryFn: () => api<MeResponse>('/retailer/me'),
+  });
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [reason, setReason] = useState('');
+
+  const refresh = () => void qc.invalidateQueries({ queryKey: ['retailer', 'me'] });
+  const close = useMutation({
+    mutationFn: () =>
+      api('/retailer/account/close-request', {
+        method: 'POST',
+        body: reason.trim() ? { reason: reason.trim() } : {},
+      }),
+    onSuccess: () => {
+      refresh();
+      setConfirmOpen(false);
+      toast.success('Closure request sent — an admin will review it');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Failed to submit request'),
+  });
+  const reopen = useMutation({
+    mutationFn: () => api('/retailer/account/reopen-request', { method: 'POST', body: {} }),
+    onSuccess: () => {
+      refresh();
+      toast.success('Reopen request sent — an admin will review it');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Failed to submit request'),
+  });
+
+  const status = data?.retailer.status;
+  const pending = data?.pendingAccountRequest ?? null;
+  if (status !== 'active' && status !== 'closed') return null;
+
+  if (status === 'closed') {
+    return (
+      <div className="mt-6">
+        <SectionHeading title="Reopen account" />
+        <div className="rounded-lg border border-line bg-bg p-5 space-y-3">
+          <div className="flex items-center gap-3">
+            <Badge tone="neutral">Account closed</Badge>
+            {pending === 'account_reopen' && <Badge tone="warning">Reopen pending</Badge>}
+          </div>
+          <p className="text-[13px] text-ink-2">
+            Your business account is closed and the storefront is offline. Request a reopen and,
+            once an admin approves it, the store and all staff logins are restored.
+          </p>
+          <Button
+            variant="accent"
+            disabled={!canSubmit || pending === 'account_reopen' || reopen.isPending}
+            onClick={() => reopen.mutate()}
+          >
+            {pending === 'account_reopen' ? 'Request pending' : 'Request reopen'}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-6">
+      <SectionHeading title="Danger zone" />
+      <div className="rounded-lg border border-danger/40 bg-bg p-5 space-y-3">
+        <div className="flex items-center gap-3">
+          <Badge tone="danger">Close business account</Badge>
+          {pending === 'account_deletion' && <Badge tone="warning">Closure pending</Badge>}
+        </div>
+        <p className="text-[13px] text-ink-2">
+          Files a closure request for admin review. Once approved, the storefront goes offline and
+          all staff logins are closed — nothing is deleted, and you can request a reopen later.
+        </p>
+        <Button
+          variant="outline"
+          className="border-danger/50 text-danger hover:bg-danger/5"
+          disabled={!canSubmit || pending === 'account_deletion'}
+          onClick={() => setConfirmOpen(true)}
+        >
+          {pending === 'account_deletion' ? 'Closure request pending' : 'Request account closure'}
+        </Button>
+        {!canSubmit && (
+          <p className="text-[12px] text-ink-3">
+            You don't have permission to submit requests — ask the store owner.
+          </p>
+        )}
+      </div>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Close this business account?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-[13px] text-ink-2">
+              An admin will review the request. On approval the storefront goes offline and every
+              staff login on this account is closed. Your data is kept and the account can be
+              reopened later by request.
+            </p>
+            <div>
+              <Label htmlFor="closure-reason">Reason (optional)</Label>
+              <Input
+                id="closure-reason"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Why are you closing the account?"
+                maxLength={500}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+              Keep account
+            </Button>
+            <Button
+              variant="accent"
+              className="bg-danger hover:bg-danger/90"
+              loading={close.isPending}
+              onClick={() => close.mutate()}
+            >
+              Request closure
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
 

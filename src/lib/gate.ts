@@ -12,6 +12,7 @@ export type Gate =
   | { state: 'ready' }
   | { state: 'retailer_pending' }
   | { state: 'retailer_terminated' }
+  | { state: 'account_closed' }
   | { state: 'no_store' }
   | { state: 'store_pending' }
   | { state: 'store_blocked'; status: StoreStatus }
@@ -29,6 +30,9 @@ export function deriveGate(
 ): Gate {
   if (!retailer) return { state: 'retailer_pending' };
   if (retailer.status === 'terminated') return { state: 'retailer_terminated' };
+  // Owner-requested closure: the store is offline but the account keeps full access
+  // so it can file a reopen request — point there instead of a generic block.
+  if (retailer.status === 'closed') return { state: 'account_closed' };
   if (retailer.status === 'pending_approval') return { state: 'retailer_pending' };
   // retailer is active
   if (!store) return { state: 'no_store' };

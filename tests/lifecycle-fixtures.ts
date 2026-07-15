@@ -16,14 +16,9 @@ import { test as base, type Page, type Route } from '@playwright/test';
 
 // ─── Domain shapes (kept in lockstep with src/lib/types.ts) ────────────────
 
-export type RetailerStatus =
-  | 'pending_approval'
-  | 'approved_no_store'
-  | 'onboarding'
-  | 'active'
-  | 'paused'
-  | 'suspended'
-  | 'terminated';
+// Account statuses only (store-level states live on StoreStatus) — mirrors the
+// backend retailer_account_status enum exactly.
+export type RetailerStatus = 'pending_approval' | 'active' | 'terminated' | 'closed';
 
 type StoreStatus = 'onboarding' | 'active' | 'paused' | 'suspended' | 'terminated';
 
@@ -421,11 +416,14 @@ export class MockBackend {
       r.status = 'terminated';
       return { payload: r };
     }
+    // 'suspend' targets the retailer's STORE server-side — the account status never
+    // becomes 'suspended' (no such member on the account enum), so only terminate
+    // mutates the account row here.
     const retailerSuspend = path.match(/^\/admin\/retailers\/([^/]+)\/(suspend|terminate)$/);
     if (method === 'POST' && retailerSuspend) {
       const r = this.retailers.get(retailerSuspend[1]);
       if (!r) return { status: 404, payload: { code: 'not_found' } };
-      r.status = retailerSuspend[2] === 'terminate' ? 'terminated' : 'suspended';
+      if (retailerSuspend[2] === 'terminate') r.status = 'terminated';
       return { payload: r };
     }
 

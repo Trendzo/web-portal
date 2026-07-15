@@ -59,7 +59,9 @@ export function ReasonActionDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div>
-          <Label htmlFor="reason-action-input" required>Reason</Label>
+          <Label htmlFor="reason-action-input" required={minReasonLength > 0}>
+            {minReasonLength > 0 ? 'Reason' : 'Reason (optional)'}
+          </Label>
           <Input
             id="reason-action-input"
             placeholder="Internal reason (logged)"
