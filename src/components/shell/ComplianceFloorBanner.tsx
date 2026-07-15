@@ -44,7 +44,8 @@ export function ComplianceFloorBanner() {
 
   return (
     <div className={`px-4 py-2 text-[12.5px] border-b ${tone}`} role="alert">
-      <div className="mx-auto flex max-w-[1400px] items-center gap-2">
+      {/* Match the Page container width so the banner content lines up with pages. */}
+      <div className="mx-auto flex max-w-[1600px] items-center gap-2 2xl:max-w-[1880px]">
         <AlertTriangle className="size-4 shrink-0" />
         <span className="font-medium">
           {anyBreach ? 'Performance floor breached' : 'Approaching performance floor'}:

@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowUpRight, Archive, ImageOff, Plus, Search, Star } from 'lucide-react';
+import { ArrowUpRight, Archive, ImageOff, Layers, Plus, Search, Star, X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
+import { cn } from '@/lib/cn';
 import { collectionStatusMeta, collectionKindLabel } from '@/lib/status';
 import type {
   Collection,
@@ -101,6 +102,7 @@ export default function AdminCollections() {
       c.id.toLowerCase().includes(needle)
     );
   });
+  const activeCount = filtered.filter((c) => c.status === 'active').length;
 
   return (
     <Page>
@@ -152,8 +154,17 @@ export default function AdminCollections() {
       </div>
 
       {isLoading ? (
-        <div className="space-y-px border-y border-rule">
-          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-24" />)}
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
+          {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+            <div key={i} className="overflow-hidden rounded-xl border border-line">
+              <Skeleton className="aspect-[4/5] w-full rounded-none" />
+              <div className="space-y-2 p-4">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : isError ? (
         <Empty
@@ -163,29 +174,55 @@ export default function AdminCollections() {
         />
       ) : filtered.length === 0 ? (
         <Empty
+          icon={<Layers className="size-5" />}
           kicker="No collections"
           title={q ? 'Nothing matches that search.' : 'No collections yet.'}
           description={q ? 'Try a different keyword.' : 'Curate the first one to start populating the consumer rails.'}
           action={
-            !q ? (
+            q ? (
+              <Button variant="outline" iconLeft={<X className="size-3.5" />} onClick={() => setQ('')}>
+                Clear search
+              </Button>
+            ) : (
               <Button variant="ink" caps iconLeft={<Plus className="size-3.5" />} onClick={() => setCreating(true)}>
                 New collection
               </Button>
-            ) : undefined
+            )
           }
         />
       ) : (
-        <ul className="border-y border-rule divide-y divide-rule" data-stagger>
-          {filtered.map((c, i) => (
-            <CollectionRow
-              key={c.id}
-              ord={i + 1}
-              c={c}
-              onArchive={() => archive.mutate(c.id)}
-              archiving={archive.isPending && archive.variables === c.id}
-            />
-          ))}
-        </ul>
+        <>
+          {/* Results summary — quick tally so the operator knows the grid's scope. */}
+          <div className="mb-3 flex items-center gap-2 text-[12.5px] text-ink-3">
+            <span className="font-medium text-ink-2">
+              {filtered.length} {filtered.length === 1 ? 'collection' : 'collections'}
+            </span>
+            {activeCount > 0 && (
+              <>
+                <span className="text-ink-4">·</span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-success" />
+                  {activeCount} live
+                </span>
+              </>
+            )}
+          </div>
+
+          <div
+            className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5"
+            data-stagger
+          >
+            {filtered.map((c, i) => (
+              <CollectionCard
+                key={c.id}
+                ord={i + 1}
+                c={c}
+                onArchive={() => archive.mutate(c.id)}
+                archiving={archive.isPending && archive.variables === c.id}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       <CreateCollectionDialog
@@ -199,7 +236,7 @@ export default function AdminCollections() {
   );
 }
 
-function CollectionRow({
+function CollectionCard({
   ord,
   c,
   onArchive,
@@ -211,68 +248,117 @@ function CollectionRow({
   archiving: boolean;
 }) {
   const sMeta = collectionStatusMeta(c.status);
+  // Accent palette drives the no-image placeholder gradient and a thin strip under
+  // the media, so every card carries its collection's colour identity.
+  const accents = (c.accentColors ?? []).filter(Boolean);
+  const gradient =
+    accents.length >= 2
+      ? `linear-gradient(135deg, ${accents[0]}, ${accents[1]})`
+      : accents.length === 1
+        ? `linear-gradient(135deg, ${accents[0]}, ${accents[0]}22)`
+        : undefined;
+  const archived = c.status === 'archived';
+
   return (
-    <li className="grid grid-cols-12 items-center gap-4 px-4 py-5">
-      <div className="col-span-1">
-        <span className="font-mono text-[11px] tracking-wider text-ink-3">№ {String(ord).padStart(2, '0')}</span>
-      </div>
-      <div className="col-span-2">
-        {c.heroImageUrl ? (
-          <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xs border border-rule bg-paper-2">
-            <img src={c.heroImageUrl} alt="" className="size-full object-cover" loading="lazy" />
-          </div>
-        ) : (
-          <div className="grid aspect-[3/4] w-full place-items-center rounded-xs border border-rule bg-paper-2 text-ink-4">
-            <ImageOff className="size-5" />
-          </div>
-        )}
-      </div>
-      <div className="col-span-5">
-        <div className="kicker text-ink-3 mb-1 flex items-center gap-2">
-          {collectionKindLabel(c.kind)}
-          <span className="text-ink-4">·</span>
-          <span className="uppercase">{c.gender}</span>
-          {c.isFeatured && (
-            <>
-              <span className="text-ink-4">·</span>
-              <span className="inline-flex items-center gap-1 text-warning">
-                <Star className="size-3 fill-current" /> Featured
-              </span>
-            </>
+    <article
+      className={cn(
+        'group relative flex flex-col overflow-hidden rounded-xl border border-line bg-bg shadow-xs transition-all',
+        'hover:-translate-y-0.5 hover:border-line-strong hover:shadow-md',
+        archived && 'opacity-75 hover:opacity-100',
+      )}
+    >
+      {/* Media — the whole visual + title is one deep-link into the detail page. */}
+      <Link to={`/admin/collections/${c.id}`} className="block">
+        <div className="relative aspect-[4/5] overflow-hidden bg-bg-2">
+          {c.heroImageUrl ? (
+            <img
+              src={c.heroImageUrl}
+              alt=""
+              loading="lazy"
+              className="size-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.05]"
+            />
+          ) : (
+            <div
+              className="flex size-full items-center justify-center"
+              style={gradient ? { backgroundImage: gradient } : undefined}
+            >
+              {gradient ? (
+                <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-white/85 drop-shadow">
+                  {collectionKindLabel(c.kind)}
+                </span>
+              ) : (
+                <ImageOff className="size-6 text-ink-4" />
+              )}
+            </div>
           )}
+
+          {/* Legibility scrim behind the overlaid title. */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/75 via-black/25 to-transparent" />
+
+          {/* Top rail — ordinal (left) · featured + status (right). */}
+          <div className="absolute inset-x-0 top-0 flex items-start justify-between p-2.5">
+            <span className="rounded-md bg-black/45 px-1.5 py-0.5 font-mono text-[10.5px] tracking-wider text-white/90 backdrop-blur-sm">
+              № {String(ord).padStart(2, '0')}
+            </span>
+            <div className="flex items-center gap-1.5">
+              {c.isFeatured && (
+                <span className="inline-flex items-center gap-1 rounded-md bg-black/45 px-1.5 py-0.5 text-[10.5px] font-medium text-warning backdrop-blur-sm">
+                  <Star className="size-3 fill-current" /> Featured
+                </span>
+              )}
+              <Badge tone={sMeta.tone} className="shadow-sm">{sMeta.label}</Badge>
+            </div>
+          </div>
+
+          {/* Overlaid identity — kind · audience kicker + name, magazine-cover style. */}
+          <div className="absolute inset-x-0 bottom-0 p-3.5">
+            <div className="mb-1 flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-wider text-white/80">
+              <span>{collectionKindLabel(c.kind)}</span>
+              <span className="text-white/50">·</span>
+              <span>{c.gender}</span>
+            </div>
+            <h3 className="text-[18px] font-semibold italic leading-tight tracking-tight text-white line-clamp-2">
+              {c.name}
+            </h3>
+          </div>
         </div>
-        <Link
-          to={`/admin/collections/${c.id}`}
-          className="font-display italic text-[22px] leading-tight text-ink hover:underline underline-offset-4"
-        >
-          {c.name}
-        </Link>
-        <p className="mt-1 font-mono text-[12px] text-ink-3">/{c.slug}</p>
-      </div>
-      <div className="col-span-2">
-        <div className="kicker text-ink-3">Listings</div>
-        <div className="font-mono text-[18px] tabular-nums text-ink">{c.listingCount}</div>
-      </div>
-      <div className="col-span-2 flex flex-col items-end gap-2">
-        <Badge tone={sMeta.tone}>{sMeta.label}</Badge>
-        <div className="flex items-center gap-1.5">
-          {c.status !== 'archived' && (
+      </Link>
+
+      {/* Accent strip — the collection's palette as a hairline band. */}
+      {gradient && <div className="h-[3px] w-full" style={{ backgroundImage: gradient }} />}
+
+      {/* Footer — slug, listing count, and actions kept outside the media link so
+          the buttons aren't nested inside the anchor. */}
+      <div className="flex items-center justify-between gap-2 px-3.5 py-3">
+        <div className="min-w-0">
+          <p className="truncate font-mono text-[11.5px] text-ink-3">/{c.slug}</p>
+          <p className="mt-0.5 flex items-center gap-1 text-[11.5px] text-ink-2">
+            <Layers className="size-3 text-ink-4" />
+            <span className="font-mono tabular-nums text-ink">{c.listingCount}</span>
+            <span className="text-ink-3">{c.listingCount === 1 ? 'listing' : 'listings'}</span>
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center">
+          {!archived && (
             <Button
               variant="ghost"
-              size="sm"
-              iconLeft={<Archive className="size-3.5" />}
+              size="icon-sm"
               onClick={onArchive}
               loading={archiving}
+              title="Archive collection"
+              aria-label="Archive collection"
             >
-              Archive
+              {!archiving && <Archive className="size-4" />}
             </Button>
           )}
-          <Button asChild variant="outline" size="sm" caps iconRight={<ArrowUpRight className="size-3.5" />}>
-            <Link to={`/admin/collections/${c.id}`}>Open</Link>
+          <Button asChild variant="ghost" size="icon-sm" title="Open collection" aria-label="Open collection">
+            <Link to={`/admin/collections/${c.id}`}>
+              <ArrowUpRight className="size-4" />
+            </Link>
           </Button>
         </div>
       </div>
-    </li>
+    </article>
   );
 }
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useStoreRetailerId } from '@/hooks/useStoreRetailerId';
 import { PendingRequestsGrid } from '@/components/admin/pending-requests-grid';
@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import {
   ArrowLeft,
   ArrowUpRight,
+  Building2,
   ChevronDown,
   CircleDot,
   Coins,
@@ -16,8 +17,13 @@ import {
   ImageOff,
   MapPin,
   Package,
+  PauseCircle,
   Pencil,
+  Phone,
+  PlayCircle,
   Receipt,
+  Rocket,
+  ScrollText,
   ShoppingCart,
   ShieldAlert,
   SlidersHorizontal,
@@ -41,6 +47,9 @@ import { AccountsOnStoreCard } from '@/components/admin/accounts-on-store-card';
 import { PermissionGate } from '@/components/shell/PermissionGate';
 import { cn } from '@/lib/cn';
 import { gstStateNameFor } from '@/lib/states';
+
+// Lazy so Leaflet only loads when a store with coordinates is viewed.
+const StoreMap = lazy(() => import('@/components/ui/store-map'));
 
 type AppealMessage = {
   id: string;
@@ -376,367 +385,452 @@ export default function AdminStoreDetail() {
     setChangeReason('');
   }
 
+  const lifecycle = lifecycleNotice(s, { closureSuspended, cascadeBanned });
+
   return (
     <Page>
-      <PageHeader
-        kicker="Store"
-        title={
-          <span className="flex items-center gap-3 flex-wrap">
-            <span>{s.legalName}</span>
-            <Badge tone={tone as never}>
-              <CircleDot className="size-3" /> {statusLabel}
-            </Badge>
-          </span>
-        }
-        description={
-          <span className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-3">
-            <CopyableId value={s.id} label="store id" />
-            <span className="text-ink-4">·</span>
-            <span className="font-mono">{s.gstin}</span>
-            <span className="text-ink-4">·</span>
-            <span>{s.address}, {stateLabel}</span>
-            <span className="text-ink-4">·</span>
-            <span>created {new Date(s.createdAt).toLocaleDateString()}</span>
-          </span>
-        }
-        actions={
-          <Button asChild variant="ghost" size="sm" iconLeft={<ArrowLeft className="size-3.5" />}>
-            {cameFromStores ? (
-              <Link to="/admin/stores">Back to stores</Link>
-            ) : (
-              <Link to={`/admin/retailers/${retailerId}`}>Back to retailer</Link>
-            )}
-          </Button>
-        }
-      />
-
-      {/* KPI strip — one-glance store health.
-          Numbers in tabular so columns line up across tiles. */}
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiTile
-          icon={<Coins className="size-3.5" />}
-          label="Platform fee"
-          value={`${(s.platformFeeBp / 100).toFixed(2)}%`}
-        />
-        <KpiTile
-          icon={<CalendarClock className="size-3.5" />}
-          label="Pays out"
-          value={`every ${s.payoutCadenceDays}d`}
-        />
-        <KpiTile
-          icon={<Users className="size-3.5" />}
-          label="Accounts"
-          value={accountsCount.toString()}
-          hint={`${activeStaffCount} active`}
-        />
-        <KpiTile
-          icon={<CircleDot className="size-3.5" />}
-          label="Lifecycle"
-          value={statusLabel}
-          tone={tone}
-        />
+      {/* Back link — small, above the hero so the identity band leads the page. */}
+      <div className="mb-3">
+        <Button asChild variant="ghost" size="sm" iconLeft={<ArrowLeft className="size-3.5" />}>
+          {cameFromStores ? (
+            <Link to="/admin/stores">Back to stores</Link>
+          ) : (
+            <Link to={`/admin/retailers/${retailerId}`}>Back to retailer</Link>
+          )}
+        </Button>
       </div>
 
-      {/* Action ribbon — full-width row of lifecycle controls. Keeps Pause/Suspend/
-          Terminate one click away regardless of where the operator is on the page,
-          rather than tucking them at the bottom of a profile card. */}
-      <Card className="mb-5">
-        <CardContent className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-[12.5px] text-ink-3">
-            {s.status === 'onboarding' && (
-              <>
-                <span className="text-ink font-medium">Onboarding.</span>{' '}
-                Store is still completing setup and is not yet fulfilling orders. Lifecycle controls unlock once it goes active.
-              </>
-            )}
-            {s.status === 'terminated' && (
-              <>
-                <span className="text-danger font-medium">Terminated.</span>{' '}
-                {cascadeBanned
-                  ? 'This store went down with its retailer account ban — resuming lifts the account ban and restores its stores together.'
-                  : (s.suspendReason ?? 'No reason recorded')}
-              </>
-            )}
-            {s.status === 'active' && 'Store is fulfilling orders. Pause briefly for downtime, suspend to block until policy review, terminate to end the relationship.'}
-            {s.status === 'paused' && (
-              <>
-                <span className="text-warning font-medium">Paused.</span>{' '}
-                {s.pauseReason ?? 'No reason recorded'}
-                {s.pauseVisibility === 'hidden' && ' · hidden from consumer catalog'}
-              </>
-            )}
-            {s.status === 'suspended' && (
-              <>
-                <span className="text-danger font-medium">Suspended.</span>{' '}
-                {closureSuspended
-                  ? 'The owner closed this account (reversible) — resuming reopens the account and store together.'
-                  : (s.suspendReason ?? 'No reason recorded')}
-              </>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {s.status === 'active' && (
-              <>
-                <PermissionGate action="store_management.edit">
-                  <Button variant="ink" size="sm" onClick={() => setDialog('pause')}>
-                    Pause
-                  </Button>
-                </PermissionGate>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" iconRight={<ChevronDown className="size-3.5" />}>
-                      More
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem onSelect={() => setDialog('suspend')}>
-                      <ShieldAlert className="size-3.5 text-warning" />
-                      Suspend store
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => setDialog('terminate')}>
-                      <X className="size-3.5 text-danger" />
-                      Terminate store
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </>
-            )}
-            {/* THE restore affordance — one button, one place, every non-operating
-                state. The backend /restore endpoint lifts the full chain (account
-                ban / owner closure / store pause-suspend-terminate) so the operator
-                never hunts for the right lever on another page. */}
-            {(s.status === 'paused' || s.status === 'suspended' || s.status === 'terminated') && (
-              <PermissionGate
-                action={s.status === 'paused' ? 'store_management.edit' : 'retailer.reinstate'}
-              >
-                <Button variant="ink" size="sm" onClick={() => setDialog('restore')}>
-                  Resume store operations
-                </Button>
-              </PermissionGate>
-            )}
+      {/* ── Hero identity band ─────────────────────────────────────────────
+          Monogram + name + status, the store's key registry facts as copy/scan
+          chips, and the lifecycle controls — the operator's whole "what and how
+          do I act on this store" answered above the fold. A faint dot texture in
+          the top-right lifts it from a plain panel without breaking the mono
+          console palette. */}
+      <Card className="relative mb-4 overflow-hidden">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-10 -top-10 size-64 text-ink"
+          style={{
+            backgroundImage: 'radial-gradient(currentColor 1.1px, transparent 1.1px)',
+            backgroundSize: '15px 15px',
+            opacity: 0.05,
+            maskImage: 'radial-gradient(circle at top right, black, transparent 72%)',
+            WebkitMaskImage: 'radial-gradient(circle at top right, black, transparent 72%)',
+          }}
+        />
+        <CardContent className="relative p-5 sm:p-6">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex min-w-0 items-start gap-4">
+              <Monogram name={s.legalName} tone={tone} />
+              <div className="min-w-0">
+                <div className="kicker mb-1.5 flex items-center gap-2">
+                  <span>Store</span>
+                  <span className="text-ink-4">·</span>
+                  <span className="normal-case tracking-normal text-ink-3">
+                    {storeAgeLabel(s.createdAt)}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <h1 className="text-[24px] font-semibold leading-tight tracking-tight text-ink sm:text-[28px]">
+                    {s.legalName}
+                  </h1>
+                  <Badge tone={tone as never} pulse={s.status === 'onboarding' || s.status === 'paused'}>
+                    {statusLabel}
+                  </Badge>
+                  {s.gstScheme && (
+                    <Badge flat nodot>
+                      {s.gstScheme === 'composition' ? 'Composition' : 'Regular GST'}
+                    </Badge>
+                  )}
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <CopyableId value={s.id} label="store id" />
+                  <MetaChip icon={Receipt} value={s.gstin} mono />
+                  <MetaChip icon={MapPin} value={`${s.address}, ${stateLabel}`} />
+                  <MetaChip icon={CalendarClock} value={`Created ${new Date(s.createdAt).toLocaleDateString()}`} />
+                </div>
+
+                {/* Lifecycle controls — sitting under the store's identity so the
+                    primary action tracks the record it acts on. */}
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  {s.status === 'active' && (
+                    <>
+                      <PermissionGate action="store_management.edit">
+                        <Button variant="ink" size="sm" iconLeft={<PauseCircle className="size-3.5" />} onClick={() => setDialog('pause')}>
+                          Pause store
+                        </Button>
+                      </PermissionGate>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" iconRight={<ChevronDown className="size-3.5" />}>
+                            More actions
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                          <DropdownMenuItem onSelect={() => setDialog('suspend')}>
+                            <ShieldAlert className="size-3.5 text-warning" />
+                            Suspend store
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => setDialog('terminate')}>
+                            <X className="size-3.5 text-danger" />
+                            Terminate store
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </>
+                  )}
+                  {/* THE restore affordance — one button, one place, every non-operating
+                      state. The backend /restore endpoint lifts the full chain (account
+                      ban / owner closure / store pause-suspend-terminate) so the operator
+                      never hunts for the right lever on another page. */}
+                  {(s.status === 'paused' || s.status === 'suspended' || s.status === 'terminated') && (
+                    <PermissionGate
+                      action={s.status === 'paused' ? 'store_management.edit' : 'retailer.reinstate'}
+                    >
+                      <Button variant="ink" size="sm" iconLeft={<PlayCircle className="size-3.5" />} onClick={() => setDialog('restore')}>
+                        Resume store operations
+                      </Button>
+                    </PermissionGate>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Ops shortcuts — square deep-link cards, right-aligned in the hero so
+                the tools operators reach for constantly sit beside the identity
+                instead of eating a full band below. */}
+            <div className="w-full shrink-0 lg:w-[336px]">
+              <p className="kicker mb-2 lg:text-right">Manage this store</p>
+              <div className="grid grid-cols-3 gap-3">
+                <OpsTile icon={Package}      label="Listings"   hint="Catalog & inventory" href={`/admin/retailers/${retailerId}/stores/${storeId}/listings`} />
+                <OpsTile icon={ShoppingCart} label="Fulfilment" hint="Orders & dispatch"    href={`/admin/retailers/${retailerId}/stores/${storeId}/fulfilment`} />
+                <OpsTile icon={Tag}          label="Promotions" hint="Discounts & offers"   href={`/admin/retailers/${retailerId}/stores/${storeId}/promotions`} />
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Quick actions — operator entry points hoisted above the tab bar so the
-          tools operators reach for constantly are one click away, not buried in
-          a tab. Each deep-links into the store-scoped operator view. */}
-      <div className="mb-5">
-        <p className="mb-2 kicker text-ink-3">Manage this store</p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <OpsTile icon={Package}      label="Listings"   href={`/admin/retailers/${retailerId}/stores/${storeId}/listings`} />
-          <OpsTile icon={ShoppingCart} label="Fulfilment" href={`/admin/retailers/${retailerId}/stores/${storeId}/fulfilment`} />
-          <OpsTile icon={Tag}          label="Promotions" href={`/admin/retailers/${retailerId}/stores/${storeId}/promotions`} />
+      {/* Lifecycle notice — only when the store isn't cleanly active, so the reason
+          (paused/suspended/terminated/onboarding) never hides at the page bottom.
+          Left rule + soft tint carries the tone at a glance. */}
+      {lifecycle && (
+        <div
+          className={cn(
+            'mb-4 flex items-start gap-2.5 rounded-lg border border-l-[3px] px-4 py-3 text-[12.5px]',
+            lifecycle.tone === 'danger' && 'border-danger/25 border-l-danger bg-danger-soft/50',
+            lifecycle.tone === 'warning' && 'border-warning/25 border-l-warning bg-warning-soft/50',
+            lifecycle.tone === 'neutral' && 'border-line border-l-ink-3 bg-bg-2/60',
+          )}
+        >
+          <lifecycle.icon
+            className={cn(
+              'mt-0.5 size-4 shrink-0',
+              lifecycle.tone === 'danger' && 'text-danger',
+              lifecycle.tone === 'warning' && 'text-warning',
+              lifecycle.tone === 'neutral' && 'text-ink-3',
+            )}
+          />
+          <p className="text-ink-2">
+            <span className="font-semibold text-ink">{lifecycle.title}.</span>{' '}
+            {lifecycle.body}
+          </p>
         </div>
-      </div>
+      )}
+
+      {/* ── Metric rail ────────────────────────────────────────────────────
+          One card, four internally-divided stats — reads as a single instrument
+          panel instead of four floating tiles. */}
+      <Card className="mb-4 overflow-hidden">
+        <div className="grid grid-cols-2 gap-px bg-line sm:grid-cols-4">
+          <Stat
+            icon={<Coins className="size-4" />}
+            label="Platform fee"
+            value={`${(s.platformFeeBp / 100).toFixed(2)}%`}
+            hint="per order value"
+          />
+          <Stat
+            icon={<CalendarClock className="size-4" />}
+            label="Payout cadence"
+            value={`Every ${s.payoutCadenceDays}d`}
+            hint="settlement cycle"
+          />
+          <Stat
+            icon={<Users className="size-4" />}
+            label="Accounts"
+            value={accountsCount.toString()}
+            hint={`${activeStaffCount} active`}
+          />
+          <Stat
+            icon={<CircleDot className="size-4" />}
+            label="Lifecycle"
+            value={statusLabel}
+            tone={tone}
+          />
+        </div>
+      </Card>
+
+      <div className="mb-1" />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
-          <TabsTrigger value="accounts">Accounts</TabsTrigger>
+          <TabsTrigger value="accounts">
+            Accounts
+            {accountsCount > 0 && <TabCount value={accountsCount} />}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
-          <Card>
-            <CardContent className="p-5">
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <SectionHeading kicker="Identity" title="Profile" />
-                {!editing && (
-                  <PermissionGate action="store_management.edit">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      iconLeft={<Pencil className="size-3" />}
-                      onClick={startEdit}
-                    >
-                      Edit
-                    </Button>
-                  </PermissionGate>
-                )}
-              </div>
+          {/* Aligned 2×2 card grid — each row's cards share their top and bottom
+              edges (grid rows stretch, inner content flexes to fill). Row 1:
+              identity record | economics. Row 2: physical storefront |
+              configuration + photos. Stacks to one column on mobile. */}
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,7fr)_minmax(0,4fr)]">
+            <Card className="min-w-0">
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <SectionHeading kicker="Identity" title="Profile" />
+                  {!editing && (
+                    <PermissionGate action="store_management.edit">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        iconLeft={<Pencil className="size-3" />}
+                        onClick={startEdit}
+                      >
+                        Edit
+                      </Button>
+                    </PermissionGate>
+                  )}
+                </div>
 
-              {editing && draft ? (
-                <EditForm
-                  draft={draft}
-                  serverPlatformFeeBp={s.platformFeeBp}
-                  applyMode={applyMode}
-                  changeReason={changeReason}
-                  verifiedChanged={
-                    draft.legalName !== s.legalName ||
-                    draft.address !== s.address ||
-                    draft.gstin !== s.gstin
-                  }
-                  onApplyModeChange={setApplyMode}
-                  onChangeReason={setChangeReason}
-                  onChange={setDraft}
-                  onCancel={cancelEdit}
-                  onSave={() => {
-                    if (!draft) return;
-                    const feeChanged = draft.platformFeeBp !== s.platformFeeBp;
-                    if (feeChanged && draft.platformFeeReason.trim().length < 3) {
-                      toast.error('Reason (≥3 chars) is required when changing the platform fee.');
-                      return;
-                    }
-                    // Reject half-filled hours: a day must have both open and close, or neither.
-                    const partialDay = Object.entries(draft.openingHours).find(
-                      ([, slots]) => slots[0] && (!slots[0].open || !slots[0].close),
-                    );
-                    if (partialDay) {
-                      toast.error(`Opening hours for ${partialDay[0]} need both open and close times.`);
-                      return;
-                    }
-                    if ((draft.lat.trim() && Number.isNaN(Number(draft.lat))) || (draft.lng.trim() && Number.isNaN(Number(draft.lng)))) {
-                      toast.error('Latitude / longitude must be valid numbers.');
-                      return;
-                    }
-                    const verifiedChanged =
+                {editing && draft ? (
+                  <EditForm
+                    draft={draft}
+                    serverPlatformFeeBp={s.platformFeeBp}
+                    applyMode={applyMode}
+                    changeReason={changeReason}
+                    verifiedChanged={
                       draft.legalName !== s.legalName ||
                       draft.address !== s.address ||
-                      draft.gstin !== s.gstin;
-                    if (applyMode === 'change_request') {
-                      if (!verifiedChanged) {
-                        toast.error('Change-request mode needs a change to legal name, address, or GSTIN.');
+                      draft.gstin !== s.gstin
+                    }
+                    onApplyModeChange={setApplyMode}
+                    onChangeReason={setChangeReason}
+                    onChange={setDraft}
+                    onCancel={cancelEdit}
+                    onSave={() => {
+                      if (!draft) return;
+                      const feeChanged = draft.platformFeeBp !== s.platformFeeBp;
+                      if (feeChanged && draft.platformFeeReason.trim().length < 3) {
+                        toast.error('Reason (≥3 chars) is required when changing the platform fee.');
                         return;
                       }
-                      if (changeReason.trim().length < 3) {
-                        toast.error('A reason (≥3 chars) is required to file a change request.');
+                      // Reject half-filled hours: a day must have both open and close, or neither.
+                      const partialDay = Object.entries(draft.openingHours).find(
+                        ([, slots]) => slots[0] && (!slots[0].open || !slots[0].close),
+                      );
+                      if (partialDay) {
+                        toast.error(`Opening hours for ${partialDay[0]} need both open and close times.`);
                         return;
                       }
-                    }
-                    saveMut.mutate({ d: draft, mode: applyMode, reason: changeReason.trim() });
-                  }}
-                  saving={saveMut.isPending}
-                />
-              ) : (
-                <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <ProfileRow label="Legal name" value={s.legalName} />
-                  <ProfileRow label="GSTIN" value={s.gstin} mono />
-                  <ProfileRow label="PAN" value={s.pan || '—'} mono />
-                  <ProfileRow
-                    label="GST scheme"
-                    value={
-                      s.gstScheme === 'composition'
-                        ? 'Composition · Bill of Supply'
-                        : s.gstScheme === 'regular'
-                          ? 'Regular · Tax Invoice'
-                          : '—'
-                    }
+                      if ((draft.lat.trim() && Number.isNaN(Number(draft.lat))) || (draft.lng.trim() && Number.isNaN(Number(draft.lng)))) {
+                        toast.error('Latitude / longitude must be valid numbers.');
+                        return;
+                      }
+                      const verifiedChanged =
+                        draft.legalName !== s.legalName ||
+                        draft.address !== s.address ||
+                        draft.gstin !== s.gstin;
+                      if (applyMode === 'change_request') {
+                        if (!verifiedChanged) {
+                          toast.error('Change-request mode needs a change to legal name, address, or GSTIN.');
+                          return;
+                        }
+                        if (changeReason.trim().length < 3) {
+                          toast.error('A reason (≥3 chars) is required to file a change request.');
+                          return;
+                        }
+                      }
+                      saveMut.mutate({ d: draft, mode: applyMode, reason: changeReason.trim() });
+                    }}
+                    saving={saveMut.isPending}
                   />
-                  <ProfileRow label="Address" value={s.address} />
-                  <ProfileRow label="State" value={stateLabel} />
-                  <ProfileRow label="Contact phone" value={s.contactPhone ?? '—'} mono />
-                  <ProfileRow label="Manager" value={s.managerName || 'Not assigned'} />
-                </dl>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Fees & payout — the full economics of the store in one place. Only the
-              platform fee is a KPI tile above; the retailer-set delivery/handling/
-              convenience fees live only here, so this is the one view that answers
-              "what does this store charge and when does it get paid?". */}
-          {/* Fees & payout — only the two fields an admin can actually set per store
-              (platform fee + payout cadence). Delivery/handling/convenience are
-              platform-wide or have no per-store write path, so they're omitted here.
-              Edit opens the same store edit form the Profile card uses. */}
-          <Card className="mt-5">
-            <CardContent className="p-5">
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <SectionHeading kicker="Economics" title="Fees & payout" />
-                {!editing && (
-                  <PermissionGate action="store_management.edit">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      iconLeft={<Pencil className="size-3" />}
-                      onClick={() => {
-                        startEdit();
-                        setActiveTab('overview');
-                      }}
-                    >
-                      Edit
-                    </Button>
-                  </PermissionGate>
+                ) : (
+                  /* Profile fields grouped by concern — business identity, tax
+                     registration, contact — with hairline dividers between groups
+                     so the record scans as three columns instead of a flat list. */
+                  <div className="grid grid-cols-1 divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                    <FieldGroup icon={Building2} label="Business" className="pb-4 sm:pb-0 sm:pr-5">
+                      <ProfileRow label="Legal name" value={s.legalName} />
+                      <ProfileRow
+                        label="GST scheme"
+                        value={
+                          s.gstScheme === 'composition'
+                            ? 'Composition · Bill of Supply'
+                            : s.gstScheme === 'regular'
+                              ? 'Regular · Tax Invoice'
+                              : '—'
+                        }
+                      />
+                    </FieldGroup>
+                    <FieldGroup icon={ScrollText} label="Tax registration" className="py-4 sm:py-0 sm:px-5">
+                      <ProfileRow label="GSTIN" value={s.gstin} mono />
+                      <ProfileRow label="PAN" value={s.pan || '—'} mono />
+                      <ProfileRow label="State" value={stateLabel} />
+                    </FieldGroup>
+                    <FieldGroup icon={Phone} label="Contact" className="pt-4 sm:pt-0 sm:pl-5">
+                      <ProfileRow label="Contact phone" value={s.contactPhone ?? '—'} mono />
+                      <ProfileRow label="Manager" value={s.managerName || 'Not assigned'} />
+                      <ProfileRow label="Address" value={s.address} />
+                    </FieldGroup>
+                  </div>
                 )}
-              </div>
-              <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
-                <ProfileRow label="Platform fee" value={`${(s.platformFeeBp / 100).toFixed(2)}%`} mono />
-                <ProfileRow label="Payout cadence" value={`Every ${s.payoutCadenceDays} days`} />
-              </dl>
-              {editing && (
-                <p className="mt-3 text-[12.5px] text-ink-3">Editing in the form above ↑</p>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
 
-          {/* Configuration — operational capability flags. Small on/off chips so an
-              operator can read the store's mode at a glance without opening settings. */}
-          <Card className="mt-5">
-            <CardContent className="p-5">
-              <SectionHeading kicker="Setup" title="Configuration" />
-              <div className="mt-3 flex flex-wrap gap-2">
-                <ConfigChip icon={Receipt} label="POS billing" on={!!s.posBillingEnabled} />
-                <ConfigChip icon={SlidersHorizontal} label="Delegation mode" on={!!s.delegationModeEnabled} />
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-bg-2/60 px-2.5 py-1 text-[12.5px] text-ink-2">
-                  <Package className="size-3.5 text-ink-3" />
-                  Low-stock threshold
-                  <span className="font-mono tabular-nums text-ink">{s.lowStockThreshold ?? 5}</span>
-                </span>
-              </div>
-            </CardContent>
-          </Card>
+            {/* Fees & payout — only the two fields an admin can actually set per store
+                (platform fee + payout cadence). Delivery/handling/convenience are
+                platform-wide or have no per-store write path, so they're omitted here.
+                Edit opens the same store edit form the Profile card uses. Flex column
+                so the stat tiles stretch and the card bottom lines up with Profile. */}
+            <Card className="flex min-w-0 flex-col">
+              <CardContent className="flex flex-1 flex-col p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <SectionHeading kicker="Economics" title="Fees & payout" />
+                  {!editing && (
+                    <PermissionGate action="store_management.edit">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        iconLeft={<Pencil className="size-3" />}
+                        onClick={() => {
+                          startEdit();
+                          setActiveTab('overview');
+                        }}
+                      >
+                        Edit
+                      </Button>
+                    </PermissionGate>
+                  )}
+                </div>
+                <div className="grid flex-1 grid-cols-2 gap-3">
+                  <KpiTile
+                    icon={<Coins className="size-3.5" />}
+                    label="Platform fee"
+                    value={`${(s.platformFeeBp / 100).toFixed(2)}%`}
+                    hint="of each order value"
+                  />
+                  <KpiTile
+                    icon={<CalendarClock className="size-3.5" />}
+                    label="Payout cadence"
+                    value={`Every ${s.payoutCadenceDays}d`}
+                    hint="settlement cycle"
+                  />
+                </div>
+                {editing && (
+                  <p className="mt-3 text-[12.5px] text-ink-3">Editing in the Profile form</p>
+                )}
+              </CardContent>
+            </Card>
 
-          {/* Location & storefront — geolocation, hours and photos. Turns the abstract
-              record into a real place: an operator can confirm the pin, the trading
-              hours and what the store actually looks like. */}
-          <Card className="mt-5">
-            <CardContent className="p-5">
-              <SectionHeading kicker="Storefront" title="Location & storefront" />
-              <div className="mt-3 grid grid-cols-1 gap-5 lg:grid-cols-2">
-                <div className="space-y-4">
-                  <div>
-                    <p className="kicker mb-1">Location</p>
+            {/* Location & storefront — geolocation + hours. Turns the abstract record
+                into a real place: an operator can confirm the pin and trading hours.
+                The map flexes to absorb any extra row height so the card bottom stays
+                level with the Configuration/photos stack beside it. */}
+            <Card className="flex min-w-0 flex-col">
+              <CardContent className="flex flex-1 flex-col p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <SectionHeading kicker="Storefront" title="Location & storefront" />
+                  {s.lat != null && s.lng != null && (
+                    <a
+                      className="inline-flex shrink-0 items-center gap-1 text-[12.5px] text-info hover:underline"
+                      href={`https://www.openstreetmap.org/?mlat=${s.lat}&mlon=${s.lng}#map=16/${s.lat}/${s.lng}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <MapPin className="size-3.5" /> Open in map
+                    </a>
+                  )}
+                </div>
+                <div className="grid flex-1 grid-cols-1 gap-5 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                  <div className="flex min-w-0 flex-col">
+                    <p className="kicker mb-2">Location</p>
                     {s.lat != null && s.lng != null ? (
-                      <>
-                        <p className="font-mono text-[13px] text-ink">
-                          {s.lat.toFixed(5)}, {s.lng.toFixed(5)}
-                        </p>
-                        <a
-                          className="mt-1 inline-flex items-center gap-1 text-[12.5px] text-info hover:underline"
-                          href={`https://www.openstreetmap.org/?mlat=${s.lat}&mlon=${s.lng}#map=16/${s.lat}/${s.lng}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <MapPin className="size-3.5" /> Open in map
-                        </a>
-                        <div className="mt-2 overflow-hidden rounded-lg border border-line">
-                          <iframe
-                            title="Store location"
-                            className="h-44 w-full"
-                            loading="lazy"
-                            src={`https://www.openstreetmap.org/export/embed.html?bbox=${s.lng - 0.01}%2C${s.lat - 0.01}%2C${s.lng + 0.01}%2C${s.lat + 0.01}&layer=mapnik&marker=${s.lat}%2C${s.lng}`}
-                          />
+                      <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-line">
+                        {/* isolate + z-0 trap Leaflet's z-indexed panes so they never
+                            float above dropdowns/dialogs elsewhere on the page. */}
+                        <div className="relative isolate min-h-52 flex-1">
+                          <Suspense fallback={<Skeleton className="absolute inset-0 rounded-none" />}>
+                            <StoreMap lat={s.lat} lng={s.lng} className="absolute inset-0" />
+                          </Suspense>
                         </div>
-                      </>
+                        <div className="flex items-center gap-1.5 border-t border-line bg-bg-2/60 px-3 py-1.5">
+                          <MapPin className="size-3 shrink-0 text-ink-3" />
+                          <span className="truncate font-mono tabular-nums text-[12px] text-ink-2">
+                            {s.lat.toFixed(5)}, {s.lng.toFixed(5)}
+                          </span>
+                        </div>
+                      </div>
                     ) : (
-                      <p className="text-[13px] text-ink-3">No coordinates on file</p>
+                      <div className="flex min-h-52 flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-line text-[12.5px] text-ink-3">
+                        <MapPin className="size-4" /> No coordinates on file
+                      </div>
                     )}
                   </div>
 
-                  <div>
-                    <p className="kicker mb-1">Opening hours</p>
+                  <div className="min-w-0">
+                    <p className="kicker mb-2">Opening hours</p>
                     <OpeningHours hours={s.openingHours} />
                   </div>
                 </div>
+              </CardContent>
+            </Card>
 
-                <div>
-                  <p className="kicker mb-1">Store photos</p>
-                  <GalleryStrip urls={s.galleryImageUrls} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            {/* Right cell of row 2 — Configuration on top, photos filling the rest so
+                the stack's bottom edge lines up with the storefront card. */}
+            <div className="flex min-w-0 flex-col gap-5">
+              {/* Configuration — operational capability flags as a settings list, so
+                  each flag gets a plain-language description next to its state. */}
+              <Card>
+                <CardContent className="p-5">
+                  <SectionHeading kicker="Setup" title="Configuration" />
+                  <div className="divide-y divide-line overflow-hidden rounded-lg border border-line">
+                    <SettingRow
+                      icon={Receipt}
+                      label="POS billing"
+                      description="Bill walk-in customers at the counter"
+                      on={!!s.posBillingEnabled}
+                    />
+                    <SettingRow
+                      icon={SlidersHorizontal}
+                      label="Delegation mode"
+                      description="Staff manage the store on the owner's behalf"
+                      on={!!s.delegationModeEnabled}
+                    />
+                    <SettingRow
+                      icon={Package}
+                      label="Low-stock threshold"
+                      description="Listings at or below this level get flagged"
+                      value={`${s.lowStockThreshold ?? 5} units`}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Store photos — what the storefront actually looks like. */}
+              <Card className="flex flex-1 flex-col">
+                <CardContent className="flex flex-1 flex-col p-5">
+                  <SectionHeading kicker="Gallery" title="Store photos" />
+                  <div className="flex-1">
+                    <GalleryStrip urls={s.galleryImageUrls} />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </TabsContent>
 
         <TabsContent value="compliance">
@@ -903,6 +997,150 @@ export default function AdminStoreDetail() {
   );
 }
 
+/** Human "how old is this store" label from its ISO creation date. */
+function storeAgeLabel(iso: string): string {
+  const days = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000));
+  if (days < 1) return 'opened today';
+  if (days < 30) return `${days}d old`;
+  if (days < 365) return `${Math.floor(days / 30)}mo old`;
+  return `${(days / 365).toFixed(1)}y old`;
+}
+
+type Notice = { title: string; body: string; tone: 'danger' | 'warning' | 'neutral'; icon: typeof CircleDot };
+
+/** The contextual lifecycle banner — null when the store is cleanly active
+ *  (no reason worth surfacing), otherwise the tone + reason for its state.
+ *  `closureSuspended` / `cascadeBanned` explain *why* the store is down, which
+ *  decides what the single Resume affordance will actually lift. */
+function lifecycleNotice(
+  s: AdminStoreView,
+  flags: { closureSuspended: boolean; cascadeBanned: boolean },
+): Notice | null {
+  if (s.status === 'terminated') {
+    return {
+      title: 'Terminated',
+      body: flags.cascadeBanned
+        ? 'This store went down with its retailer account ban — resuming lifts the account ban and restores its stores together.'
+        : (s.suspendReason ?? 'No reason recorded'),
+      tone: 'danger',
+      icon: X,
+    };
+  }
+  if (s.status === 'suspended') {
+    return {
+      title: 'Suspended',
+      body: flags.closureSuspended
+        ? 'The owner closed this account (reversible) — resuming reopens the account and store together.'
+        : (s.suspendReason ?? 'No reason recorded'),
+      tone: 'danger',
+      icon: ShieldAlert,
+    };
+  }
+  if (s.status === 'paused') {
+    return {
+      title: 'Paused',
+      body: `${s.pauseReason ?? 'No reason recorded'}${s.pauseVisibility === 'hidden' ? ' · hidden from consumer catalog' : ''}`,
+      tone: 'warning',
+      icon: PauseCircle,
+    };
+  }
+  if (s.status === 'onboarding') {
+    return {
+      title: 'Onboarding',
+      body: 'Store is still completing setup and is not yet fulfilling orders. Lifecycle controls unlock once it goes active.',
+      tone: 'neutral',
+      icon: Rocket,
+    };
+  }
+  return null;
+}
+
+/** Store monogram — initials on the layout's single ink surface, with a small
+ *  status dot at the corner (avatar-presence style). */
+function Monogram({ name, tone }: { name: string; tone: StatusTone }) {
+  const initials =
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() ?? '')
+      .join('') || '?';
+  const dot =
+    tone === 'success' ? 'bg-success'
+    : tone === 'warning' ? 'bg-warning'
+    : tone === 'danger' ? 'bg-danger'
+    : 'bg-ink-4';
+  return (
+    <div className="relative shrink-0">
+      <div className="flex size-14 items-center justify-center rounded-2xl bg-ink text-[19px] font-semibold tracking-tight text-bg shadow-sm sm:size-16 sm:text-[22px]">
+        {initials}
+      </div>
+      <span className="absolute -bottom-1 -right-1 flex size-4.5 items-center justify-center rounded-full bg-bg">
+        <span className={cn('size-2.5 rounded-full', dot, tone !== 'success' && 'pulse-dot')} />
+      </span>
+    </div>
+  );
+}
+
+/** Small count pill for tab labels. */
+function TabCount({ value }: { value: number }) {
+  return (
+    <span className="ml-1.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-bg-3 px-1.5 py-0.5 font-mono text-[10.5px] leading-none tabular-nums text-ink-2">
+      {value}
+    </span>
+  );
+}
+
+/** Compact icon + text chip for the hero's registry facts. */
+function MetaChip({ icon: Icon, value, mono }: { icon: typeof MapPin; value: string; mono?: boolean }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-line bg-bg-2/60 px-2 py-1 text-[11.5px] text-ink-2">
+      <Icon className="size-3.5 shrink-0 text-ink-3" />
+      <span className={cn('truncate', mono && 'font-mono tabular-nums')}>{value}</span>
+    </span>
+  );
+}
+
+/** Metric-rail cell — icon chip, kicker label, big mono value, hint. */
+function Stat({
+  icon,
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: StatusTone;
+}) {
+  const valueCls =
+    tone === 'success' ? 'text-success-strong'
+    : tone === 'warning' ? 'text-warning'
+    : tone === 'danger' ? 'text-danger'
+    : 'text-ink';
+  const iconCls =
+    tone === 'success' ? 'border-success/30 bg-success-soft/50 text-success-strong'
+    : tone === 'warning' ? 'border-warning/30 bg-warning-soft/60 text-warning'
+    : tone === 'danger' ? 'border-danger/30 bg-danger-soft/60 text-danger'
+    : 'border-line bg-bg-2 text-ink-2';
+  return (
+    <div className="flex items-start gap-3 bg-bg p-4 sm:p-5">
+      <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg border', iconCls)}>
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <div className="kicker">{label}</div>
+        <div className={cn('mt-1 font-mono text-[19px] leading-none tabular-nums capitalize', valueCls)}>
+          {value}
+        </div>
+        {hint && <div className="mt-1.5 text-[11.5px] text-ink-3">{hint}</div>}
+      </div>
+    </div>
+  );
+}
+
 function KpiTile({
   icon,
   label,
@@ -972,51 +1210,102 @@ function ProfileRow({
   );
 }
 
+/** Square deep-link tile: icon top-left, arrow top-right, label + hint at the
+ *  bottom. Sized to sit three-across in the hero's right column. */
 function OpsTile({
   icon: Icon,
   label,
+  hint,
   href,
 }: {
   icon: typeof Package;
   label: string;
+  hint: string;
   href: string;
 }) {
   return (
     <Link
       to={href}
-      className="group flex items-center justify-between gap-2 rounded-lg border border-line bg-bg px-3 py-3 transition-colors hover:border-line-2 hover:bg-bg-2/60"
+      className="press group flex aspect-square flex-col justify-between rounded-xl border border-line bg-bg p-3 shadow-xs transition-colors hover:border-line-strong hover:bg-bg-2/50"
     >
-      <span className="flex items-center gap-2">
-        <span className="rounded-md border border-line bg-bg-2 p-1.5">
-          <Icon className="size-3.5 text-ink-2" />
+      <span className="flex items-start justify-between">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-bg-2 text-ink-2 transition-colors group-hover:border-ink group-hover:bg-ink group-hover:text-bg">
+          <Icon className="size-4.5" />
         </span>
-        <span className="text-[13px] font-medium text-ink">{label}</span>
+        <ArrowUpRight className="size-3.5 shrink-0 text-ink-3 transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-ink" />
       </span>
-      <ArrowUpRight className="size-3.5 text-ink-3 transition-colors group-hover:text-ink" />
+      <span className="min-w-0">
+        <span className="block truncate text-[12.5px] font-semibold leading-tight text-ink">{label}</span>
+        <span className="mt-0.5 block truncate text-[10.5px] leading-tight text-ink-3">{hint}</span>
+      </span>
     </Link>
   );
 }
 
-function ConfigChip({
+/** Labeled cluster of profile fields with a small icon anchor. */
+function FieldGroup({
   icon: Icon,
   label,
-  on,
+  className,
+  children,
 }: {
   icon: typeof Package;
   label: string;
-  on: boolean;
+  className?: string;
+  children: React.ReactNode;
 }) {
   return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12.5px]',
-        on ? 'border-success/30 bg-success-soft/50 text-success' : 'border-line bg-bg-2/60 text-ink-3',
+    <div className={cn('min-w-0', className)}>
+      <div className="mb-3 flex items-center gap-2">
+        <span className="flex size-6 items-center justify-center rounded-md border border-line bg-bg-2">
+          <Icon className="size-3.5 text-ink-2" />
+        </span>
+        <span className="kicker">{label}</span>
+      </div>
+      <dl className="space-y-3">{children}</dl>
+    </div>
+  );
+}
+
+/** Settings-list row: icon, name + plain-language description, and either an
+ *  On/Off pill or a literal value on the right. */
+function SettingRow({
+  icon: Icon,
+  label,
+  description,
+  on,
+  value,
+}: {
+  icon: typeof Package;
+  label: string;
+  description: string;
+  on?: boolean;
+  value?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 px-3.5 py-3">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-line bg-bg-2">
+        <Icon className="size-4 text-ink-2" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-medium text-ink">{label}</p>
+        <p className="truncate text-[11.5px] text-ink-3">{description}</p>
+      </div>
+      {value != null ? (
+        <span className="shrink-0 font-mono tabular-nums text-[13px] text-ink">{value}</span>
+      ) : (
+        <span
+          className={cn(
+            'shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium',
+            on
+              ? 'border-success/30 bg-success-soft text-success-strong'
+              : 'border-line bg-bg-2 text-ink-3',
+          )}
+        >
+          {on ? 'On' : 'Off'}
+        </span>
       )}
-    >
-      <Icon className="size-3.5" />
-      {label}
-      <span className="font-medium">{on ? 'On' : 'Off'}</span>
-    </span>
+    </div>
   );
 }
 
@@ -1027,27 +1316,36 @@ const DAY_LABEL: Record<string, string> = {
 };
 
 function OpeningHours({ hours }: { hours: Record<string, { open: string; close: string }[]> | null | undefined }) {
-  const entries = hours ? Object.entries(hours).filter(([, slots]) => slots && slots.length > 0) : [];
-  if (entries.length === 0) {
-    return <p className="text-[13px] text-ink-3">No hours set</p>;
+  const anySet = hours ? Object.values(hours).some((slots) => slots && slots.length > 0) : false;
+  if (!anySet) {
+    // Same height as the map so the two empty states sit level.
+    return (
+      <div className="flex h-52 items-center justify-center gap-2 rounded-lg border border-dashed border-line text-[12.5px] text-ink-3">
+        <Clock className="size-4" /> No hours set
+      </div>
+    );
   }
-  // Preserve a stable weekday order, then append any non-standard keys as-is.
+  // Full week in stable order (closed days dimmed), then any non-standard keys.
   const ordered = [
-    ...DAY_ORDER.filter((d) => hours?.[d]?.length),
+    ...DAY_ORDER,
     ...Object.keys(hours ?? {}).filter((k) => !DAY_ORDER.includes(k as never) && hours?.[k]?.length),
   ];
   return (
-    <dl className="space-y-1">
-      {ordered.map((day) => (
-        <div key={day} className="flex items-center gap-2 text-[13px]">
-          <dt className="flex w-10 items-center gap-1 text-ink-3">
-            <Clock className="size-3" /> {DAY_LABEL[day] ?? day}
-          </dt>
-          <dd className="font-mono tabular-nums text-ink">
-            {(hours?.[day] ?? []).map((slot) => `${slot.open}–${slot.close}`).join(', ')}
-          </dd>
-        </div>
-      ))}
+    <dl className="divide-y divide-line overflow-hidden rounded-lg border border-line">
+      {ordered.map((day) => {
+        const slots = hours?.[day] ?? [];
+        const open = slots.length > 0;
+        return (
+          <div key={day} className="flex items-center justify-between gap-2 px-3 py-1.5 text-[12.5px]">
+            <dt className={cn('font-medium', open ? 'text-ink-2' : 'text-ink-4')}>
+              {DAY_LABEL[day] ?? day}
+            </dt>
+            <dd className={cn('font-mono tabular-nums', open ? 'text-ink' : 'text-ink-4')}>
+              {open ? slots.map((slot) => `${slot.open}–${slot.close}`).join(', ') : 'Closed'}
+            </dd>
+          </div>
+        );
+      })}
     </dl>
   );
 }
@@ -1055,14 +1353,15 @@ function OpeningHours({ hours }: { hours: Record<string, { open: string; close: 
 function GalleryStrip({ urls }: { urls: string[] | null | undefined }) {
   const list = (urls ?? []).filter(Boolean);
   if (list.length === 0) {
+    // h-full: stretches to fill the photos card so its bottom edge stays aligned.
     return (
-      <div className="flex h-24 items-center justify-center gap-2 rounded-lg border border-dashed border-line text-[12.5px] text-ink-3">
+      <div className="flex h-full min-h-24 items-center justify-center gap-2 rounded-lg border border-dashed border-line text-[12.5px] text-ink-3">
         <ImageOff className="size-4" /> No photos uploaded
       </div>
     );
   }
   return (
-    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+    <div className="grid grid-cols-3 gap-2">
       {list.map((url, i) => (
         <a
           key={`${url}-${i}`}

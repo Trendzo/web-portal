@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
+import { NavLink } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, BarChart3, Bell, Building2, CalendarDays, FileText, LayoutDashboard, Package, Pencil, Receipt, ScanLine, Tag, Users, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
+import { cn } from '@/lib/cn';
 import {
   SidebarShell,
   filterSidebarGroups,
@@ -28,14 +30,17 @@ type MeResponse = { retailer: RetailerProfile; store: Store | null };
 function buildGroups(store: Store | null): SidebarGroup[] {
   const showStorefront = !store || store.status !== 'active';
   const showOrders = store && (store.status === 'active' || store.status === 'paused');
-  // Counter (offline POS) is a per-retailer opt-in on top of the store being live.
-  const showCounter = showOrders && store?.posBillingEnabled === true;
   return [
     {
       label: 'Workspace',
       items: [
         { to: '/retailer/dashboard', label: 'Overview', end: true, icon: LayoutDashboard },
-        { to: '/retailer/store', label: showStorefront ? 'Storefront' : 'Store settings', end: true, icon: Building2, action: 'store.view_profile' },
+        // Storefront stays up top only while onboarding needs attention; once
+        // approved it becomes "Store settings" and moves to the bottom of the
+        // Settings group with the other configure-once items.
+        ...(showStorefront
+          ? [{ to: '/retailer/store', label: 'Storefront', end: true, icon: Building2, action: 'store.view_profile' }]
+          : []),
       ],
     },
     ...(showOrders
@@ -45,16 +50,6 @@ function buildGroups(store: Store | null): SidebarGroup[] {
             items: [
               { to: '/retailer/orders', label: 'Orders', end: false, icon: Receipt, action: 'orders.view' },
               { to: '/retailer/disputes', label: 'Disputes', end: true, icon: AlertTriangle, action: 'disputes.view' },
-            ],
-          },
-        ]
-      : []),
-    ...(showCounter
-      ? [
-          {
-            label: 'Counter',
-            items: [
-              { to: '/retailer/pos', label: 'Register', end: false, icon: ScanLine, action: 'pos.sell' },
             ],
           },
         ]
@@ -107,6 +102,9 @@ function buildGroups(store: Store | null): SidebarGroup[] {
         { to: '/retailer/holiday-calendar', label: 'Holiday calendar', end: true, icon: CalendarDays, action: 'store.holidays_edit' },
         // Pickup slots hidden for now (route still registered). Uncomment to restore.
         // { to: '/retailer/pickup-slots', label: 'Pickup slots', end: true, icon: CalendarDays, action: 'store.edit_profile' },
+        ...(!showStorefront
+          ? [{ to: '/retailer/store', label: 'Store settings', end: true, icon: Building2, action: 'store.view_profile' }]
+          : []),
       ],
     },
   ];
@@ -143,6 +141,16 @@ export default function RetailerLayout() {
   }, [data?.store, permissions]);
   useRetailerBanners();
 
+  // Counter (offline POS) is a per-retailer opt-in on top of the store being
+  // live. Lives in the top bar rather than the sidebar — it's a mode switch
+  // into the selling screen, not a page in the daily browse flow.
+  const store = data?.store ?? null;
+  const showRegister =
+    store &&
+    (store.status === 'active' || store.status === 'paused') &&
+    store.posBillingEnabled === true &&
+    (!permissions || permissions['pos.sell'] === true);
+
   return (
     <RoleGate kind="retailer">
       <ImpersonationBanner />
@@ -152,6 +160,22 @@ export default function RetailerLayout() {
         groups={groups}
         searchHint="Search pages, products, orders…"
         paletteScope="retailer"
+        headerActions={
+          showRegister ? (
+            <NavLink
+              to="/retailer/pos"
+              className={({ isActive }) =>
+                cn(
+                  'flex h-9 items-center gap-2 rounded-full px-3.5 text-[13px] font-medium press',
+                  isActive ? 'bg-ink text-bg' : 'bg-bg-3 text-ink-2 hover:bg-bg-4',
+                )
+              }
+            >
+              <ScanLine className="size-4" />
+              <span className="hidden sm:inline">Register</span>
+            </NavLink>
+          ) : undefined
+        }
       />
     </RoleGate>
   );

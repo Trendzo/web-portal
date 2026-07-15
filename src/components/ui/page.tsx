@@ -8,7 +8,13 @@ export function Page({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       data-stagger
-      className={cn('mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8', className)}
+      className={cn(
+        // Container scales with the viewport so large monitors don't leave wide
+        // empty gutters: 1600px cap by default, widening (and padding stepping up)
+        // through the xl / 2xl breakpoints. Pass a `max-w-*` to override per-page.
+        'mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8 xl:px-8 2xl:max-w-[1880px] 2xl:px-10',
+        className,
+      )}
       {...rest}
     />
   );

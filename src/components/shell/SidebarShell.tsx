@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType, type ReactElement } from 'react';
+import { useEffect, useState, type ComponentType, type ReactElement, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { ChevronsLeft, Menu, Search, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -59,6 +59,9 @@ type SidebarShellProps = {
   searchHint?: string;
   /** Optional element shown inside the dark sidebar footer (e.g. AI quota chip). */
   sidebarFooter?: ComponentType | ReactElement;
+  /** Optional actions rendered in the top bar, left of the notifications bell
+   *  (e.g. the retailer POS Register shortcut). */
+  headerActions?: ReactNode;
   /** Scope hint for the Cmd+K palette to choose which entity search to run. */
   paletteScope?: 'admin' | 'retailer';
 };
@@ -71,7 +74,7 @@ const STORAGE_KEY = 'trendzo.sidebar.collapsed';
  * column (top-bar + page outlet). Sidebar collapses to icon-only on desktop;
  * on mobile it opens as a slide-over drawer.
  */
-export function SidebarShell({ kindLabel, groups, searchHint, sidebarFooter, paletteScope = 'admin' }: SidebarShellProps) {
+export function SidebarShell({ kindLabel, groups, searchHint, sidebarFooter, headerActions, paletteScope = 'admin' }: SidebarShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -152,6 +155,7 @@ export function SidebarShell({ kindLabel, groups, searchHint, sidebarFooter, pal
           )}
 
           <div className="ml-auto flex items-center gap-2">
+            {headerActions}
             <NotificationsBell />
             <AccountMenu />
           </div>
