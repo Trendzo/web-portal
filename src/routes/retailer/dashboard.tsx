@@ -24,6 +24,8 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { retailerStatusMeta, storeStatusMeta } from '@/lib/status';
 import type { ClarificationMessage, Listing, RetailerOrder, RetailerProfile, Store } from '@/lib/types';
+import { deriveGate } from '@/lib/gate';
+import { GateNotice } from '@/components/retailer/gate-notice';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -50,24 +52,51 @@ import {
 import { cn } from '@/lib/cn';
 import { GettingStartedChecklist } from '@/components/retailer/getting-started-checklist';
 
-/** Legal gate — a store can't go live until the Retailer Terms are accepted (records IP server-side). */
-function TermsGate({ version }: { version: string }) {
+type LegalKind = 'terms' | 'privacy';
+
+const LEGAL_COPY: Record<
+  LegalKind,
+  { path: string; docName: string; banner: string; bannerSub: string; agree: string }
+> = {
+  terms: {
+    path: 'terms',
+    docName: 'Retailer Terms & Conditions',
+    banner: 'Accept the Retailer Terms to go live',
+    bannerSub: "Your store can't start selling until you review and accept the Retailer Terms & Conditions.",
+    agree: 'I have read and accept the Retailer Terms & Conditions.',
+  },
+  privacy: {
+    path: 'privacy',
+    docName: 'Privacy Policy',
+    banner: 'Accept the Privacy Policy to go live',
+    bannerSub: "Your store can't start selling until you review and accept the Privacy Policy.",
+    agree: 'I have read and accept the Privacy Policy.',
+  },
+};
+
+/** Legal gate — a store can't go live until the current version of each legal
+ *  document (T&C, Privacy Policy) is accepted (records IP server-side). */
+function LegalGate({ kind, version }: { kind: LegalKind; version: string }) {
+  const copy = LEGAL_COPY[kind];
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [agreed, setAgreed] = useState(false);
-  const { data: terms } = useQuery({
-    queryKey: ['retailer', 'terms'],
-    queryFn: () => api<{ version: string; shortText: string; acceptedAt: string | null }>('/retailer/terms'),
+  const { data: doc } = useQuery({
+    queryKey: ['retailer', 'legal', kind],
+    queryFn: () =>
+      api<{ version: string; shortText: string; acceptedAt: string | null }>(
+        `/retailer/${copy.path}`,
+      ),
     enabled: open,
   });
   const accept = useMutation({
     mutationFn: () =>
-      api('/retailer/terms/accept', { method: 'POST', body: { version: terms?.version ?? version } }),
+      api(`/retailer/${copy.path}/accept`, { method: 'POST', body: { version: doc?.version ?? version } }),
     onSuccess: () => {
-      toast.success('Terms accepted — you can now go live.');
+      toast.success(`${copy.docName} accepted.`);
       setOpen(false);
       void qc.invalidateQueries({ queryKey: ['retailer', 'me'] });
-      void qc.invalidateQueries({ queryKey: ['retailer', 'terms'] });
+      void qc.invalidateQueries({ queryKey: ['retailer', 'legal', kind] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not record acceptance'),
   });
@@ -75,13 +104,13 @@ function TermsGate({ version }: { version: string }) {
   // on the next login until they accept (no separate "declined" account state).
   const decline = useMutation({
     mutationFn: () =>
-      api('/retailer/terms/decline', { method: 'POST', body: { version: terms?.version ?? version } }),
+      api(`/retailer/${copy.path}/decline`, { method: 'POST', body: { version: doc?.version ?? version } }),
     onSettled: () => {
       useAuth.getState().signOut();
     },
   });
   function onDecline() {
-    if (window.confirm('Declining the Retailer Terms will log you out. You must accept them to use your store. Continue?')) {
+    if (window.confirm(`Declining the ${copy.docName} will log you out. You must accept it to use your store. Continue?`)) {
       decline.mutate();
     }
   }
@@ -89,10 +118,8 @@ function TermsGate({ version }: { version: string }) {
     <>
       <div className="mb-4 flex flex-col gap-2 rounded-xl border border-warning/40 bg-warning/5 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="text-[14px] font-semibold text-ink">Accept the Retailer Terms to go live</div>
-          <div className="text-[12.5px] text-ink-3">
-            Your store can&apos;t start selling until you review and accept the Retailer Terms &amp; Conditions.
-          </div>
+          <div className="text-[14px] font-semibold text-ink">{copy.banner}</div>
+          <div className="text-[12.5px] text-ink-3">{copy.bannerSub}</div>
         </div>
         <Button variant="solid" className="shrink-0" onClick={() => setOpen(true)}>
           Review &amp; accept
@@ -100,9 +127,9 @@ function TermsGate({ version }: { version: string }) {
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle>Retailer Terms &amp; Conditions</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{copy.docName}</DialogTitle></DialogHeader>
           <div className="max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-bg-2/40 p-3 text-[12.5px] leading-relaxed text-ink-2">
-            {terms?.shortText ?? 'Loading…'}
+            {doc?.shortText ?? 'Loading…'}
           </div>
           <label className="flex items-center gap-2 text-[13px] text-ink">
             <input
@@ -111,7 +138,7 @@ function TermsGate({ version }: { version: string }) {
               checked={agreed}
               onChange={(e) => setAgreed(e.target.checked)}
             />
-            I have read and accept the Retailer Terms &amp; Conditions.
+            {copy.agree}
           </label>
           <DialogFooter>
             <Button variant="ghost" className="mr-auto text-danger" loading={decline.isPending} onClick={onDecline}>
@@ -120,7 +147,7 @@ function TermsGate({ version }: { version: string }) {
             <Button variant="outline" onClick={() => setOpen(false)}>Not now</Button>
             <Button
               variant="solid"
-              disabled={!agreed || !terms}
+              disabled={!agreed || !doc}
               loading={accept.isPending}
               onClick={() => accept.mutate()}
             >
@@ -138,6 +165,8 @@ type MeResponse = {
   store: Store | null;
   termsAcceptanceRequired?: boolean;
   currentTermsVersion?: string;
+  privacyAcceptanceRequired?: boolean;
+  currentPrivacyVersion?: string;
 };
 
 export default function RetailerDashboard() {
@@ -156,6 +185,7 @@ export default function RetailerDashboard() {
 
   const retailer = data?.retailer ?? fallback;
   const store = data?.store ?? null;
+  const gate = deriveGate(retailer, store);
 
   const liveAndKicking = retailer?.status === 'active' && (store?.status === 'active' || store?.status === 'paused');
 
@@ -180,8 +210,21 @@ export default function RetailerDashboard() {
 
   return (
     <Page>
-      {data?.termsAcceptanceRequired && (
-        <TermsGate version={data.currentTermsVersion ?? ''} />
+      {data?.termsAcceptanceRequired ? (
+        <LegalGate kind="terms" version={data.currentTermsVersion ?? ''} />
+      ) : data?.privacyAcceptanceRequired ? (
+        // Sequential, not stacked — the privacy gate appears once the terms are in.
+        <LegalGate kind="privacy" version={data.currentPrivacyVersion ?? ''} />
+      ) : null}
+      {/* Account/store lockouts land here first after login — surface the state and
+          the way out (reopen request / appeal thread on the store Status page)
+          instead of a silent dashboard. */}
+      {(gate.state === 'account_closed' ||
+        gate.state === 'retailer_terminated' ||
+        gate.state === 'store_blocked') && (
+        <div className="mb-4">
+          <GateNotice gate={gate} />
+        </div>
       )}
       <PageHeader
         {...(liveAndKicking ? { kicker: 'Analytics overview' } : {})}

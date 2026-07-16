@@ -183,6 +183,13 @@ const GROUPS: SidebarGroup[] = [
         icon: FileText,
         anyAction: ['platform_config.view', 'platform_config.edit'],
       },
+      {
+        to: '/admin/privacy-policy',
+        label: 'Privacy policy',
+        end: false,
+        icon: FileText,
+        anyAction: ['platform_config.view', 'platform_config.edit'],
+      },
     ],
   },
   {

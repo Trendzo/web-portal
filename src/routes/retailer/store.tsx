@@ -309,11 +309,12 @@ function AppealPanel({ store }: { store: StoreWithPause }) {
     queryKey: ['retailer', 'me'],
     queryFn: () => api<MeResponse>('/retailer/me'),
   });
-  // A self-closed account also leaves the store suspended — that's not an admin
-  // action to appeal; the Reopen panel below is the right lever there.
-  const blocked =
-    (store.status === 'suspended' || store.status === 'terminated') &&
-    me?.retailer.status !== 'closed';
+  // A self-closed account also leaves the store suspended — that's not an admin action
+  // to APPEAL (the Reopen panel is the lever), but the thread stays open as the
+  // conversation channel for reopen follow-ups with the admin desk.
+  const accountClosed = me?.retailer.status === 'closed';
+  const storeDown = store.status === 'suspended' || store.status === 'terminated';
+  const blocked = storeDown && !accountClosed;
   const appealQ = useQuery({
     queryKey: ['retailer', 'account-appeal'],
     queryFn: () =>
@@ -332,16 +333,18 @@ function AppealPanel({ store }: { store: StoreWithPause }) {
   });
 
   const messages = appealQ.data?.messages ?? [];
-  if (!blocked && messages.length === 0) return null;
+  if (!storeDown && messages.length === 0) return null;
 
   return (
     <div className="mt-6">
-      <SectionHeading title="Appeal this action" />
+      <SectionHeading title={accountClosed ? 'Messages with ClosetX' : 'Appeal this action'} />
       <div className="rounded-lg border border-line bg-bg p-5">
         <p className="mb-4 text-[13px] text-ink-2">
           {blocked
             ? 'Your store was suspended or terminated by ClosetX. Use this thread to contest the action or ask what is needed to restore it — replies from the team appear here.'
-            : 'Past appeal conversation about a suspension/termination on this store.'}
+            : accountClosed
+              ? 'Talk to the ClosetX team here — for example, follow-ups on your reopen request. Replies appear in this thread.'
+              : 'Past appeal conversation about a suspension/termination on this store.'}
         </p>
         <ClarificationThread
           messages={messages.map((m) => ({

@@ -33,12 +33,36 @@ type Decision = {
   ip: string | null;
 };
 
+type LegalKind = 'terms' | 'privacy';
+
+const COPY: Record<LegalKind, { title: string; description: string; publishToast: string }> = {
+  terms: {
+    title: 'Retailer Terms & Conditions',
+    description: 'Edit the terms retailers must accept. Publishing a new version re-prompts every retailer to accept it.',
+    publishToast: 'New terms published — all retailers will be re-prompted to accept.',
+  },
+  privacy: {
+    title: 'Privacy Policy',
+    description: 'Edit the privacy policy retailers must accept. Publishing a new version re-prompts every retailer to accept it.',
+    publishToast: 'New privacy policy published — all retailers will be re-prompted to accept.',
+  },
+};
+
+/** T&C admin page (default) — the same pipeline serves the Privacy Policy below. */
 export default function AdminTerms() {
+  return <LegalDocAdmin kind="terms" />;
+}
+
+export function AdminPrivacyPolicy() {
+  return <LegalDocAdmin kind="privacy" />;
+}
+
+function LegalDocAdmin({ kind }: { kind: LegalKind }) {
   const qc = useQueryClient();
   const canEdit = usePermission('platform_config.edit');
   const { data, isLoading } = useQuery({
-    queryKey: ['admin', 'terms'],
-    queryFn: () => api<TermsData>('/admin/terms'),
+    queryKey: ['admin', 'terms', kind],
+    queryFn: () => api<TermsData>(`/admin/terms?kind=${kind}`),
   });
 
   // Controlled draft with a fallback to the current text; reset after publish re-seeds it.
@@ -49,12 +73,12 @@ export default function AdminTerms() {
 
   const publish = useMutation({
     mutationFn: () =>
-      api('/admin/terms', { method: 'POST', body: { shortText: text, label: label.trim() || undefined } }),
+      api('/admin/terms', { method: 'POST', body: { kind, shortText: text, label: label.trim() || undefined } }),
     onSuccess: () => {
-      toast.success('New terms published — all retailers will be re-prompted to accept.');
+      toast.success(COPY[kind].publishToast);
       setDraft(null);
       setLabel('');
-      void qc.invalidateQueries({ queryKey: ['admin', 'terms'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'terms', kind] });
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not publish'),
   });
@@ -65,8 +89,8 @@ export default function AdminTerms() {
     <Page>
       <PageHeader
         kicker="Legal"
-        title="Retailer Terms & Conditions"
-        description="Edit the terms retailers must accept. Publishing a new version re-prompts every retailer to accept it."
+        title={COPY[kind].title}
+        description={COPY[kind].description}
       />
 
       {isLoading ? (

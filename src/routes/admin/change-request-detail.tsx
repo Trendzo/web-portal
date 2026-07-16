@@ -16,6 +16,17 @@ import { CopyableId } from '@/components/ui/copyable-id';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/input';
 import { MetaList } from '@/components/ui/meta-list';
+import { ClarificationThread } from '@/components/admin/clarification-thread';
+
+/** Store-scoped conversation thread (shared with the store-detail appeal tab). */
+type AppealMessage = {
+  id: string;
+  storeId: string;
+  authorKind: 'admin' | 'retailer' | 'system';
+  body: string;
+  attachments: string[];
+  createdAt: string;
+};
 
 function fieldLabel(f: ChangeRequest['field']): string {
   switch (f) {
@@ -64,6 +75,27 @@ export default function AdminChangeRequestDetail() {
     queryKey: ['admin', 'change-request', id],
     queryFn: () => api<ChangeRequest>(`/admin/compliance/change-requests/${id}`),
     enabled: Boolean(id),
+  });
+
+  // Closure/reopen requests are decisions about a CONVERSATION-worthy situation — the
+  // store's message thread (same one as the store-detail Appeal tab) is embedded here
+  // so the admin can ask follow-ups before deciding, instead of a one-shot note.
+  const isLifecycleRequest =
+    data?.field === 'account_deletion' || data?.field === 'account_reopen';
+  const threadQ = useQuery({
+    queryKey: ['admin', 'store-appeal', data?.storeId],
+    queryFn: () =>
+      api<{ storeStatus: string; messages: AppealMessage[] }>(
+        `/admin/stores/${data!.storeId}/appeal`,
+      ),
+    enabled: Boolean(data?.storeId && isLifecycleRequest),
+  });
+  const threadReply = useMutation({
+    mutationFn: (body: string) =>
+      api(`/admin/stores/${data!.storeId}/appeal`, { method: 'POST', body: { body } }),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'store-appeal', data?.storeId] }),
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Failed to send reply'),
   });
 
   const decide = useMutation({
@@ -153,6 +185,38 @@ export default function AdminChangeRequestDetail() {
               )}
             </CardContent>
           </Card>
+
+          {isLifecycleRequest && (
+            <Card>
+              <CardHeader><CardTitle>Conversation with the retailer</CardTitle></CardHeader>
+              <CardContent>
+                <p className="mb-3 text-[12.5px] text-ink-3">
+                  Ask follow-ups here before deciding — the retailer sees and replies to this
+                  thread from their app and portal.
+                </p>
+                <ClarificationThread
+                  messages={(threadQ.data?.messages ?? []).map((m) => ({
+                    id: m.id,
+                    applicationId: m.storeId,
+                    authorKind: m.authorKind === 'admin' ? 'admin' : 'applicant',
+                    authorLabel:
+                      m.authorKind === 'admin'
+                        ? 'ClosetX admin'
+                        : m.authorKind === 'system'
+                          ? 'System'
+                          : 'Retailer',
+                    body: m.body,
+                    attachments: m.attachments,
+                    fieldKey: null,
+                    createdAt: m.createdAt,
+                  }))}
+                  canReply
+                  replyPending={threadReply.isPending}
+                  onReply={(text) => threadReply.mutate(text)}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           {isPending ? (
             <Card>

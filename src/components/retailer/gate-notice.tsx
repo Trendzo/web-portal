@@ -35,11 +35,12 @@ function configFor(gate: Exclude<Gate, { state: 'ready' }>): Config {
         body: (
           <>
             You can still view your orders, invoices, and statements for
-            record-keeping, but nothing can be created or changed. Contact admin
-            if you think this is a mistake.
+            record-keeping, but nothing can be created or changed. If you think
+            this is a mistake, appeal it from your store's Status page — the
+            thread there goes straight to the ClosetX team.
           </>
         ),
-        cta: { label: 'View invoices', href: '/retailer/invoices' },
+        cta: { label: 'Open status & appeal', href: '/retailer/store/status' },
       };
     case 'account_closed':
       return {
@@ -85,8 +86,13 @@ function configFor(gate: Exclude<Gate, { state: 'ready' }>): Config {
         kicker: 'Storefront unavailable',
         kickerTone: 'danger',
         title: <>Your storefront is currently <em>{gate.status}</em>.</>,
-        body: <>Contact admin to restore it.</>,
-        cta: null,
+        body: (
+          <>
+            You can contest this or ask what's needed to restore it — the message
+            thread with the ClosetX team is on your store's Status page.
+          </>
+        ),
+        cta: { label: 'Open status & appeal', href: '/retailer/store/status' },
       };
     case 'kyc_overdue':
       return {

@@ -156,7 +156,9 @@ export function usePendingRequests(storeId?: string) {
         subtitle: a.lastMessagePreview,
         age: `${a.storeStatus ?? 'blocked'} · replied ${formatAge(a.lastMessageAt)}`,
         badge: { label: 'Appeal', tone: 'danger' },
-        detailHref: `/admin/stores/${a.storeId}?tab=compliance`,
+        // #appeal makes the store page scroll to the thread — also works when the
+        // card is clicked from the store page's own scoped grid (same route).
+        detailHref: `/admin/stores/${a.storeId}?tab=compliance#appeal`,
         // Appeals are a conversation + a lifecycle decision — no one-click accept.
         reviewOnly: true,
       });
@@ -263,7 +265,7 @@ export function PendingRequestsGrid({ storeId }: { storeId?: string } = {}) {
                   </Button>
                 ) : r.reviewOnly ? (
                   <Button variant="outline" size="sm" className="w-full" onClick={() => navigate(r.detailHref)}>
-                    Review documents
+                    {r.kind === 'appeal' ? 'Open thread' : 'Review documents'}
                   </Button>
                 ) : (
                   <div className="flex gap-2">

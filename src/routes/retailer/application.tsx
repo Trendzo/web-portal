@@ -11,7 +11,13 @@ import { Input } from '@/components/ui/input';
 import { Label, FieldError } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { api } from '@/lib/api';
+import { api, BASE } from '@/lib/api';
+
+// Public legal pages are served by the BACKEND root (see backend legal.routes.ts) —
+// derive them from the API base so dev proxy and prod both resolve.
+const LEGAL_ORIGIN = BASE.replace(/\/api\/v1\/?$/, '');
+const LEGAL_TERMS_URL = `${LEGAL_ORIGIN}/terms`;
+const LEGAL_PRIVACY_URL = `${LEGAL_ORIGIN}/privacy`;
 import { uploadMedia } from '@/lib/upload';
 import { lookupPincode, type PincodeLookup } from '@/lib/pincode';
 import { geocodeLocation } from '@/lib/geocode';
@@ -239,6 +245,7 @@ export default function RetailerApplication() {
   const [form, setForm] = useState<FormState>(initial);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
+  const [legalAgreed, setLegalAgreed] = useState(false);
   const [sameAsOwner, setSameAsOwner] = useState(false);
   const [docs, setDocs] = useState<Partial<Record<DocKind, UploadedDoc>>>({});
   const [uploading, setUploading] = useState<Partial<Record<DocKind, boolean>>>({});
@@ -554,6 +561,10 @@ export default function RetailerApplication() {
       }
     }
 
+    if (!legalAgreed) {
+      toast.error('Please accept the Terms & Conditions and Privacy Policy to submit.');
+      return;
+    }
     setSubmitting(true);
     try {
       const documents = Object.entries(docs).map(([kind, d]) => ({ kind: kind as DocKind, url: d!.url }));
@@ -577,6 +588,9 @@ export default function RetailerApplication() {
         bankAccountNumber: form.accountNumber.trim() || undefined,
         bankIfsc: form.ifsc.trim() || undefined,
         documents,
+        // Consent given on this form — backend pins the doc versions current right
+        // now and seeds the acceptance on approval (no surprise post-login gate).
+        acceptLegal: true,
       };
 
       let appId: string;
@@ -1146,7 +1160,28 @@ export default function RetailerApplication() {
         }}
       />
 
-      <div className="mt-6 flex items-center justify-between">
+      {isLast && (
+        <label className="mt-6 flex items-start gap-2 text-[13px] text-ink-2">
+          <input
+            type="checkbox"
+            className="mt-0.5 accent-accent"
+            checked={legalAgreed}
+            onChange={(e) => setLegalAgreed(e.target.checked)}
+          />
+          <span>
+            I agree to the{' '}
+            <a href={LEGAL_TERMS_URL} target="_blank" rel="noreferrer" className="text-ink underline underline-offset-2">
+              Terms &amp; Conditions
+            </a>{' '}
+            and the{' '}
+            <a href={LEGAL_PRIVACY_URL} target="_blank" rel="noreferrer" className="text-ink underline underline-offset-2">
+              Privacy Policy
+            </a>
+            .
+          </span>
+        </label>
+      )}
+      <div className="mt-4 flex items-center justify-between">
         <Button
           variant="ghost"
           disabled={isFirst}

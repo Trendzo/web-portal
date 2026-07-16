@@ -1,5 +1,5 @@
-import { lazy, Suspense, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { useStoreRetailerId } from '@/hooks/useStoreRetailerId';
 import { PendingRequestsGrid } from '@/components/admin/pending-requests-grid';
 import { ClarificationThread } from '@/components/admin/clarification-thread';
@@ -16,6 +16,7 @@ import {
   Clock,
   ImageOff,
   MapPin,
+  MessageSquareText,
   Package,
   PauseCircle,
   Pencil,
@@ -131,6 +132,20 @@ export default function AdminStoreDetail() {
     return TAB_KEYS.includes(v as TabKey) ? (v as TabKey) : 'overview';
   }
   const activeTab = parseTab(searchParams.get('tab'));
+  // Appeal cards deep-link with #appeal — scroll to the thread once the tab renders.
+  // Also fires when the card is clicked on THIS page's scoped grid (hash change only).
+  const location = useLocation();
+  useEffect(() => {
+    if (location.hash !== '#appeal') return;
+    const t = setTimeout(
+      () =>
+        document
+          .getElementById('store-appeal-thread')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+      150,
+    );
+    return () => clearTimeout(t);
+  }, [location.hash, activeTab]);
   function setActiveTab(v: string) {
     const next = parseTab(v);
     setSearchParams(
@@ -491,6 +506,30 @@ export default function AdminStoreDetail() {
                         Resume store operations
                       </Button>
                     </PermissionGate>
+                  )}
+                  {/* Jump straight to the retailer's appeal conversation — same
+                      condition that renders the thread on the Compliance tab. */}
+                  {(s.status === 'suspended' ||
+                    s.status === 'terminated' ||
+                    (appealQ.data?.messages.length ?? 0) > 0) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      iconLeft={<MessageSquareText className="size-3.5" />}
+                      onClick={() => {
+                        setActiveTab('compliance');
+                        setTimeout(
+                          () =>
+                            document
+                              .getElementById('store-appeal-thread')
+                              ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+                          50,
+                        );
+                      }}
+                    >
+                      Appeal thread
+                      {(appealQ.data?.messages.length ?? 0) > 0 && ` (${appealQ.data!.messages.length})`}
+                    </Button>
                   )}
                 </div>
               </div>
@@ -901,7 +940,7 @@ export default function AdminStoreDetail() {
               contest a suspension/termination. Shown once there's a thread or the
               store is suspended/terminated. */}
           {(s.status === 'suspended' || s.status === 'terminated' || (appealQ.data?.messages.length ?? 0) > 0) && (
-            <div className="mt-6">
+            <div className="mt-6" id="store-appeal-thread">
               <SectionHeading kicker="Appeal" title="Suspension / termination appeal" />
               <p className="mt-1 mb-3 text-[12.5px] text-ink-3">
                 Messages between the retailer and ClosetX about this suspension/termination.
