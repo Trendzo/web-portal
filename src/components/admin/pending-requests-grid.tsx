@@ -119,15 +119,30 @@ export function usePendingRequests(storeId?: string) {
         detailHref: `/admin/applications/${a.id}`,
       });
     }
+    // Stores that already have a pending account closure/reopen request — their
+    // conversation belongs to THAT request (its detail page embeds the thread), so
+    // we suppress the redundant standalone Appeal card for the same store below.
+    const lifecycleReqStoreIds = new Set(
+      (changes.data ?? [])
+        .filter((c) => c.field === 'account_deletion' || c.field === 'account_reopen')
+        .map((c) => c.storeId),
+    );
     for (const cr of (changes.data ?? []).filter((c) => !storeId || c.storeId === storeId)) {
+      // Account closure/reopen is a lifecycle decision with a conversation, not a
+      // one-line field edit — send it to the detail page (thread + Accept/Reject)
+      // rather than a one-click inline approve.
+      const isLifecycle = cr.field === 'account_deletion' || cr.field === 'account_reopen';
       out.push({
         kind: 'change',
         id: cr.id,
         title: fieldLabel(cr.field),
         subtitle: cr.storeName ?? `Store ${cr.storeId}`,
         age: `Submitted ${formatAge(cr.submittedAt)}`,
-        badge: { label: 'Change request', tone: 'warning' },
+        badge: isLifecycle
+          ? { label: 'Account request', tone: 'danger' }
+          : { label: 'Change request', tone: 'warning' },
         detailHref: `/admin/change-requests/${cr.id}`,
+        reviewOnly: isLifecycle,
       });
     }
     // The query already filters to `submitted`, so no client-side status filtering here.
@@ -149,6 +164,11 @@ export function usePendingRequests(storeId?: string) {
       });
     }
     for (const a of (appeals.data ?? []).filter((x) => !storeId || x.storeId === storeId)) {
+      // Skip the standalone appeal card when a closure/reopen request is already
+      // open for this store — one card, one action (that request's detail page
+      // carries the same thread). Prevents the duplicate "Appeal + Account request"
+      // pair for an owner-closed store.
+      if (lifecycleReqStoreIds.has(a.storeId)) continue;
       out.push({
         kind: 'appeal',
         id: a.storeId,
@@ -265,7 +285,7 @@ export function PendingRequestsGrid({ storeId }: { storeId?: string } = {}) {
                   </Button>
                 ) : r.reviewOnly ? (
                   <Button variant="outline" size="sm" className="w-full" onClick={() => navigate(r.detailHref)}>
-                    {r.kind === 'appeal' ? 'Open thread' : 'Review documents'}
+                    {r.kind === 'appeal' ? 'Open thread' : r.kind === 'change' ? 'Review request' : 'Review documents'}
                   </Button>
                 ) : (
                   <div className="flex gap-2">
