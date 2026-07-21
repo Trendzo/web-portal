@@ -6,7 +6,9 @@ import { FileText } from 'lucide-react';
  * labelled chip link. Used in dispute message threads + evidence lists.
  */
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|bmp|svg)(\?|#|$)/i;
-// Cloudinary image delivery URLs aren't always suffixed with an extension.
+// S3-hosted URLs always carry a real extension, so IMAGE_RE matches them. Legacy Cloudinary
+// delivery URLs have no suffix, so the `/image/upload/` path check covers those; both forms
+// coexist for good because Cloudinary is never decommissioned.
 const isImageUrl = (url: string) => IMAGE_RE.test(url) || /\/image\/upload\//.test(url);
 
 export function AttachmentThumbs({
