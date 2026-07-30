@@ -51,6 +51,9 @@ export type Store = {
   delegationModeEnabled: boolean;
   /** Per-retailer opt-in for the offline POS / counter-billing surface (admin-controlled). */
   posBillingEnabled?: boolean;
+  /** Retailer self-serve online/offline toggle. ISO timestamp while offline (the
+   *  store auto-reopens at that instant); null/absent = online, accepting orders. */
+  orderPauseUntil?: string | null;
   suspendReason?: string | null;
   pauseReason?: string | null;
   contactPhone?: string | null;
@@ -72,13 +75,21 @@ export type Category = {
   id: string;
   slug: string;
   label: string;
+  /** HIM-rail wording for a shared node: "Shoes" on HER, "Footwear" on HIM. */
+  labelHim?: string | null;
   parentId: string | null;
   iconName: string | null;
   tintColor: string | null;
   imageUrl: string | null;
   gender: Gender;
   sortOrder: number;
+  /** HIM-rail position for a shared node; null when both rails order it alike. */
+  sortOrderHim?: number | null;
   isActive: boolean;
+  /** Computed by /catalog/categories. Listings must sit on a leaf. */
+  isLeaf?: boolean;
+  /** Descendant-inclusive; only present when the request asked for counts. */
+  listingCount?: number;
 };
 
 /** Parent level of the variant hierarchy — one row per color ("Red"). Every
@@ -2045,4 +2056,131 @@ export type InventoryHealthRow = {
   reservedDays: number;
   status: 'low_stock' | 'out_of_stock' | 'overstock' | 'aged';
   lastSoldAt: string | null;
+};
+
+/* ── Home CMS ──────────────────────────────────────────────────────────────────
+   Mirrors backend/src/db/schema/cms.ts and shared/cms/schema.ts. The section
+   catalogue arrives from GET /admin/cms/schema and drives every form in the CMS
+   page, so these shapes are what the generic panel renders against. */
+
+export type CmsGender = 'her' | 'him' | 'all';
+
+export type CmsLink = {
+  route: string;
+  params?: Record<string, string | number | boolean>;
+};
+
+export type CmsFieldKind = 'text' | 'textarea' | 'color' | 'string_list' | 'number';
+
+export type CmsFieldSpec = {
+  key: string;
+  label: string;
+  kind: CmsFieldKind;
+  required?: boolean;
+  help?: string;
+  maxLength?: number;
+};
+
+export type CmsSectionSpec = {
+  key: string;
+  type: string;
+  tab: string;
+  label: string;
+  description: string;
+  genderSplit: boolean;
+  media: 'image' | 'video' | 'none';
+  link: boolean;
+  minItems: number;
+  maxItems: number;
+  copyFields: ('title' | 'subtitle' | 'kicker' | 'ctaLabel')[];
+  configFields: CmsFieldSpec[];
+  itemFields: CmsFieldSpec[];
+};
+
+export type CmsSchema = {
+  routes: string[];
+  tabs: { key: string; label: string; sections: CmsSectionSpec[] }[];
+};
+
+export type CmsSection = {
+  id: string;
+  key: string;
+  type: string;
+  title: string | null;
+  subtitle: string | null;
+  kicker: string | null;
+  ctaLabel: string | null;
+  config: Record<string, unknown>;
+  isEnabled: boolean;
+  sortOrder: number;
+  updatedAt: string;
+  updatedByAdminId: string | null;
+};
+
+export type CmsSectionRow = CmsSection & { itemCount: number; isKnown: boolean };
+
+export type CmsItem = {
+  id: string;
+  sectionId: string;
+  key: string;
+  gender: CmsGender;
+  sortOrder: number;
+  assetKey: string | null;
+  imageUrl: string | null;
+  videoUrl: string | null;
+  link: CmsLink | null;
+  content: Record<string, unknown>;
+  isEnabled: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  cities: string[] | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CmsSectionDetail = {
+  section: CmsSection;
+  items: CmsItem[];
+  spec: CmsSectionSpec | null;
+};
+
+export type CmsAsset = {
+  key: string;
+  category: string;
+  kind: 'image' | 'video';
+  previewUrl: string | null;
+  width: number | null;
+  height: number | null;
+};
+
+export type CmsPublication = {
+  id: string;
+  version: number;
+  note: string | null;
+  publishedAt: string;
+  publishedByAdminId: string | null;
+};
+
+/** What GET /admin/cms/preview and GET /cms/home return — already filtered. */
+export type CmsPreview = {
+  source: 'draft' | 'published';
+  version: number | null;
+  schemaVersion: number;
+  sections: {
+    key: string;
+    type: string;
+    title: string | null;
+    subtitle: string | null;
+    kicker: string | null;
+    ctaLabel: string | null;
+    config: Record<string, unknown>;
+    items: {
+      key: string;
+      assetKey: string | null;
+      imageUrl: string | null;
+      videoUrl: string | null;
+      link: CmsLink | null;
+      content: Record<string, unknown>;
+    }[];
+  }[];
 };

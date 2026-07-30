@@ -7,6 +7,7 @@ import {
   GanttChart,
   Inbox,
   LayoutDashboard,
+  LayoutTemplate,
   Package,
   Receipt,
   ShieldAlert,
@@ -215,6 +216,20 @@ const GROUPS: SidebarGroup[] = [
       { to: '/admin/collections', label: 'Featured Selections', end: false, icon: Folder, action: 'moderation.view' },
       { to: '/admin/catalog-moderation', label: 'Catalog Moderation', end: true, icon: ShieldAlert, action: 'moderation.decide' },
       { to: '/admin/reels', label: 'Reels', end: true, icon: Film, action: 'community.moderate' },
+    ],
+  },
+  {
+    // Merchandising content for the consumer app's home + section pages. Separate from Catalog
+    // because it manages editorial content, not products — a banner is not a listing.
+    label: 'Content',
+    items: [
+      {
+        to: '/admin/cms',
+        label: 'Home CMS',
+        end: false,
+        icon: LayoutTemplate,
+        anyAction: ['cms.view', 'cms.edit'],
+      },
     ],
   },
   {
