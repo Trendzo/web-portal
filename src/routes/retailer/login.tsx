@@ -29,8 +29,16 @@ export default function RetailerLogin() {
   const signIn = useAuth((s) => s.signIn);
   const expired = (location.state as { expired?: boolean } | null)?.expired === true;
 
+  // Deep-link params: a signup that collided with an existing account routes here
+  // with the method to use (?mode=otp|password) and the identifier to prefill.
+  const search = new URLSearchParams(location.search);
+  const prefillEmail = search.get('email') ?? '';
+  const prefillPhone = search.get('phone') ?? '';
+  const initialMode: 'otp' | 'password' =
+    search.get('mode') === 'password' ? 'password' : 'otp';
+
   // Phone OTP is the primary method; email + password is the fallback.
-  const [mode, setMode] = useState<'otp' | 'password'>('otp');
+  const [mode, setMode] = useState<'otp' | 'password'>(initialMode);
 
   const {
     register,
@@ -38,7 +46,7 @@ export default function RetailerLogin() {
     formState: { errors, isSubmitting },
   } = useForm({
     resolver: zodResolver(Schema),
-    defaultValues: { email: '', password: '' },
+    defaultValues: { email: prefillEmail, password: '' },
   });
 
   /** Commit the session and route into the app — shared by both login methods. */
@@ -117,7 +125,7 @@ export default function RetailerLogin() {
         )}
 
         {mode === 'otp' ? (
-          <PhoneOtpLogin onAuthenticated={finishLogin} />
+          <PhoneOtpLogin onAuthenticated={finishLogin} initialPhone={prefillPhone} />
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
             <div>

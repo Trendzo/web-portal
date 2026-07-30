@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layers, Package, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import type { Listing, VariantGroup } from '@/lib/types';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/button';
@@ -15,8 +15,27 @@ import {
 } from '@/components/ui/dialog';
 import { ColorGroupEditor } from './color-group-editor';
 import { CustomOptionsBuilder } from './custom-options-builder';
-import { VariantRow } from './variant-row';
+import { MAX_INT4, MAX_PAISE, MAX_RUPEES, VariantRow } from './variant-row';
 import { NO_SIZE, type GroupDraft, type VariantDraft, type VariantMode } from './types';
+
+/**
+ * Every price/stock column is Postgres `integer`. Rejecting here keeps an
+ * out-of-range value from reaching the INSERT, where it surfaced as a bare 500.
+ */
+function assertWithinLimits(
+  v: { pricePaise: number | null; compareAtPrice: number | null; stock: number | null },
+  label: string,
+) {
+  if (v.pricePaise !== null && v.pricePaise > MAX_PAISE) {
+    throw new Error(`Selling price on ${label} must be ₹${MAX_RUPEES.toLocaleString('en-IN')} or less`);
+  }
+  if (v.compareAtPrice !== null && v.compareAtPrice > MAX_PAISE) {
+    throw new Error(`MRP on ${label} must be ₹${MAX_RUPEES.toLocaleString('en-IN')} or less`);
+  }
+  if (v.stock !== null && v.stock > MAX_INT4) {
+    throw new Error(`Stock on ${label} must be ${MAX_INT4.toLocaleString('en-IN')} or less`);
+  }
+}
 
 /** Mirrors the server's derived identity: "M" | "Black" | "Black / M". */
 function variantLabel(g: GroupDraft, size: string): string {
@@ -133,17 +152,36 @@ export function StepVariants(props: Props) {
       onReload();
       void qc.invalidateQueries({ queryKey: ['retailer', 'listings'] });
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not save variants'),
+    onError: (e) => {
+      toast.error(e instanceof Error ? e.message : 'Could not save variants');
+      // A save is a SEQUENCE of writes, so a failure partway leaves the server
+      // ahead of `serverGroups`/`serverVariants`. Without re-reading, the retry
+      // replays deletes for rows that are already gone ("Variant not found") and
+      // re-creates groups that now exist. Pull the truth back before the retry.
+      onReload();
+      void qc.invalidateQueries({ queryKey: ['retailer', 'listings'] });
+    },
   });
+
+  /** DELETE is idempotent in intent: the row already being gone IS the goal. */
+  async function deleteIfPresent(path: string) {
+    try {
+      await api(path, { method: 'DELETE' });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return;
+      throw e;
+    }
+  }
 
   async function saveSingle() {
     const draft = variants[0];
     if (!draft) throw new Error('Set a price first');
     if (draft.pricePaise === null) throw new Error('Set a selling price');
+    assertWithinLimits(draft, 'this product');
     // Clear any color groups left over from a previous structure (cascades sizes).
     const namedIds = new Set(namedServerGroups.map((g) => g.id));
     for (const g of namedServerGroups) {
-      await api(`/retailer/groups/${g.id}`, { method: 'DELETE' });
+      await deleteIfPresent(`/retailer/groups/${g.id}`);
     }
     // The default group survives group deletion, so its rows (a size-only product's
     // sizes, or custom flat variants) must be cleared explicitly — a single product
@@ -151,7 +189,7 @@ export function StepVariants(props: Props) {
     // whichever leftover row it found first.
     for (const v of serverVariants) {
       if (!namedIds.has(v.groupId)) {
-        await api(`/retailer/variants/${v.id}`, { method: 'DELETE' });
+        await deleteIfPresent(`/retailer/variants/${v.id}`);
       }
     }
     if (serverMode !== 'single') {
@@ -198,6 +236,7 @@ export function StepVariants(props: Props) {
         if (s.compareAtPrice !== null && s.compareAtPrice <= s.pricePaise) {
           throw new Error(`MRP must exceed selling price on ${label}`);
         }
+        assertWithinLimits(s, label);
       }
     }
 
@@ -254,7 +293,7 @@ export function StepVariants(props: Props) {
     const cascading = new Set(groupsToDelete.map((g) => g.id));
     for (const v of serverVariants) {
       if (!keptVariantIds.has(v.id) && !cascading.has(v.groupId)) {
-        await api(`/retailer/variants/${v.id}`, { method: 'DELETE' });
+        await deleteIfPresent(`/retailer/variants/${v.id}`);
       }
     }
 
@@ -291,7 +330,7 @@ export function StepVariants(props: Props) {
 
     // 5. Delete groups removed in the editor (children cascade server-side).
     for (const g of groupsToDelete) {
-      await api(`/retailer/groups/${g.id}`, { method: 'DELETE' });
+      await deleteIfPresent(`/retailer/groups/${g.id}`);
     }
   }
 
@@ -302,16 +341,17 @@ export function StepVariants(props: Props) {
     // Clear color groups from a previous structure (cascades their sizes).
     const cascading = new Set(namedServerGroups.map((g) => g.id));
     for (const g of namedServerGroups) {
-      await api(`/retailer/groups/${g.id}`, { method: 'DELETE' });
+      await deleteIfPresent(`/retailer/groups/${g.id}`);
     }
     const keptIds = new Set(variants.filter((v) => v.id).map((v) => v.id!));
     for (const v of serverVariants) {
       if (!keptIds.has(v.id) && !cascading.has(v.groupId)) {
-        await api(`/retailer/variants/${v.id}`, { method: 'DELETE' });
+        await deleteIfPresent(`/retailer/variants/${v.id}`);
       }
     }
     for (const v of variants.filter((d) => !d.id)) {
       if (v.pricePaise === null) throw new Error(`Set a price for "${v.attributesLabel}"`);
+      assertWithinLimits(v, `"${v.attributesLabel}"`);
       await api(`/retailer/listings/${listingId}/variants`, {
         method: 'POST',
         body: {

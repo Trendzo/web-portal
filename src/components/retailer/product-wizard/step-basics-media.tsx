@@ -38,7 +38,21 @@ export function StepBasicsMedia({
 }) {
   const { register, setValue, watch, formState: { errors } } = form;
   const gender = watch('gender');
-  const visibleCategories = categories.filter((c) => c.gender === gender || c.gender === 'unisex');
+
+  // The taxonomy is two levels and a listing belongs on a LEAF — filed under a parent
+  // ("Tops" rather than "Tops › T-Shirts") it never appears in the app's browse tiles.
+  // Leaf labels also repeat across the tree ("Jeans" under Bottoms and Denim), so each
+  // option is qualified by its parent to stay distinguishable.
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const pathFor = (c: Category) => {
+    const parent = c.parentId ? byId.get(c.parentId) : undefined;
+    return parent ? `${parent.label} › ${c.label}` : c.label;
+  };
+  const visibleCategories = categories
+    .filter((c) => (c.isLeaf ?? true) && (c.gender === gender || c.gender === 'unisex'))
+    .map((c) => ({ c, parentSort: (c.parentId ? byId.get(c.parentId)?.sortOrder : 0) ?? 0 }))
+    .sort((a, b) => a.parentSort - b.parentSort || a.c.sortOrder - b.c.sortOrder)
+    .map(({ c }) => c);
 
   return (
     <div className="grid gap-8 lg:grid-cols-2">
@@ -112,13 +126,16 @@ export function StepBasicsMedia({
             <SelectTrigger>
               <span className={watch('categoryId') ? undefined : 'text-ink-4'}>
                 {watch('categoryId')
-                  ? categories.find((c) => c.id === watch('categoryId'))?.label ?? '…'
+                  ? (() => {
+                      const cur = byId.get(watch('categoryId'));
+                      return cur ? pathFor(cur) : '…';
+                    })()
                   : 'Pick a category'}
               </span>
             </SelectTrigger>
             <SelectContent>
               {visibleCategories.map((c) => (
-                <SelectItem key={c.id} value={c.id}>{c.label}</SelectItem>
+                <SelectItem key={c.id} value={c.id}>{pathFor(c)}</SelectItem>
               ))}
             </SelectContent>
           </Select>

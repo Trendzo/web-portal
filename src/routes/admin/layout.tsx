@@ -13,6 +13,7 @@ import {
   ShieldAlert,
   // ShieldCheck, // used only by the hidden KYC/Compliance sidebar entry below
   Sliders,
+  Disc3,
   Sparkles,
   Tag,
   Users,
@@ -148,6 +149,7 @@ const GROUPS: SidebarGroup[] = [
     items: [
       { to: '/admin/promotions', label: 'Promotions', end: false, icon: Tag, action: 'promotions.view' },
       { to: '/admin/targeted-drops', label: 'Targeted Drops', end: true, icon: Sparkles, action: 'promotions.create' },
+      { to: '/admin/spin-wheel', label: 'Spin & Win', end: true, icon: Disc3, action: 'promotions.view' },
     ],
   },
   {

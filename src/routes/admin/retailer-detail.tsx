@@ -262,6 +262,8 @@ export default function AdminRetailerDetail() {
 
           <PlatformFeeOverrideCard retailerId={r.id} retailerName={r.legalName} />
 
+          <PayoutCadenceCard retailerId={r.id} retailerName={r.legalName} />
+
           <PosBillingCard
             retailerId={r.id}
             retailerName={r.legalName}
@@ -476,6 +478,73 @@ function PlatformFeeOverrideCard({ retailerId, retailerName }: { retailerId: str
           </div>
           <div className="flex items-end">
             <Button variant="accent" disabled={saving} onClick={() => void apply()}>Save override</Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PayoutCadenceCard({ retailerId, retailerName }: { retailerId: string; retailerName: string }) {
+  const [days, setDays] = useState<string>('15');
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const apply = async () => {
+    const n = Number(days);
+    if (!Number.isInteger(n) || n < 1 || n > 30) {
+      toast.error('Cadence must be a whole number of days (1–30)');
+      return;
+    }
+    if (reason.trim().length < 3) {
+      toast.error('Reason required (3+ chars)');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api(`/admin/retailers/${retailerId}/payout-cadence`, {
+        method: 'PATCH',
+        body: { payoutCadenceDays: n, reason },
+      });
+      toast.success(`Payout cadence for ${retailerName} set to every ${n} days`);
+      setReason('');
+    } catch { toast.error('Failed to save payout cadence'); }
+    finally { setSaving(false); }
+  };
+  return (
+    <Card className="mt-4">
+      <CardContent className="p-6">
+        <div className="mb-3">
+          <SectionHeading kicker="Override" title="Payout cadence" />
+        </div>
+        <p className="mb-3 text-[12.5px] text-ink-3">
+          How often this retailer is paid out. Applies to their store; the retailer app shows this
+          schedule. Reason is logged in audit.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-[1fr_2fr_auto]">
+          <div>
+            <label className="kicker mb-1 block">Cadence (days)</label>
+            <input
+              type="number"
+              min="1"
+              max="30"
+              step="1"
+              value={days}
+              onChange={(e) => setDays(e.target.value)}
+              className="w-full rounded-md border border-line-2 bg-bg px-3 py-2 text-[14px] font-mono"
+            />
+          </div>
+          <div>
+            <label className="kicker mb-1 block">Reason</label>
+            <input
+              type="text"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. high-volume store, faster settlement"
+              className="w-full rounded-md border border-line-2 bg-bg px-3 py-2 text-[14px]"
+            />
+          </div>
+          <div className="flex items-end">
+            <Button variant="accent" disabled={saving} onClick={() => void apply()}>Save cadence</Button>
           </div>
         </div>
       </CardContent>

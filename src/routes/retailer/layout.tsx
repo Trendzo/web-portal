@@ -10,6 +10,7 @@ import {
   type SidebarGroup,
 } from '@/components/shell/SidebarShell';
 import { RoleGate } from '@/components/shell/RoleGate';
+import { StoreOnlineToggle } from '@/components/retailer/StoreOnlineToggle';
 import { ImpersonationBanner } from '@/components/shell/ImpersonationBanner';
 import { ComplianceFloorBanner } from '@/components/shell/ComplianceFloorBanner';
 import { useRetailerBanners } from '@/lib/banner-triggers';
@@ -150,6 +151,8 @@ export default function RetailerLayout() {
     (store.status === 'active' || store.status === 'paused') &&
     store.posBillingEnabled === true &&
     (!permissions || permissions['pos.sell'] === true);
+  // Online/offline (accepting orders) switch — only meaningful on a live store.
+  const showOnlineToggle = store != null && store.status === 'active';
 
   return (
     <RoleGate kind="retailer">
@@ -161,19 +164,24 @@ export default function RetailerLayout() {
         searchHint="Search pages, products, orders…"
         paletteScope="retailer"
         headerActions={
-          showRegister ? (
-            <NavLink
-              to="/retailer/pos"
-              className={({ isActive }) =>
-                cn(
-                  'flex h-9 items-center gap-2 rounded-full px-3.5 text-[13px] font-medium press',
-                  isActive ? 'bg-ink text-bg' : 'bg-bg-3 text-ink-2 hover:bg-bg-4',
-                )
-              }
-            >
-              <ScanLine className="size-4" />
-              <span className="hidden sm:inline">Register</span>
-            </NavLink>
+          showOnlineToggle || showRegister ? (
+            <>
+              {showOnlineToggle && store && <StoreOnlineToggle store={store} />}
+              {showRegister && (
+                <NavLink
+                  to="/retailer/pos"
+                  className={({ isActive }) =>
+                    cn(
+                      'flex h-9 items-center gap-2 rounded-full px-3.5 text-[13px] font-medium press',
+                      isActive ? 'bg-ink text-bg' : 'bg-bg-3 text-ink-2 hover:bg-bg-4',
+                    )
+                  }
+                >
+                  <ScanLine className="size-4" />
+                  <span className="hidden sm:inline">Register</span>
+                </NavLink>
+              )}
+            </>
           ) : undefined
         }
       />

@@ -28,6 +28,7 @@ import RetailerListingDetail from './retailer/listing-detail';
 import RetailerInventory from './retailer/inventory';
 import RetailerBrands from './retailer/brands';
 import AdminPromotions from './admin/promotions';
+import AdminSpinWheel from './admin/spin-wheel';
 import AdminPromotionNew from './admin/promotion-new';
 import AdminPromotionDetail from './admin/promotion-detail';
 import AdminPlatformRulesHub from './admin/platform-rules-hub';
@@ -203,6 +204,7 @@ export const router = createBrowserRouter([
       { path: 'promotions', element: <AdminPromotions /> },
       { path: 'promotions/new', element: <AdminPromotionNew /> },
       { path: 'promotions/:id', element: <AdminPromotionDetail /> },
+      { path: 'spin-wheel', element: <AdminSpinWheel /> },
       // Platform rules hub — Clubbing matrix + Feature controls.
       { path: 'platform-rules', element: <AdminPlatformRulesHub /> },
       { path: 'terms', element: <AdminTerms /> },

@@ -66,8 +66,10 @@ export default function RetailerListings() {
 
   // Category list for the filter dropdown (matches Inventory's dropdown).
   const categoriesQ = useQuery({
-    queryKey: ['retailer', 'categories'],
-    queryFn: () => api<Category[]>('/retailer/categories'),
+    queryKey: ['catalog', 'categories'],
+    // There is no /retailer/categories endpoint — this filter has been silently
+    // failing. The catalog list is public and is what the wizard already uses.
+    queryFn: () => api<Category[]>('/catalog/categories'),
     enabled: canPublish,
   });
 

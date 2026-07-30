@@ -36,15 +36,20 @@ function messageOf(err: unknown, fallback: string): string {
  */
 export function PhoneOtpLogin({
   onAuthenticated,
+  initialPhone,
 }: {
   onAuthenticated: (token: string, retailer: RetailerProfile) => void | Promise<void>;
+  /** Prefill the national number — e.g. a signup that collided with this phone. */
+  initialPhone?: string;
 }) {
   const navigate = useNavigate();
   const { ready, error: widgetError } = useMsg91Widget();
 
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [dial, setDial] = useState('91');
-  const [number, setNumber] = useState('');
+  const [number, setNumber] = useState(
+    (initialPhone ?? '').replace(/\D/g, '').replace(/^91/, '').slice(-10),
+  );
   const [otp, setOtp] = useState('');
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);

@@ -63,13 +63,30 @@ export async function api<T>(path: string, init: ApiInit = {}): Promise<T> {
   }
 
   if (!json.success) {
-    if (res.status === 401) {
+    if (res.status === 401 && ownsPath(path)) {
       // Token is bad / expired — drop it so the router boots back to login.
       useAuth.getState().signOut();
     }
     throw new ApiError(res.status, json.error.code, json.error.message, json.error.details);
   }
   return json.data;
+}
+
+/**
+ * Whether a 401 on `path` says anything about the CURRENT session.
+ *
+ * `/admin/*` and `/retailer/*` are separate identity domains: the backend rejects
+ * an admin route called with a retailer token, and vice versa. Signing out on that
+ * 401 punished the user for a stray cross-portal request — one leftover admin query
+ * mounted on a retailer page would log the retailer straight out. Only a 401 on the
+ * session's OWN portal (or on a shared/unprefixed route) means the token is dead.
+ */
+function ownsPath(path: string): boolean {
+  const session = useAuth.getState().session;
+  if (!session) return true;
+  if (path.startsWith('/admin/')) return session.kind === 'admin';
+  if (path.startsWith('/retailer/')) return session.kind === 'retailer';
+  return true;
 }
 
 /**

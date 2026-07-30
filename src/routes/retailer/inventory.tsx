@@ -156,8 +156,10 @@ export default function RetailerInventory() {
   // Category list for the filter dropdown — cached separately so the table query
   // doesn't refetch when we change pages.
   const categoriesQ = useQuery({
-    queryKey: ['retailer', 'categories'],
-    queryFn: () => api<Category[]>('/retailer/categories'),
+    queryKey: ['catalog', 'categories'],
+    // There is no /retailer/categories endpoint — this dropdown has been silently
+    // failing. The catalog list is public and is what the wizard already uses.
+    queryFn: () => api<Category[]>('/catalog/categories'),
   });
 
   const inventory = useQuery({

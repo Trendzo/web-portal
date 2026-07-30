@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -74,52 +74,86 @@ const LEGAL_COPY: Record<
   },
 };
 
-/** Legal gate — a store can't go live until the current version of each legal
- *  document (T&C, Privacy Policy) is accepted (records IP server-side). */
-function LegalGate({ kind, version }: { kind: LegalKind; version: string }) {
-  const copy = LEGAL_COPY[kind];
+type LegalDoc = { version: string; shortText: string; acceptedAt: string | null };
+
+/** Legal gate — a store can't go live until the current version of EACH outstanding
+ *  legal document (T&C, Privacy Policy) is accepted (records IP server-side). When
+ *  both are due they share one modal with a switcher, one agreement, one accept. */
+function LegalGate({ kinds }: { kinds: LegalKind[] }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [agreed, setAgreed] = useState(false);
-  const { data: doc } = useQuery({
-    queryKey: ['retailer', 'legal', kind],
-    queryFn: () =>
-      api<{ version: string; shortText: string; acceptedAt: string | null }>(
-        `/retailer/${copy.path}`,
-      ),
-    enabled: open,
+  const [active, setActive] = useState<LegalKind>(kinds[0] ?? 'terms');
+  const both = kinds.length > 1;
+
+  // Keep the active tab within the outstanding set as docs get accepted.
+  useEffect(() => {
+    if (kinds.length && !kinds.includes(active)) setActive(kinds[0]!);
+  }, [kinds, active]);
+
+  const termsQ = useQuery({
+    queryKey: ['retailer', 'legal', 'terms'],
+    queryFn: () => api<LegalDoc>('/retailer/terms'),
+    enabled: open && kinds.includes('terms'),
   });
+  const privacyQ = useQuery({
+    queryKey: ['retailer', 'legal', 'privacy'],
+    queryFn: () => api<LegalDoc>('/retailer/privacy'),
+    enabled: open && kinds.includes('privacy'),
+  });
+  const docByKind: Record<LegalKind, LegalDoc | undefined> = {
+    terms: termsQ.data,
+    privacy: privacyQ.data,
+  };
+  const activeDoc = docByKind[active];
+  const allLoaded = kinds.every((k) => docByKind[k]?.version);
+
   const accept = useMutation({
-    mutationFn: () =>
-      api(`/retailer/${copy.path}/accept`, { method: 'POST', body: { version: doc?.version ?? version } }),
+    mutationFn: async () => {
+      for (const k of kinds) {
+        const v = docByKind[k]?.version;
+        if (v) await api(`/retailer/${LEGAL_COPY[k].path}/accept`, { method: 'POST', body: { version: v } });
+      }
+    },
     onSuccess: () => {
-      toast.success(`${copy.docName} accepted.`);
+      toast.success(both ? 'Terms & Privacy Policy accepted.' : `${LEGAL_COPY[active].docName} accepted.`);
       setOpen(false);
       void qc.invalidateQueries({ queryKey: ['retailer', 'me'] });
-      void qc.invalidateQueries({ queryKey: ['retailer', 'legal', kind] });
+      void qc.invalidateQueries({ queryKey: ['retailer', 'legal'] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not record acceptance'),
   });
-  // Declining is recorded for audit, then the user is logged out. They'll be re-prompted
-  // on the next login until they accept (no separate "declined" account state).
+  // Declining is recorded for audit, then the user is logged out. Re-prompted on the
+  // next login until accepted (no separate "declined" account state).
   const decline = useMutation({
-    mutationFn: () =>
-      api(`/retailer/${copy.path}/decline`, { method: 'POST', body: { version: doc?.version ?? version } }),
+    mutationFn: async () => {
+      for (const k of kinds) {
+        const v = docByKind[k]?.version;
+        if (v) await api(`/retailer/${LEGAL_COPY[k].path}/decline`, { method: 'POST', body: { version: v } });
+      }
+    },
     onSettled: () => {
       useAuth.getState().signOut();
     },
   });
   function onDecline() {
-    if (window.confirm(`Declining the ${copy.docName} will log you out. You must accept it to use your store. Continue?`)) {
+    const what = both ? 'the Terms & Conditions and Privacy Policy' : LEGAL_COPY[active].docName;
+    if (window.confirm(`Declining ${what} will log you out. You must accept to use your store. Continue?`)) {
       decline.mutate();
     }
   }
+
+  const banner = both ? 'Accept the Terms & Privacy Policy to go live' : LEGAL_COPY[active].banner;
+  const bannerSub = both
+    ? "Your store can't start selling until you review and accept both the Retailer Terms & Conditions and the Privacy Policy."
+    : LEGAL_COPY[active].bannerSub;
+
   return (
     <>
       <div className="mb-4 flex flex-col gap-2 rounded-xl border border-warning/40 bg-warning/5 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="text-[14px] font-semibold text-ink">{copy.banner}</div>
-          <div className="text-[12.5px] text-ink-3">{copy.bannerSub}</div>
+          <div className="text-[14px] font-semibold text-ink">{banner}</div>
+          <div className="text-[12.5px] text-ink-3">{bannerSub}</div>
         </div>
         <Button variant="solid" className="shrink-0" onClick={() => setOpen(true)}>
           Review &amp; accept
@@ -127,10 +161,39 @@ function LegalGate({ kind, version }: { kind: LegalKind; version: string }) {
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle>{copy.docName}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{both ? 'Review & accept' : LEGAL_COPY[active].docName}</DialogTitle>
+          </DialogHeader>
+
+          {/* Doc switcher — only when more than one doc is outstanding. */}
+          {both && (
+            <div className="flex gap-1 rounded-lg bg-bg-3 p-1">
+              {kinds.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setActive(k)}
+                  className={
+                    'flex-1 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors ' +
+                    (k === active ? 'bg-ink text-bg' : 'text-ink-2 hover:bg-bg-4')
+                  }
+                >
+                  {k === 'terms' ? 'Terms & Conditions' : 'Privacy Policy'}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-bg-2/40 p-3 text-[12.5px] leading-relaxed text-ink-2">
-            {doc?.shortText ?? 'Loading…'}
+            {activeDoc?.shortText ?? 'Loading…'}
           </div>
+
+          {both && (
+            <p className="text-[12px] text-ink-3">
+              You're accepting both documents. Use the tabs above to read either one.
+            </p>
+          )}
+
           <label className="flex items-center gap-2 text-[13px] text-ink">
             <input
               type="checkbox"
@@ -138,7 +201,9 @@ function LegalGate({ kind, version }: { kind: LegalKind; version: string }) {
               checked={agreed}
               onChange={(e) => setAgreed(e.target.checked)}
             />
-            {copy.agree}
+            {both
+              ? 'I have read and accept the Retailer Terms & Conditions and Privacy Policy.'
+              : LEGAL_COPY[active].agree}
           </label>
           <DialogFooter>
             <Button variant="ghost" className="mr-auto text-danger" loading={decline.isPending} onClick={onDecline}>
@@ -147,7 +212,7 @@ function LegalGate({ kind, version }: { kind: LegalKind; version: string }) {
             <Button variant="outline" onClick={() => setOpen(false)}>Not now</Button>
             <Button
               variant="solid"
-              disabled={!agreed || !doc}
+              disabled={!agreed || !allLoaded}
               loading={accept.isPending}
               onClick={() => accept.mutate()}
             >
@@ -210,12 +275,13 @@ export default function RetailerDashboard() {
 
   return (
     <Page>
-      {data?.termsAcceptanceRequired ? (
-        <LegalGate kind="terms" version={data.currentTermsVersion ?? ''} />
-      ) : data?.privacyAcceptanceRequired ? (
-        // Sequential, not stacked — the privacy gate appears once the terms are in.
-        <LegalGate kind="privacy" version={data.currentPrivacyVersion ?? ''} />
-      ) : null}
+      {(() => {
+        // One gate for every outstanding doc — a switcher inside the modal when both.
+        const kinds: LegalKind[] = [];
+        if (data?.termsAcceptanceRequired) kinds.push('terms');
+        if (data?.privacyAcceptanceRequired) kinds.push('privacy');
+        return kinds.length ? <LegalGate kinds={kinds} /> : null;
+      })()}
       {/* Account/store lockouts land here first after login — surface the state and
           the way out (reopen request / appeal thread on the store Status page)
           instead of a silent dashboard. */}

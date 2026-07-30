@@ -11,7 +11,9 @@ import { Input } from '@/components/ui/input';
 import { Label, FieldError } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { api, BASE } from '@/lib/api';
+import { api, ApiError, BASE } from '@/lib/api';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Mail, Phone } from 'lucide-react';
 
 // Public legal pages are served by the BACKEND root (see backend legal.routes.ts) —
 // derive them from the API base so dev proxy and prod both resolve.
@@ -260,6 +262,8 @@ export default function RetailerApplication() {
   const [pincodeErr, setPincodeErr] = useState<string | null>(null);
   const [storeImages, setStoreImages] = useState<string[]>([]);
   const [uploadingPhotos, setUploadingPhotos] = useState<{ id: string; name: string; progress: number }[]>([]);
+  // Both email AND phone belong to an existing account → offer both login methods.
+  const [loginPrompt, setLoginPrompt] = useState<{ email: string; phone: string } | null>(null);
 
   // ===== Resubmission hydration =====
   // When `?reapply=<id>` is present we expect a ResubmitSnapshot stashed in sessionStorage
@@ -373,6 +377,45 @@ export default function RetailerApplication() {
 
   const [checkingIdentity, setCheckingIdentity] = useState(false);
 
+  /** Route to the retailer login with a method preselected + the identifier prefilled. */
+  function goLogin(mode: 'otp' | 'password', creds: { email?: string; phone?: string }) {
+    const p = new URLSearchParams({ mode });
+    if (creds.email) p.set('email', creds.email);
+    if (creds.phone) p.set('phone', creds.phone);
+    navigate(`/retailer/login?${p.toString()}`);
+  }
+
+  /**
+   * An existing ACCOUNT owns one/both identifiers. Name exactly which, and route to
+   * the right sign-in: both → a modal to pick a method; one → inline error + a
+   * "Sign in" toast action into that method.
+   */
+  function handleAccountCollision(emailTaken: boolean, phoneTaken: boolean) {
+    const email = form.email.trim();
+    const phone = form.phone.trim();
+    setStep('identity');
+    if (emailTaken && phoneTaken) {
+      setErrors((e) => ({
+        ...e,
+        email: 'This email is already registered',
+        phone: 'This phone number is already registered',
+      }));
+      setLoginPrompt({ email, phone });
+      return;
+    }
+    if (emailTaken) {
+      setErrors((e) => ({ ...e, email: 'This email is already registered' }));
+      toast.error('This email is already registered.', {
+        action: { label: 'Sign in', onClick: () => goLogin('password', { email }) },
+      });
+      return;
+    }
+    setErrors((e) => ({ ...e, phone: 'This phone number is already registered' }));
+    toast.error('This phone number is already registered.', {
+      action: { label: 'Sign in', onClick: () => goLogin('otp', { phone }) },
+    });
+  }
+
   async function advance() {
     const errs = validateStep(step, form, docs, Boolean(reapplyId));
     if (Object.keys(errs).length > 0) {
@@ -394,27 +437,32 @@ export default function RetailerApplication() {
           emailTaken: boolean;
           phoneTaken: boolean;
           accountExists: boolean;
+          accountEmailTaken: boolean;
+          accountPhoneTaken: boolean;
           applicationStatus: string | null;
           applicationId: string | null;
         }>(`/applications/check-identity?${params.toString()}`);
 
         if (result.emailTaken || result.phoneTaken) {
-          const fieldErrs: FieldErrors = {};
+          // An existing ACCOUNT → sign in (names the field, offers the method).
           if (result.accountExists) {
-            const msg = 'An approved retailer account already exists with these details. Sign in instead.';
-            if (result.emailTaken) fieldErrs['email'] = msg;
-            if (result.phoneTaken) fieldErrs['phone'] = msg;
-            toast.error(msg);
-          } else if (result.applicationStatus === 'rejected') {
+            handleAccountCollision(
+              result.accountEmailTaken ?? result.emailTaken,
+              result.accountPhoneTaken ?? result.phoneTaken,
+            );
+            return;
+          }
+          // Otherwise an application is already on file — say which identifier.
+          const fieldErrs: FieldErrors = {};
+          if (result.applicationStatus === 'rejected') {
             const msg = 'A previous application was rejected. Use the status page to re-apply on the same record.';
             if (result.emailTaken) fieldErrs['email'] = msg;
             if (result.phoneTaken) fieldErrs['phone'] = msg;
             toast.error(msg);
           } else {
-            const msg = 'An application with this email or phone is already on file. Check your status page.';
-            if (result.emailTaken) fieldErrs['email'] = msg;
-            if (result.phoneTaken) fieldErrs['phone'] = msg;
-            toast.error(msg);
+            if (result.emailTaken) fieldErrs['email'] = 'This email already has an application on file';
+            if (result.phoneTaken) fieldErrs['phone'] = 'This phone number already has an application on file';
+            toast.error('An application is already on file — check your status page.');
           }
           setErrors(fieldErrs);
           return;
@@ -620,6 +668,21 @@ export default function RetailerApplication() {
       }
       setSubmitted({ email: form.email.trim(), appId });
     } catch (err) {
+      // Race: an identifier got taken between the pre-check and submit. The backend
+      // says exactly which field(s) — route to the matching sign-in.
+      if (err instanceof ApiError && err.code === 'signup_identifier_taken') {
+        const d = (err.details ?? {}) as {
+          accountEmailTaken?: boolean;
+          accountPhoneTaken?: boolean;
+          emailTaken?: boolean;
+          phoneTaken?: boolean;
+        };
+        handleAccountCollision(
+          !!(d.accountEmailTaken ?? d.emailTaken),
+          !!(d.accountPhoneTaken ?? d.phoneTaken),
+        );
+        return;
+      }
       toast.error(err instanceof Error ? err.message : 'Submission failed. Please try again.');
     } finally {
       setSubmitting(false);
@@ -673,6 +736,52 @@ export default function RetailerApplication() {
 
   return (
     <Page>
+      {/* Both email AND phone belong to an existing account → pick a sign-in method. */}
+      <Dialog open={loginPrompt != null} onOpenChange={(o) => !o && setLoginPrompt(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>You already have an account</DialogTitle>
+            <DialogDescription>
+              Your email and phone number are both registered. Sign in to continue.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                const p = loginPrompt;
+                setLoginPrompt(null);
+                if (p) goLogin('otp', { phone: p.phone });
+              }}
+              className="flex w-full items-center gap-3 rounded-lg border border-line bg-bg px-4 py-3 text-left hover:border-line-strong press"
+            >
+              <Phone className="size-5 text-ink-2 shrink-0" />
+              <span className="min-w-0">
+                <span className="block text-[13.5px] font-medium text-ink">Log in with phone OTP</span>
+                <span className="block truncate text-[12px] text-ink-3">
+                  +91 {loginPrompt?.phone.replace(/^\+?91/, '')}
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const p = loginPrompt;
+                setLoginPrompt(null);
+                if (p) goLogin('password', { email: p.email });
+              }}
+              className="flex w-full items-center gap-3 rounded-lg border border-line bg-bg px-4 py-3 text-left hover:border-line-strong press"
+            >
+              <Mail className="size-5 text-ink-2 shrink-0" />
+              <span className="min-w-0">
+                <span className="block text-[13.5px] font-medium text-ink">Log in with email &amp; password</span>
+                <span className="block truncate text-[12px] text-ink-3">{loginPrompt?.email}</span>
+              </span>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Top bar — only visible on mobile */}
       <div className="mb-6 flex items-center justify-between lg:hidden">
         <div>

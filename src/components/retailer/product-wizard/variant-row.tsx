@@ -10,6 +10,17 @@ import { Label } from '@/components/ui/label';
 import { VariantImagePicker } from '@/components/ui/variant-image-picker';
 import { isVariantDraftComplete, type VariantDraft } from './types';
 
+/**
+ * Per-item price ceiling, in the unit the retailer actually types: RUPEES.
+ * Mirrors MAX_PRICE_RUPEES in backend listings.validators.ts — keep the two equal.
+ * The DB's real limit is the int4 column (₹2,14,74,836.47); this rounder cap sits
+ * under it so the storage ceiling is never the thing a retailer bumps into.
+ */
+export const MAX_RUPEES = 1_00_00_000;
+export const MAX_PAISE = MAX_RUPEES * 100;
+/** Stock is a plain count, so its ceiling is the int4 column itself. */
+export const MAX_INT4 = 2_147_483_647;
+
 export const rupees = (paise: number | null) => (paise === null ? '' : (paise / 100).toString());
 export const toPaise = (v: string): number | null => {
   const n = Number(v);
@@ -45,6 +56,12 @@ export function VariantRow({
   const complete = isVariantDraftComplete(draft, galleryLen);
   const compareInvalid =
     draft.compareAtPrice !== null && draft.pricePaise !== null && draft.compareAtPrice <= draft.pricePaise;
+  // Money and stock land in Postgres `integer` columns. Anything past INT4_MAX used
+  // to sail through the client, pass the server's (unbounded) schema, and die on the
+  // INSERT as a bare 500. Flag it here so the number is fixed where it is typed.
+  const priceTooBig = draft.pricePaise !== null && draft.pricePaise > MAX_PAISE;
+  const compareTooBig = draft.compareAtPrice !== null && draft.compareAtPrice > MAX_PAISE;
+  const stockTooBig = draft.stock !== null && draft.stock > MAX_INT4;
 
   const publish = useMutation({
     mutationFn: () => {
@@ -110,6 +127,7 @@ export function VariantRow({
             onChange={(e) => onChange({ pricePaise: toPaise(e.target.value) })}
             inputMode="decimal"
             placeholder="999"
+            className={priceTooBig ? 'border-danger' : undefined}
           />
         </Field>
         <Field label="MRP ₹">
@@ -118,7 +136,7 @@ export function VariantRow({
             onChange={(e) => onChange({ compareAtPrice: toPaise(e.target.value) })}
             inputMode="decimal"
             placeholder="—"
-            className={compareInvalid ? 'border-danger' : undefined}
+            className={compareInvalid || compareTooBig ? 'border-danger' : undefined}
           />
         </Field>
         <Field label="SKU" hint="auto">
@@ -133,10 +151,21 @@ export function VariantRow({
             }}
             inputMode="numeric"
             placeholder="0"
+            className={stockTooBig ? 'border-danger' : undefined}
           />
         </Field>
       </div>
       {compareInvalid && <p className="mt-1 text-[11px] text-danger">MRP must be above selling price.</p>}
+      {(priceTooBig || compareTooBig) && (
+        <p className="mt-1 text-[11px] text-danger">
+          {`Prices must be ₹${MAX_RUPEES.toLocaleString('en-IN')} or less.`}
+        </p>
+      )}
+      {stockTooBig && (
+        <p className="mt-1 text-[11px] text-danger">
+          {`Stock must be ${MAX_INT4.toLocaleString('en-IN')} or less.`}
+        </p>
+      )}
 
       <div className="mt-2">
         <button
