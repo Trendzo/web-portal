@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ImageOff, Search } from 'lucide-react';
+import { Film, ImageOff, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { CmsAsset } from '@/lib/types';
 import { cn } from '@/lib/cn';
+import { hasStill, thumbUrl } from '@/lib/image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -157,9 +158,20 @@ export function MediaField({
                   )}
                   title={a.key}
                 >
+                  {/* Tile-sized rendition, not the original — the grid shows ~150 at once, and
+                      the hero posters are ~140 KB each. A video asset resolves to its poster
+                      frame; where the host cannot produce one, the tile says so rather than
+                      rendering a broken <img>. */}
                   <div className="grid aspect-square place-items-center bg-bg-3">
-                    {a.previewUrl ? (
-                      <img src={a.previewUrl} alt={a.key} className="size-full object-contain" />
+                    {hasStill(a.previewUrl, a.kind) ? (
+                      <img
+                        src={thumbUrl(a.previewUrl, 160, a.kind) ?? ''}
+                        alt={a.key}
+                        loading="lazy"
+                        className="size-full object-contain"
+                      />
+                    ) : a.kind === 'video' ? (
+                      <Film className="size-4 text-ink-3" />
                     ) : (
                       <ImageOff className="size-4 text-ink-3" />
                     )}

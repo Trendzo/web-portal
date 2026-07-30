@@ -21,6 +21,7 @@ import { Clock, GripVertical, ImageOff, MapPin, Pencil, Plus, Trash2 } from 'luc
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/cn';
+import { hasStill, thumbUrl } from '@/lib/image';
 import type {
   CmsAsset,
   CmsGender,
@@ -470,8 +471,13 @@ function SortableItemRow({
 
       {spec.media !== 'none' && (
         <div className="grid size-11 shrink-0 place-items-center overflow-hidden rounded border border-line bg-bg-3">
-          {previewUrl ? (
-            <img src={previewUrl} alt="" className="size-full object-cover" />
+          {hasStill(previewUrl, spec.media === 'video' ? 'video' : 'image') ? (
+            <img
+              src={thumbUrl(previewUrl, 96, spec.media === 'video' ? 'video' : 'image') ?? ''}
+              alt=""
+              loading="lazy"
+              className="size-full object-cover"
+            />
           ) : (
             <ImageOff className="size-3.5 text-ink-3" />
           )}
