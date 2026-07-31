@@ -159,7 +159,7 @@ export default function AdminStoreDetail() {
     );
   }
   const qc = useQueryClient();
-  const [dialog, setDialog] = useState<null | 'pause' | 'suspend' | 'terminate' | 'reverify' | 'restore'>(null);
+  const [dialog, setDialog] = useState<null | 'pause' | 'suspend' | 'terminate' | 'reverify' | 'restore' | 'pos'>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<EditDraft | null>(null);
   // Verified store fields (legal name / address / GSTIN) can be applied directly
@@ -255,6 +255,25 @@ export default function AdminStoreDetail() {
       void qc.invalidateQueries({ queryKey: ['admin', 'stores', storeId] });
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Re-KYC failed'),
+  });
+
+  // POS-billing opt-in — flipped directly here (no change request needed). Keyed on the
+  // retailer account id the toggle endpoint expects; enabling also auto-resolves any open
+  // `pos_billing_activation` request server-side.
+  const posMut = useMutation({
+    mutationFn: ({ enabled, reason }: { enabled: boolean; reason?: string }) =>
+      api(`/admin/retailers/${retailerId}/pos-billing`, {
+        method: 'POST',
+        body: { enabled, ...(reason && reason.trim() ? { reason: reason.trim() } : {}) },
+      }),
+    onSuccess: (_d, vars) => {
+      toast.success(`POS billing ${vars.enabled ? 'enabled' : 'disabled'}`);
+      setDialog(null);
+      void qc.invalidateQueries({ queryKey: ['admin', 'stores', storeId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'retailers', retailerId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'change-requests'] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Failed to update POS billing'),
   });
 
   const saveMut = useMutation({
@@ -842,6 +861,18 @@ export default function AdminStoreDetail() {
                       label="POS billing"
                       description="Bill walk-in customers at the counter"
                       on={!!s.posBillingEnabled}
+                      action={
+                        <PermissionGate action="store_management.edit">
+                          <Button
+                            variant={s.posBillingEnabled ? 'outline' : 'accent'}
+                            size="sm"
+                            disabled={!retailerId || posMut.isPending}
+                            onClick={() => setDialog('pos')}
+                          >
+                            {s.posBillingEnabled ? 'Disable' : 'Enable'}
+                          </Button>
+                        </PermissionGate>
+                      }
                     />
                     <SettingRow
                       icon={SlidersHorizontal}
@@ -1031,6 +1062,21 @@ export default function AdminStoreDetail() {
         onClose={() => setDialog(null)}
         onConfirm={(reason) => reverifyMut.mutate(reason)}
         loading={reverifyMut.isPending}
+      />
+      <ReasonActionDialog
+        open={dialog === 'pos'}
+        title={s.posBillingEnabled ? 'Disable POS billing' : 'Enable POS billing'}
+        description={
+          s.posBillingEnabled
+            ? 'Turns off the offline POS / counter-billing surface for this store. The retailer loses access immediately.'
+            : 'Turns on the offline POS / counter-billing surface for this store. Any pending activation request is auto-resolved.'
+        }
+        confirmLabel={s.posBillingEnabled ? 'Disable POS' : 'Enable POS'}
+        danger={!!s.posBillingEnabled}
+        minReasonLength={0}
+        onClose={() => setDialog(null)}
+        onConfirm={(reason) => posMut.mutate({ enabled: !s.posBillingEnabled, reason })}
+        loading={posMut.isPending}
       />
     </Page>
   );
@@ -1314,12 +1360,14 @@ function SettingRow({
   description,
   on,
   value,
+  action,
 }: {
   icon: typeof Package;
   label: string;
   description: string;
   on?: boolean;
   value?: string;
+  action?: React.ReactNode;
 }) {
   return (
     <div className="flex items-center gap-3 px-3.5 py-3">
@@ -1344,6 +1392,7 @@ function SettingRow({
           {on ? 'On' : 'Off'}
         </span>
       )}
+      {action}
     </div>
   );
 }
