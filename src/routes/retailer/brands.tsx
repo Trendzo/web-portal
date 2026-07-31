@@ -1,16 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Plus } from 'lucide-react';
+import { ImageOff, Pencil, Plus } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import type { Brand } from '@/lib/types';
+import type { RetailerBrand } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { MediaGallery } from '@/components/ui/media-gallery';
 import {
   Dialog,
   DialogContent,
@@ -35,7 +36,11 @@ type FormValues = z.infer<typeof Schema>;
 
 export default function RetailerBrands() {
   const [open, setOpen] = useState(false);
-  const brands = useQuery({ queryKey: ['catalog', 'brands'], queryFn: () => api<Brand[]>('/catalog/brands') });
+  const [editingLogo, setEditingLogo] = useState<RetailerBrand | null>(null);
+  const brands = useQuery({
+    queryKey: ['retailer', 'brands'],
+    queryFn: () => api<RetailerBrand[]>('/retailer/brands'),
+  });
 
   return (
     <Page>
@@ -70,15 +75,34 @@ export default function RetailerBrands() {
                 <div className="font-mono text-[11px] tracking-wider text-ink-3">
                   № {String(i + 1).padStart(3, '0')}
                 </div>
-                {!b.isActive && <div className="kicker text-ink-3">— Inactive —</div>}
+                <div className="flex items-center gap-1">
+                  {!b.isActive && <div className="kicker text-ink-3">— Inactive —</div>}
+                  {b.canEditLogo && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Edit logo"
+                      onClick={() => setEditingLogo(b)}
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
+                  )}
+                </div>
               </div>
               <div className="mt-4 flex items-center gap-3">
-                <span
-                  className="grid size-12 place-items-center border border-rule font-display italic text-[20px] text-ink"
-                  style={{ backgroundColor: b.tintColor ?? 'var(--color-paper-2)' }}
-                >
-                  {b.name.slice(0, 1).toUpperCase()}
-                </span>
+                {b.logoUrl ? (
+                  <span className="grid size-12 place-items-center overflow-hidden border border-rule bg-paper-2">
+                    <img src={b.logoUrl} alt="" className="size-full object-contain" loading="lazy" />
+                  </span>
+                ) : (
+                  <span
+                    className="grid size-12 place-items-center border border-rule font-display italic text-[20px] text-ink"
+                    style={{ backgroundColor: b.tintColor ?? 'var(--color-paper-2)' }}
+                  >
+                    {b.name.slice(0, 1).toUpperCase() || <ImageOff className="size-4 text-ink-3" />}
+                  </span>
+                )}
                 <div className="min-w-0">
                   <div className="font-display italic text-[22px] leading-tight truncate">{b.name}</div>
                   <div className="kicker text-ink-3 truncate">{b.slug}</div>
@@ -90,12 +114,14 @@ export default function RetailerBrands() {
       )}
 
       <CreateDialog open={open} onOpenChange={setOpen} />
+      <LogoDialog brand={editingLogo} onOpenChange={(open) => !open && setEditingLogo(null)} />
     </Page>
   );
 }
 
 function CreateDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
   const {
     register,
@@ -107,22 +133,33 @@ function CreateDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
     defaultValues: { slug: '', name: '', tintColor: '' },
   });
 
+  useEffect(() => {
+    if (!open) setLogoUrl(null);
+  }, [open]);
+
   const create = useMutation({
     mutationFn: (v: FormValues) =>
-      api<Brand>('/retailer/brands', {
+      api<RetailerBrand>('/retailer/brands', {
         method: 'POST',
-        body: { slug: v.slug, name: v.name, ...(v.tintColor ? { tintColor: v.tintColor } : {}) },
+        body: {
+          slug: v.slug,
+          name: v.name,
+          ...(v.tintColor ? { tintColor: v.tintColor } : {}),
+          ...(logoUrl ? { logoUrl } : {}),
+        },
       }),
     onSuccess: (b) => {
       toast.success(`Created brand · ${b.name}`);
       onOpenChange(false);
       reset();
+      setLogoUrl(null);
       void qc.invalidateQueries({ queryKey: ['catalog', 'brands'] });
+      void qc.invalidateQueries({ queryKey: ['retailer', 'brands'] });
     },
     onError: (e) => {
       toast.error(
-        e instanceof ApiError && e.code === 'invalid_state'
-          ? 'That slug is already taken.'
+        e instanceof ApiError
+          ? e.message
           : e instanceof Error
             ? e.message
             : 'Could not register brand',
@@ -153,11 +190,90 @@ function CreateDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
             <Input id="bTint" mono placeholder="e.g. #FF6600" {...register('tintColor')} />
             <FieldError>{errors.tintColor?.message}</FieldError>
           </div>
+          <div>
+            <Label hint="Optional">Logo</Label>
+            <MediaGallery
+              urls={logoUrl ? [logoUrl] : []}
+              onChange={(urls) => setLogoUrl(urls[0] ?? null)}
+              uploadFolder="brands/logos"
+              maxImages={1}
+            />
+          </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" variant="ink" caps loading={isSubmitting || create.isPending}>Register</Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LogoDialog({
+  brand,
+  onOpenChange,
+}: {
+  brand: RetailerBrand | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const qc = useQueryClient();
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLogoUrl(brand?.logoUrl ?? null);
+  }, [brand]);
+
+  const save = useMutation({
+    mutationFn: () => {
+      if (!brand) throw new Error('No brand selected');
+      return api<RetailerBrand>(`/retailer/brands/${brand.id}/logo`, {
+        method: 'PATCH',
+        body: { logoUrl },
+      });
+    },
+    onSuccess: () => {
+      toast.success('Logo saved');
+      onOpenChange(false);
+      void qc.invalidateQueries({ queryKey: ['retailer', 'brands'] });
+      void qc.invalidateQueries({ queryKey: ['catalog', 'brands'] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not save logo'),
+  });
+
+  return (
+    <Dialog
+      open={Boolean(brand)}
+      onOpenChange={(open) => {
+        if (open) setLogoUrl(brand?.logoUrl ?? null);
+        onOpenChange(open);
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit logo</DialogTitle>
+          <DialogDescription>{brand?.name} logo shown in consumer brand surfaces.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-5">
+          <MediaGallery
+            urls={logoUrl ? [logoUrl] : []}
+            onChange={(urls) => setLogoUrl(urls[0] ?? null)}
+            uploadFolder="brands/logos"
+            maxImages={1}
+          />
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button
+              type="button"
+              variant="ink"
+              caps
+              loading={save.isPending}
+              disabled={!brand}
+              onClick={() => save.mutate()}
+            >
+              Save logo
+            </Button>
+          </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

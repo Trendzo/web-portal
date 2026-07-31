@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SectionPanel } from '@/components/admin/cms/section-panel';
 import { PublishPanel } from '@/components/admin/cms/publish-panel';
+import { CategoryImageryPanel } from '@/components/admin/cms/category-imagery-panel';
 
 /**
  * Home CMS — every image, word and link on the consumer app's home page and the pages it opens.
@@ -41,7 +42,11 @@ export default function AdminCms() {
     }));
     // Publish is not a content area, so it is not in the catalogue — it is appended here and
     // deliberately sits last, after everything it would publish.
-    return [...fromSchema, { key: 'publish', label: 'Publish', sections: [] }];
+    return [
+      ...fromSchema,
+      { key: 'category_imagery', label: 'Category imagery', sections: [] },
+      { key: 'publish', label: 'Publish', sections: [] },
+    ];
   }, [schema.data]);
 
   const fallback = tabs[0]?.key ?? 'hero';
@@ -86,6 +91,8 @@ export default function AdminCms() {
             <TabsContent key={t.key} value={t.key}>
               {t.key === 'publish' ? (
                 <PublishPanel canPublish={canPublish} />
+              ) : t.key === 'category_imagery' ? (
+                <CategoryImageryPanel canEdit={canEdit} />
               ) : (
                 <div className="space-y-10">
                   {t.sections.map((spec) => (

@@ -71,6 +71,10 @@ export type Brand = {
   isActive: boolean;
 };
 
+export type RetailerBrand = Brand & {
+  canEditLogo: boolean;
+};
+
 export type Category = {
   id: string;
   slug: string;

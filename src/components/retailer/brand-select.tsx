@@ -22,6 +22,7 @@ import type { Brand } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FieldError, Label } from '@/components/ui/label';
+import { MediaGallery } from '@/components/ui/media-gallery';
 import {
   Select,
   SelectContent,
@@ -54,6 +55,7 @@ export function BrandSelect({ value, onChange, error }: Props) {
   });
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newLogoUrl, setNewLogoUrl] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const focusPanelRef = useRef(false);
@@ -64,13 +66,17 @@ export function BrandSelect({ value, onChange, error }: Props) {
       try {
         return await api<Brand>('/retailer/brands', {
           method: 'POST',
-          body: { name: name.trim(), slug },
+          body: { name: name.trim(), slug, ...(newLogoUrl ? { logoUrl: newLogoUrl } : {}) },
         });
       } catch (e) {
         if (e instanceof ApiError && e.status === 409 && /slug/i.test(e.message)) {
           return await api<Brand>('/retailer/brands', {
             method: 'POST',
-            body: { name: name.trim(), slug: `${slug}-2` },
+            body: {
+              name: name.trim(),
+              slug: `${slug}-2`,
+              ...(newLogoUrl ? { logoUrl: newLogoUrl } : {}),
+            },
           });
         }
         throw e;
@@ -83,9 +89,11 @@ export function BrandSelect({ value, onChange, error }: Props) {
       onChange(created.id);
       setCreating(false);
       setNewName('');
+      setNewLogoUrl(null);
       setCreateError(null);
       toast.success(`Brand "${created.name}" created`);
       void qc.invalidateQueries({ queryKey: ['catalog', 'brands'] });
+      void qc.invalidateQueries({ queryKey: ['retailer', 'brands'] });
     },
     onError: async (e, name) => {
       if (e instanceof ApiError && e.status === 409 && /named/i.test(e.message)) {
@@ -98,6 +106,7 @@ export function BrandSelect({ value, onChange, error }: Props) {
           onChange(match.id);
           setCreating(false);
           setNewName('');
+          setNewLogoUrl(null);
           setCreateError(null);
           toast.info(`Brand "${match.name}" already exists — selected it for you.`);
           return;
@@ -188,6 +197,15 @@ export function BrandSelect({ value, onChange, error }: Props) {
             </p>
             {createError && <FieldError>{createError}</FieldError>}
           </div>
+          <div>
+            <Label hint="Optional">Logo</Label>
+            <MediaGallery
+              urls={newLogoUrl ? [newLogoUrl] : []}
+              onChange={(urls) => setNewLogoUrl(urls[0] ?? null)}
+              uploadFolder="brands/logos"
+              maxImages={1}
+            />
+          </div>
           <div className="flex items-center justify-end gap-2">
             <Button
               type="button"
@@ -196,6 +214,7 @@ export function BrandSelect({ value, onChange, error }: Props) {
               onClick={() => {
                 setCreating(false);
                 setNewName('');
+                setNewLogoUrl(null);
                 setCreateError(null);
               }}
             >
