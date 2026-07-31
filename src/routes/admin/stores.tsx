@@ -30,12 +30,13 @@ interface AdminStoreListItem {
   address: string;
   stateCode: string;
   status: StoreStatus;
+  contactPhone: string | null;
   platformFeeBp: number;
   payoutCadenceDays: number;
   createdAt: string;
   orderCount: number;
   disputeCount: number;
-  retailer: { id: string; email: string; legalName: string; status: string } | null;
+  retailer: { id: string; email: string; legalName: string; status: string; phone: string } | null;
 }
 
 const STATUS_OPTIONS: { value: StoreStatus | 'all'; label: string }[] = [
@@ -106,11 +107,20 @@ export default function AdminStores() {
     if (retailerIdFilter && s.retailer?.id !== retailerIdFilter) return false;
     if (!q) return true;
     const lq = q.toLowerCase();
+    // Phone match is digit-normalized so "9926446622", "+919926446622" and
+    // "99264 46622" all resolve to the store's contact phone or its owner's phone.
+    // Guarded at ≥4 digits so a stray digit in a name query doesn't match every phone.
+    const qDigits = q.replace(/\D/g, '');
+    const phoneHit =
+      qDigits.length >= 4 &&
+      ((s.contactPhone ?? '').replace(/\D/g, '').includes(qDigits) ||
+        (s.retailer?.phone ?? '').replace(/\D/g, '').includes(qDigits));
     return (
       s.legalName.toLowerCase().includes(lq) ||
       s.address.toLowerCase().includes(lq) ||
       s.retailer?.email.toLowerCase().includes(lq) ||
-      s.retailer?.legalName.toLowerCase().includes(lq)
+      s.retailer?.legalName.toLowerCase().includes(lq) ||
+      phoneHit
     );
   });
 
@@ -197,7 +207,7 @@ export default function AdminStores() {
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-ink-3 pointer-events-none" />
           <Input
             className="pl-8"
-            placeholder="Search by name, address, or owner email…"
+            placeholder="Search by name, address, owner email, or phone…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
