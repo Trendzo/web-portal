@@ -133,14 +133,26 @@ export function CommandPalette({
   const adminStoresQuery = useQuery({
     queryKey: ['cmdk', 'admin', 'stores', debouncedQuery],
     queryFn: async ({ signal }) => {
-      const rows = await api<Array<{ id: string; legalName: string; retailer: { id: string } | null }>>(
-        `/admin/stores?limit=200`,
-        { signal },
-      );
+      const rows = await api<
+        Array<{
+          id: string;
+          legalName: string;
+          contactPhone: string | null;
+          retailer: { id: string; phone: string } | null;
+        }>
+      >(`/admin/stores?limit=200`, { signal });
       const q = debouncedQuery.toLowerCase();
-      return rows.filter(
-        (s) => s.legalName.toLowerCase().includes(q) || s.id.toLowerCase().includes(q),
-      );
+      // Digit-normalized phone match (store contact phone or owner phone) so a
+      // number resolves to the STORE. Guard ≥4 digits so short queries don't hit.
+      const qDigits = debouncedQuery.replace(/\D/g, '');
+      return rows.filter((s) => {
+        if (s.legalName.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)) return true;
+        if (qDigits.length < 4) return false;
+        return (
+          (s.contactPhone ?? '').replace(/\D/g, '').includes(qDigits) ||
+          (s.retailer?.phone ?? '').replace(/\D/g, '').includes(qDigits)
+        );
+      });
     },
     enabled: scope === 'admin' && entityEnabled && canSearchAdminStores,
     staleTime: 30_000,
@@ -223,7 +235,9 @@ export function CommandPalette({
             id: s.id,
             title: s.legalName,
             subtitle: s.id.slice(0, 8),
-            to: s.retailer ? `/admin/retailers/${s.retailer.id}/stores/${s.id}` : `/admin/stores`,
+            // Open in the store's own tab (Back to stores), NOT nested under the
+            // retailer/owner route — a number search must not land in the user's tab.
+            to: `/admin/stores/${s.id}`,
             group: 'Stores',
           });
         }
