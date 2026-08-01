@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowUpRight } from 'lucide-react';
 import { api } from '@/lib/api';
-import { formatAge, returnDecisionMeta } from '@/lib/status';
+import { formatAge, formatPaise, returnDecisionMeta } from '@/lib/status';
 import type { ReturnKind, StoreReturnDecision } from '@/lib/types';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
@@ -28,6 +28,8 @@ type ReturnRow = {
     attributesLabelSnap: string;
     order: { id: string; consumerNameSnap: string };
   };
+  /** Cash still owed to the customer on this order (COD refunds). */
+  cashRefundDue?: { refundId: string; disbursementId: string; amountPaise: number } | null;
 };
 
 export default function RetailerReturns() {
@@ -82,6 +84,13 @@ function ReturnList({ loading, list }: { loading: boolean; list: ReturnRow[] }) 
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[14px] font-semibold text-ink">{r.orderItem.listingNameSnap}</span>
                     <Badge tone={meta.tone} pulse={r.storeDecision === 'pending'}>{meta.label}</Badge>
+                    {/* An obligation, not a status — the customer is owed notes from the
+                        till. Surfaced here so it doesn't hide inside the detail page. */}
+                    {r.cashRefundDue && (
+                      <Badge tone="warning">
+                        {`${formatPaise(r.cashRefundDue.amountPaise)} cash to hand over`}
+                      </Badge>
+                    )}
                     {r.agentDisposition && (
                       <Badge
                         tone={

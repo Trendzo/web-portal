@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertTriangle, ArrowLeft, Clock } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Banknote, Clock } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
+import { formatPaise } from '@/lib/status';
 import { Page, PageHeader } from '@/components/ui/page';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +36,12 @@ interface ReturnRow {
   storeRejectPhotos: string[];
   orderItem: { id: string; listingNameSnap: string; attributesLabelSnap: string; order: { id: string } };
   heldItems?: Array<{ id: string; status: string; holdingWindowExpiresAt: string }>;
+  /**
+   * Cash this store still owes the customer on this order. Present only for a
+   * cash-on-delivery refund nobody has handed over yet — there is no card payment to
+   * reverse, so the money goes back as physical notes across the counter.
+   */
+  cashRefundDue?: { refundId: string; disbursementId: string; amountPaise: number } | null;
 }
 
 type VerifyInput = {
@@ -52,6 +59,7 @@ export default function RetailerReturnDetail() {
     enabled: Boolean(id),
   });
 
+  const [payCashOpen, setPayCashOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectPhotos, setRejectPhotos] = useState<string[]>([]);
   const [rejectNote, setRejectNote] = useState('');
@@ -178,6 +186,27 @@ export default function RetailerReturnDetail() {
             </div>
           )}
 
+          {data.cashRefundDue && (
+            <div className="mt-6 rounded-md border border-warning/40 bg-warning/5 p-4">
+              <div className="text-[13.5px] font-medium text-ink">
+                {`Hand ${formatPaise(data.cashRefundDue.amountPaise)} in cash to the customer`}
+              </div>
+              <p className="mt-1 text-[12.5px] text-ink-3 leading-relaxed">
+                This was a cash-on-delivery order, so the refund is paid in cash. You are
+                repaid in your next payout — the amount is credited back to your settlement.
+              </p>
+              <Button
+                variant="ink"
+                size="sm"
+                className="mt-3"
+                iconLeft={<Banknote className="size-3.5" />}
+                onClick={() => setPayCashOpen(true)}
+              >
+                {`I handed over ${formatPaise(data.cashRefundDue.amountPaise)}`}
+              </Button>
+            </div>
+          )}
+
           {data.storeDecision === 'pending' && (
             <div className="mt-6 flex flex-wrap items-center gap-2">
               <Button
@@ -257,7 +286,108 @@ export default function RetailerReturnDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {data.cashRefundDue && (
+        <PayCashDialog
+          open={payCashOpen}
+          onClose={() => setPayCashOpen(false)}
+          due={data.cashRefundDue}
+          returnId={data.id}
+        />
+      )}
     </Page>
+  );
+}
+
+/**
+ * Record cash handed across the counter for a COD refund.
+ *
+ * The amount is shown, never typed: the backend demands an exact match against the leg,
+ * so a free-text field could only ever produce a rejection. Exactly-once is a CAS on the
+ * server — a double-submit 409s rather than paying twice.
+ */
+function PayCashDialog({
+  open,
+  onClose,
+  due,
+  returnId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  due: { refundId: string; disbursementId: string; amountPaise: number };
+  returnId: string;
+}) {
+  const qc = useQueryClient();
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = useMutation({
+    mutationFn: () =>
+      api(`/retailer/refunds/${due.refundId}/disbursements/${due.disbursementId}/pay-cash`, {
+        method: 'POST',
+        body: { amountPaise: due.amountPaise, ...(note.trim() ? { note: note.trim() } : {}) },
+      }),
+    onSuccess: () => {
+      toast.success(`${formatPaise(due.amountPaise)} recorded as paid in cash`);
+      void qc.invalidateQueries({ queryKey: ['retailer', 'return', returnId] });
+      void qc.invalidateQueries({ queryKey: ['retailer', 'returns'] });
+      onClose();
+    },
+    onError: (e) => {
+      if (e instanceof ApiError && e.code === 'disbursement_already_terminal') {
+        toast.info('This refund was already paid');
+        void qc.invalidateQueries({ queryKey: ['retailer', 'return', returnId] });
+        onClose();
+        return;
+      }
+      setError(e instanceof ApiError ? e.message : 'Could not record the cash payment');
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && !submit.isPending && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Hand over {formatPaise(due.amountPaise)} in cash</DialogTitle>
+          <DialogDescription>
+            Confirm only once the customer has the notes in hand. This records money leaving
+            your till — you are repaid in your next payout, credited back on your settlement.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="cash-note" className="text-[12.5px] text-ink-3">
+              Note (optional)
+            </label>
+            <textarea
+              id="cash-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              maxLength={300}
+              className="mt-1 w-full resize-none rounded-md border border-line bg-transparent px-3 py-2 text-[13.5px] text-ink focus:outline-none focus:ring-1 focus:ring-ink/30"
+            />
+          </div>
+          {error && <p className="text-[12.5px] text-danger">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="ink"
+            loading={submit.isPending}
+            onClick={() => {
+              setError(null);
+              submit.mutate();
+            }}
+          >
+            {`Confirm ${formatPaise(due.amountPaise)} handed over`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

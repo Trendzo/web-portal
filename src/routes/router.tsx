@@ -51,6 +51,7 @@ import PosDaySummary from './retailer/pos/day-summary';
 import PosLabels from './retailer/pos/labels';
 import RetailerOrderDetail from './retailer/orders/detail';
 import AdminRefunds from './admin/refunds';
+import AdminPayoutDesk from './admin/payout-desk';
 import AdminDisputesHub from './admin/disputes-hub';
 import RetailerIssues from './retailer/issues';
 import RetailerStaff from './retailer/staff';
@@ -252,6 +253,7 @@ export const router = createBrowserRouter([
       { path: 'payment-reconciliation', element: <RedirectToMoneyTab tab="reconcile" /> },
       { path: 'payment-failures', element: <RedirectToMoneyTab tab="reconcile" sub="failures" /> },
       // §16 Refunds
+      { path: 'payout-desk', element: <AdminPayoutDesk /> },
       { path: 'refund-reconciliation', element: <Navigate to="/admin/disputes?tab=refunds" replace /> },
       { path: 'post-payout-recovery', element: <Navigate to="/admin/disputes?tab=refunds" replace /> },
       // §17 Invoicing

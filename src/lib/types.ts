@@ -976,7 +976,12 @@ export type RefundStatus =
   | 'failed';
 
 export type RefundDisbursementStatus = 'pending' | 'succeeded' | 'failed';
-export type RefundDestination = 'original_tender' | 'wallet';
+/**
+ * Four rails, not two. `cash` and `manual_payout` landed with the COD refund fix: a
+ * cash order has no card payment to reverse, so it is refunded in physical cash, and
+ * where no cash channel exists the leg waits on the admin payout desk.
+ */
+export type RefundDestination = 'original_tender' | 'wallet' | 'cash' | 'manual_payout';
 
 export type RefundLine = {
   id: string;

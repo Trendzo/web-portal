@@ -1,6 +1,9 @@
 import {
+  // ShieldCheck, // used only by the hidden KYC/Compliance sidebar entry below,
+  Banknote,
   BarChart3,
   Building2,
+  Disc3,
   FileText,
   Film,
   Folder,
@@ -11,9 +14,7 @@ import {
   Package,
   Receipt,
   ShieldAlert,
-  // ShieldCheck, // used only by the hidden KYC/Compliance sidebar entry below
   Sliders,
-  Disc3,
   Sparkles,
   Tag,
   Users,
@@ -105,6 +106,15 @@ const GROUPS: SidebarGroup[] = [
         activeWhen: (l) =>
           l.pathname.startsWith('/admin/disputes') ||
           l.pathname.startsWith('/admin/refund-reconciliation'),
+      },
+      {
+        // Refunds we owe that no automatic rail can pay — COD cash and manual payouts.
+        // They sit pending until a human moves the money, so they need their own queue.
+        to: '/admin/payout-desk',
+        label: 'Refund payout desk',
+        end: false,
+        icon: Banknote,
+        action: 'refunds.view',
       },
     ],
   },
