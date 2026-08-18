@@ -2079,7 +2079,15 @@ export type CmsLink = {
   params?: Record<string, string | number | boolean>;
 };
 
-export type CmsFieldKind = 'text' | 'textarea' | 'color' | 'string_list' | 'number';
+/** Mirrors backend shared/cms/schema.ts. 'category' renders as a picker over the live
+ *  taxonomy — never a text box, since a hand-typed slug fails silently. */
+export type CmsFieldKind =
+  | 'text'
+  | 'textarea'
+  | 'color'
+  | 'string_list'
+  | 'number'
+  | 'category';
 
 export type CmsFieldSpec = {
   key: string;

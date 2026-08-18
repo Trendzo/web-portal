@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
-import type { CmsGender, CmsItem, CmsLink, CmsSectionSpec } from '@/lib/types';
+import type { Category, CmsGender, CmsItem, CmsLink, CmsSectionSpec } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input, Textarea } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { MediaField } from './media-field';
 import { LinkField } from './link-field';
@@ -89,6 +90,30 @@ export function ItemDialog({
   defaultGender: CmsGender;
 }) {
   const qc = useQueryClient();
+
+  /**
+   * Live taxonomy for any `category` field this section declares. Fetched only when one
+   * exists, so sections without one pay nothing. Leaves are labelled with their parent
+   * ("Tops › T-Shirts") because leaf labels repeat across the tree — there are two
+   * "Jeans" and two "Shorts", and picking blind is how the wrong one gets chosen.
+   */
+  const needsCategories = spec.itemFields.some((f) => f.kind === 'category');
+  const categories = useQuery({
+    queryKey: ['catalog', 'categories'],
+    queryFn: () => api<Category[]>('/catalog/categories'),
+    enabled: needsCategories && open,
+  });
+  const categoryOptions = (() => {
+    const rows = categories.data ?? [];
+    const byId = new Map(rows.map((c) => [c.id, c]));
+    return rows
+      .map((c) => ({
+        slug: c.slug,
+        label: c.parentId ? `${byId.get(c.parentId)?.label ?? '—'} › ${c.label}` : c.label,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  })();
+
   const [d, setD] = useState<Draft>(EMPTY);
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((prev) => ({ ...prev, [k]: v }));
 
@@ -253,6 +278,25 @@ export function ItemDialog({
                           setContent(f.key, e.target.value === '' ? undefined : Number(e.target.value))
                         }
                       />
+                    ) : f.kind === 'category' ? (
+                      // A picker, never a text box. A hand-typed slug is exactly how a
+                      // tile labelled "T-shirts" ended up showing face serum.
+                      <Select
+                        value={typeof raw === 'string' && raw ? raw : '__none__'}
+                        onValueChange={(v) => setContent(f.key, v === '__none__' ? undefined : v)}
+                      >
+                        <SelectTrigger id={common.id}>
+                          <SelectValue placeholder={categories.isLoading ? 'Loading…' : 'All categories'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">All categories</SelectItem>
+                          {categoryOptions.map((c) => (
+                            <SelectItem key={c.slug} value={c.slug}>
+                              {c.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     ) : f.kind === 'color' ? (
                       <div className="flex items-center gap-2">
                         <input
