@@ -2087,7 +2087,8 @@ export type CmsFieldKind =
   | 'color'
   | 'string_list'
   | 'number'
-  | 'category';
+  | 'category'
+  | 'collection';
 
 export type CmsFieldSpec = {
   key: string;

@@ -23,17 +23,20 @@ import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { hasStill, thumbUrl } from '@/lib/image';
 import type {
+  Category,
   CmsAsset,
   CmsGender,
   CmsItem,
   CmsSectionDetail,
   CmsSectionSpec,
+  Collection,
 } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Segmented } from '@/components/ui/segmented';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ItemDialog } from './item-dialog';
 
@@ -274,6 +277,29 @@ function SectionCopyForm({
 }) {
   const qc = useQueryClient();
   const { section } = detail;
+
+  // Options for `category` / `collection` config fields. Fetched only when this section
+  // actually declares one, so every other section pays nothing.
+  const wantsCategory = spec.configFields.some((f) => f.kind === 'category');
+  const wantsCollection = spec.configFields.some((f) => f.kind === 'collection');
+  const categoriesQ = useQuery({
+    queryKey: ['catalog', 'categories'],
+    queryFn: () => api<Category[]>('/catalog/categories'),
+    enabled: wantsCategory,
+  });
+  const collectionsQ = useQuery({
+    queryKey: ['catalog', 'collections', 'all'],
+    queryFn: () => api<Collection[]>('/catalog/collections'),
+    enabled: wantsCollection,
+  });
+  const categoryOptions = (categoriesQ.data ?? []).map((c) => ({ slug: c.slug, label: c.label }));
+  // Kind is part of the label: someone picking a "Featured drop" needs to see at a
+  // glance that him-office-power is an outfit, not a drop.
+  const collectionOptions = (collectionsQ.data ?? []).map((c) => ({
+    slug: c.slug,
+    label: `${c.name} — ${c.kind}`,
+  }));
+
   const [copy, setCopy] = useState<Record<string, string>>({});
   const [config, setConfig] = useState<Record<string, unknown>>({});
   const [enabled, setEnabled] = useState(true);
@@ -392,6 +418,28 @@ function SectionCopyForm({
                     }))
                   }
                 />
+              ) : f.kind === 'collection' || f.kind === 'category' ? (
+                // Picker, never free text — a mistyped slug renders an empty section
+                // with no error anywhere to explain it.
+                <Select
+                  disabled={!canEdit}
+                  value={typeof raw === 'string' && raw ? raw : '__none__'}
+                  onValueChange={(v) =>
+                    setConfig((p) => ({ ...p, [f.key]: v === '__none__' ? undefined : v }))
+                  }
+                >
+                  <SelectTrigger id={`cms-cfg-${f.key}`}>
+                    <SelectValue placeholder="Not set" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Not set</SelectItem>
+                    {(f.kind === 'collection' ? collectionOptions : categoryOptions).map((o) => (
+                      <SelectItem key={o.slug} value={o.slug}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               ) : (
                 <Input
                   id={`cms-cfg-${f.key}`}
