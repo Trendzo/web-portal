@@ -33,6 +33,7 @@ import AdminPromotionNew from './admin/promotion-new';
 import AdminPromotionDetail from './admin/promotion-detail';
 import AdminPlatformRulesHub from './admin/platform-rules-hub';
 import AdminTerms, { AdminPrivacyPolicy } from './admin/terms';
+import AdminPrivacyPolicies from './admin/privacy-policies';
 import AdminConsumerDetail from './admin/consumer-detail';
 import RetailerPromotions from './retailer/promotions';
 import RetailerPromotionNew from './retailer/promotion-new';
@@ -210,6 +211,8 @@ export const router = createBrowserRouter([
       { path: 'platform-rules', element: <AdminPlatformRulesHub /> },
       { path: 'terms', element: <AdminTerms /> },
       { path: 'privacy-policy', element: <AdminPrivacyPolicy /> },
+      // Per-app public privacy policies (customer/retailer/driver) for the Play listings.
+      { path: 'privacy-policies', element: <AdminPrivacyPolicies /> },
       { path: 'clubbing', element: <Navigate to="/admin/platform-rules?tab=clubbing" replace /> },
       // Engagement (Loyalty / Community / Reviews) merged into the Platform rules
       // hub. Old paths — including the dissolved Customers hub — redirect there;
