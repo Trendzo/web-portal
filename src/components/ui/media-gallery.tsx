@@ -45,7 +45,7 @@ type Props = {
    * Caller declares this gallery is a listing gallery — enables backend's 5 MB / JPEG-PNG-WebP
    * filter. Client side also enforces the size + mime restrictions before upload.
    */
-  purpose?: 'listing-gallery';
+  purpose?: 'listing-gallery' | 'theme-wordmark' | 'theme-overlay';
 };
 
 const LISTING_GALLERY_MAX_BYTES = 5 * 1024 * 1024;
@@ -73,8 +73,16 @@ export function MediaGallery({ urls, onChange, uploadFolder, busy, maxImages, pu
 
   const atCapacity = maxImages !== undefined && urls.length >= maxImages;
   const isListingGallery = purpose === 'listing-gallery';
-  const maxSize = isListingGallery ? LISTING_GALLERY_MAX_BYTES : 25 * 1024 * 1024;
-  const accept = isListingGallery ? LISTING_GALLERY_MIMES : { 'image/*': [] };
+  // Theme art ships to every phone — mirror the backend's tighter caps client-side.
+  const themeCap =
+    purpose === 'theme-wordmark' ? 1 * 1024 * 1024 : purpose === 'theme-overlay' ? 2 * 1024 * 1024 : null;
+  const maxSize = themeCap ?? (isListingGallery ? LISTING_GALLERY_MAX_BYTES : 25 * 1024 * 1024);
+  // Theme purposes: backend accepts png/webp only.
+  const accept = themeCap
+    ? { 'image/png': ['.png'], 'image/webp': ['.webp'] }
+    : isListingGallery
+      ? LISTING_GALLERY_MIMES
+      : { 'image/*': [] };
 
   const { getRootProps, getInputProps, isDragActive, isDragReject, open } = useDropzone({
     accept,
@@ -94,13 +102,40 @@ export function MediaGallery({ urls, onChange, uploadFolder, busy, maxImages, pu
         toast.error(`At most ${maxImages} images allowed`);
         return;
       }
+      if (themeCap) {
+        // Theme art must stay in its original format: the crop step re-encodes
+        // to JPEG, which strips wordmark/overlay alpha AND fails the backend's
+        // png/webp allowlist. Upload the file as picked.
+        void uploadOriginal(file);
+        return;
+      }
       setPickedFile(file);
     },
   });
 
+  const uploadOriginal = async (file: File) => {
+    setUploading(true);
+    try {
+      const result = await uploadMedia(file, {
+        ...(uploadFolder && { folder: uploadFolder }),
+        ...(purpose && { purpose }),
+      });
+      onChange([...urls, result.url]);
+      toast.success('Image added');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleCropConfirm = async (blob: Blob, originalName: string) => {
     if (atCapacity) {
       toast.error(`At most ${maxImages} images allowed`);
+      return;
+    }
+    if (themeCap && blob.size > themeCap) {
+      toast.error(`Theme art is capped at ${Math.round(themeCap / (1024 * 1024))} MB - it ships to every phone`);
       return;
     }
     if (isListingGallery && blob.size > LISTING_GALLERY_MAX_BYTES) {
@@ -236,7 +271,9 @@ export function MediaGallery({ urls, onChange, uploadFolder, busy, maxImages, pu
                     : <><span className="font-medium">Drop an image here</span> or click to choose</>}
               </p>
               <p className="text-[11.5px] uppercase tracking-[0.14em] text-ink-3">
-                JPG, PNG, WebP · up to {isListingGallery ? '5 MB' : '25 MB'} · crop before upload
+                {themeCap
+                  ? `PNG or WebP · up to ${Math.round(themeCap / (1024 * 1024))} MB · uploaded as-is (no crop)`
+                  : `JPG, PNG, WebP · up to ${isListingGallery ? '5 MB' : '25 MB'} · crop before upload`}
               </p>
             </>
           )}

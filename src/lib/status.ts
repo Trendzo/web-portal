@@ -1,5 +1,6 @@
 import type {
   AccountDeletionStatus,
+  ThemeDraft,
   ActorType,
   ApplicationStatus,
   ChangeRequestStatus,
@@ -579,5 +580,39 @@ export function enforcementStepMeta(s: EnforcementStep): { label: string; tone: 
       return { label: 'Terminated', tone: 'danger' };
     case 'lifted':
       return { label: 'Lifted', tone: 'success' };
+  }
+}
+
+
+// ── Festival themes ──────────────────────────────────────────────────
+
+export type ThemeStatus = 'draft' | 'scheduled' | 'live' | 'ended';
+
+/**
+ * Client-side approximation of a theme's lifecycle for list badges. It cannot
+ * know true snapshot membership (drafts drift after publish) — the resolver
+ * simulator is the ground truth for "what is actually live"; the list pairs
+ * this with an "edited since publish" chip to cover the gap.
+ */
+export function deriveThemeStatus(
+  t: Pick<ThemeDraft, 'isEnabled' | 'startsAt' | 'endsAt' | 'inLatestPublication'>,
+  now: Date = new Date(),
+): ThemeStatus {
+  if (t.endsAt && new Date(t.endsAt) < now) return 'ended';
+  if (!t.isEnabled || !t.inLatestPublication) return 'draft';
+  if (t.startsAt && new Date(t.startsAt) > now) return 'scheduled';
+  return 'live';
+}
+
+export function themeStatusMeta(s: ThemeStatus): { label: string; tone: Tone } {
+  switch (s) {
+    case 'draft':
+      return { label: 'Draft', tone: 'neutral' };
+    case 'scheduled':
+      return { label: 'Scheduled', tone: 'info' };
+    case 'live':
+      return { label: 'Live', tone: 'success' };
+    case 'ended':
+      return { label: 'Ended', tone: 'neutral' };
   }
 }

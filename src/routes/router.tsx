@@ -71,6 +71,7 @@ import AdminAccountDeletions from './admin/account-deletions';
 import AdminCatalogModeration from './admin/catalog-moderation';
 import AdminReels from './admin/reels';
 import AdminCms from './admin/cms';
+import AdminThemes from './admin/themes';
 import AdminListingDetail from './admin/listing-detail';
 import RetailerHolidayCalendar from './retailer/holiday-calendar';
 import RetailerNotificationPrefs from './retailer/notification-prefs';
@@ -247,6 +248,7 @@ export const router = createBrowserRouter([
       { path: 'catalog-moderation', element: <AdminCatalogModeration /> },
       { path: 'reels', element: <AdminReels /> },
       { path: 'cms', element: <AdminCms /> },
+      { path: 'themes', element: <AdminThemes /> },
       { path: 'listings/:id', element: <AdminListingDetail /> },
       { path: 'delivery-windows', element: <Navigate to="/admin/platform-rules?tab=delivery-windows" replace /> },
       { path: 'fees', element: <RedirectToMoneyTab tab="fees" /> },

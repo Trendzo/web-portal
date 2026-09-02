@@ -29,7 +29,7 @@ export async function uploadMedia(
   options: {
     folder?: string;
     onProgress?: (pct: number) => void;
-    purpose?: 'listing-gallery' | 'listing-description';
+    purpose?: 'listing-gallery' | 'listing-description' | 'theme-wordmark' | 'theme-overlay' | 'theme-lottie';
     /** Hit the retailer media endpoint so the upload is recorded in the library. */
     recordToLibrary?: boolean;
   } = {},

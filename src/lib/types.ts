@@ -2202,3 +2202,115 @@ export type CmsPreview = {
     }[];
   }[];
 };
+
+/* ── Festival themes ─────────────────────────────────────────────────────
+   Mirrors backend `src/db/schema/cms-themes.ts` + `src/shared/cms/theme-schema.ts`
+   (built in lockstep — change both together). Wire nullables are `| null`, not
+   optional: the backend PATCH contract is null-clears / absent-leaves. */
+
+export type ThemePlatform = 'ios' | 'android';
+
+export type ThemeTokens = {
+  accent?: string | undefined;
+  accentInk?: string | undefined;
+  accentSoft?: string | undefined;
+  surfaceAlt?: string | undefined;
+  hairline?: string | undefined;
+};
+
+export type ThemeHeader = {
+  kind: 'default' | 'solid' | 'gradient' | 'image';
+  color?: string | undefined;
+  gradient?: [string, string] | undefined;
+  ink?: string | undefined;
+  wordmarkUrl?: string | undefined;
+  /** Doubles as the full-bleed header image when kind === 'image'. */
+  overlayUrl?: string | undefined;
+  overlayHeight?: number | undefined;
+};
+
+export type ThemeChrome = {
+  statusBarStyle: 'light' | 'dark';
+  header: ThemeHeader;
+  tabBar: { activeInk?: string | undefined; badgeBg?: string | undefined };
+};
+
+export type ThemeDecor = {
+  kind: 'none' | 'image' | 'lottie';
+  url?: string | undefined;
+  placement?: 'header' | undefined;
+  loop?: boolean | undefined;
+  maxPlays?: number | undefined;
+  respectReduceMotion: true;
+};
+
+export type ThemeCopy = { greeting?: string | undefined; searchPlaceholder?: string | undefined };
+
+export type ThemeDraft = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  isEnabled: boolean;
+  priority: number;
+  startsAt: string | null;
+  endsAt: string | null;
+  cities: string[] | null;
+  platforms: ThemePlatform[] | null;
+  minAppVersion: string | null;
+  tokens: ThemeTokens;
+  chrome: ThemeChrome;
+  decor: ThemeDecor;
+  copy: ThemeCopy;
+  createdAt: string;
+  updatedAt: string;
+  createdByAdminId: string | null;
+  updatedByAdminId: string | null;
+  /** List endpoint only: whether this slug is in the LIVE snapshot. */
+  inLatestPublication?: boolean | undefined;
+};
+
+/** Same row shape as CmsPublication — the themes publish log reuses it. */
+export type ThemePublication = {
+  id: string;
+  version: number;
+  note: string | null;
+  publishedAt: string;
+  publishedByAdminId: string | null;
+};
+
+/** One theme frozen into a publication — what the resolver simulator's winner carries. */
+export type SnapshotTheme = {
+  slug: string;
+  name: string;
+  priority: number;
+  startsAt: string | null;
+  endsAt: string | null;
+  cities: string[] | null;
+  platforms: ThemePlatform[] | null;
+  minAppVersion: string | null;
+  updatedAt: string;
+  tokens: ThemeTokens;
+  chrome: ThemeChrome;
+  decor: ThemeDecor;
+  copy: ThemeCopy;
+};
+
+/** The device payload — what GET /cms/theme serves and the phone preview renders. */
+export type ThemeResponse = {
+  schemaVersion: number;
+  publicationVersion: number;
+  generatedAt: string;
+  refreshAfterSeconds: number;
+  theme: Pick<SnapshotTheme, 'slug' | 'startsAt' | 'endsAt' | 'tokens' | 'chrome' | 'decor' | 'copy'> | null;
+};
+
+export type ThemePreviewResponse = {
+  source: 'draft' | 'published';
+  version: number | null;
+  winner: SnapshotTheme | null;
+  response: ThemeResponse;
+};
+
+/** What the phone frame needs — both a live editor draft and a resolver winner satisfy it. */
+export type ThemePreviewInput = Pick<ThemeDraft, 'tokens' | 'chrome' | 'decor' | 'copy'>;
