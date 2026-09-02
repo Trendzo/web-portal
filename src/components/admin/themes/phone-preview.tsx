@@ -66,7 +66,10 @@ export function PhonePreview({
     '--t-hairline': tokens.hairline ?? LIGHT.hairline,
     // On the real app the un-themed header is white text over a photo carousel,
     // so the default ink is WHITE over a dark hero backdrop — not LIGHT.ink.
-    '--t-header-ink': header.ink ?? '#FFFFFF',
+    // kind 'default' IGNORES a stored ink, exactly as the app does (HomeScreen
+    // uses '#fff' whenever the header is not themed) — otherwise the preview
+    // shows a custom ink the device will never apply.
+    '--t-header-ink': header.kind === 'default' ? '#FFFFFF' : header.ink ?? '#FFFFFF',
     '--t-tab-active': chrome.tabBar.activeInk ?? '#111111',
     '--t-badge-bg': chrome.tabBar.badgeBg ?? '#111111',
   } as CSSProperties;
@@ -112,7 +115,11 @@ export function PhonePreview({
   const statusContrast = headerTopColor ? contrastRatio(statusColor, headerTopColor) : null;
   const statusBarAtRisk = statusContrast !== null && statusContrast < AA_LARGE;
 
-  const overlayHeightPx = Math.round((header.overlayHeight ?? 72) * PREVIEW_SCALE);
+  // Clamp exactly as the app does (theme/remoteTheme.ts) — an unclamped preview
+  // would show a 250pt strip the device renders at 160.
+  const overlayHeightPx = Math.round(
+    Math.min(160, Math.max(24, header.overlayHeight ?? 72)) * PREVIEW_SCALE,
+  );
 
   return (
     <div className="w-[300px]">

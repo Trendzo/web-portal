@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { History, Rocket, RotateCcw } from 'lucide-react';
 import { api, ApiError, apiValidated } from '@/lib/api';
 import { ThemeDraftListSchema, ThemePublicationListSchema } from '@/lib/schemas';
+import { readThemeFailures } from '@/lib/theme-failures';
 import { contrastRatio, AA_TEXT } from '@/lib/contrast';
 import { deriveThemeStatus, themeStatusMeta } from '@/lib/status';
 import { Badge } from '@/components/ui/badge';
@@ -55,10 +56,7 @@ export function ThemePublishPanel({ canPublish }: { canPublish: boolean }) {
     },
     onError: (e) => {
       if (e instanceof ApiError && e.status === 422) {
-        const d = e.details as { failures?: unknown } | null | undefined;
-        if (d && typeof d === 'object' && Array.isArray(d.failures)) {
-          setBlocked(d.failures.map(formatFailure));
-        }
+        setBlocked(readThemeFailures(e.details));
       }
       setConfirmOpen(false);
       toast.error(e instanceof ApiError ? e.message : 'Publish failed');
@@ -328,16 +326,3 @@ function formatWindow(t: { startsAt: string | null; endsAt: string | null }): st
   return `${from} → ${to}`;
 }
 
-/** 422 details are server-owned; render defensively rather than trusting the shape. */
-function formatFailure(f: unknown): string {
-  if (
-    f &&
-    typeof f === 'object' &&
-    typeof (f as { slug?: unknown }).slug === 'string' &&
-    typeof (f as { message?: unknown }).message === 'string'
-  ) {
-    const { slug, field, message } = f as { slug: string; field?: unknown; message: string };
-    return typeof field === 'string' && field ? `${slug} — ${field}: ${message}` : `${slug} — ${message}`;
-  }
-  return String(JSON.stringify(f)).slice(0, 160);
-}

@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, Save } from 'lucide-react';
 import { api, apiValidated, ApiError } from '@/lib/api';
 import { ThemeDraftSchema } from '@/lib/schemas';
+import { readThemeFailures } from '@/lib/theme-failures';
 import type { SnapshotTheme, ThemeDraft, ThemePlatform, ThemePreviewInput } from '@/lib/types';
 import { AA_LARGE } from '@/lib/contrast';
 import { toLocalInput, fromLocalInput } from '@/lib/datetime-local';
@@ -208,8 +209,13 @@ function validateForm(f: ThemeDraftForm): Record<string, string> {
   if (f.headerKind === 'solid' && !hex(f.headerColor)) errors.headerColor = 'Solid header needs a color';
   if (f.headerKind === 'gradient' && !f.headerGradient) errors.headerGradient = 'Pick both gradient stops';
   if (f.headerKind === 'image' && !f.overlayUrl) errors.headerImage = 'Image header needs an uploaded image';
-  if (f.overlayHeight.trim() && !/^([1-9]\d{0,2})$/.test(f.overlayHeight.trim()))
-    errors.overlayHeight = 'Whole number of points, 1-300';
+  if (f.overlayHeight.trim()) {
+    const n = Number(f.overlayHeight.trim());
+    // The app clamps to 24-160; anything outside would be silently rewritten on
+    // the device while the preview showed what was typed.
+    if (!/^\d+$/.test(f.overlayHeight.trim()) || n < 24 || n > 160)
+      errors.overlayHeight = 'Whole number of points, 24-160';
+  }
   if (f.decorKind !== 'none' && !f.decorUrl) errors.decorUrl = 'Upload the decoration first';
   if (f.decorMaxPlays.trim() && !/^([1-9]|10)$/.test(f.decorMaxPlays.trim())) errors.decorMaxPlays = '1-10';
   return errors;
@@ -244,6 +250,7 @@ export function ThemeEditor({ id, canEdit, canPublish, onClose }: {
   const [rail, setRail] = useState<'her' | 'him'>('her');
   const [motion, setMotion] = useState<'on' | 'reduced'>('on');
   const [previewOverride, setPreviewOverride] = useState<{ winner: SnapshotTheme | null } | null>(null);
+  const [saveFailures, setSaveFailures] = useState<string[] | null>(null);
 
   // Seed on open / after external change. updatedAt in the key means a restore
   // or clone done elsewhere reseeds after invalidation; local edits (which do
@@ -275,7 +282,15 @@ export function ThemeEditor({ id, canEdit, canPublish, onClose }: {
       setSavedKey(savedKeyRef.current);
       void qc.invalidateQueries({ queryKey: ['admin', 'themes'] });
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Save failed'),
+    onError: (e) => {
+      // A save-time 422 names the exact field the server rejected (untrusted asset
+      // host, incoherent header kind, bad version string). Collapsing that to
+      // "Theme failed validation" leaves the editor hunting for it.
+      const failures = e instanceof ApiError && e.status === 422 ? readThemeFailures(e.details) : null;
+      setSaveFailures(failures);
+      toast.error(e instanceof ApiError ? e.message : 'Save failed');
+    },
+    onMutate: () => setSaveFailures(null),
   });
 
   if (query.isLoading || !form) return <Skeleton className="h-96" />;
@@ -326,6 +341,18 @@ export function ThemeEditor({ id, canEdit, canPublish, onClose }: {
             </Button>
           </div>
         </div>
+
+        {saveFailures && (
+          <div className="mb-4 rounded-md border border-danger/30 bg-danger-soft/40 p-3">
+            <p className="text-[13px] font-semibold text-danger">The server rejected this save</p>
+            <p className="mt-0.5 text-[12px] text-ink-3">Nothing was saved. Fix the fields below and save again.</p>
+            <ul className="mt-2 space-y-1">
+              {saveFailures.map((f, i) => (
+                <li key={i} className="font-mono text-[11.5px] text-danger">{f}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="overflow-x-auto whitespace-nowrap">
@@ -527,7 +554,13 @@ function HeaderTab({ d, set, errors, canEdit }: TabProps) {
             { value: 'image', label: 'Image' },
           ]}
           value={d.headerKind}
-          onChange={(v) => (canEdit ? set('headerKind', v) : undefined)}
+          onChange={(v) => {
+            if (!canEdit || v === d.headerKind) return;
+            set('headerKind', v);
+            // 'default' means "the app's own white-on-photo header": a leftover ink
+            // would be saved, previewed, and then ignored on the device.
+            if (v === 'default') set('headerInk', '');
+          }}
         />
       </div>
       {d.headerKind === 'solid' && (
@@ -598,7 +631,7 @@ function HeaderTab({ d, set, errors, canEdit }: TabProps) {
       </div>
       {d.headerKind !== 'image' && d.overlayUrl ? (
         <div>
-          <Label hint="Points; the app clamps 24-160">Overlay height</Label>
+          <Label hint="Points, 24-160">Overlay height</Label>
           <Input type="number" value={d.overlayHeight} placeholder="72" disabled={!canEdit} onChange={(e) => set('overlayHeight', e.target.value)} />
           <FieldError>{errors.overlayHeight}</FieldError>
         </div>

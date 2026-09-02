@@ -293,7 +293,11 @@ export function MediaGallery({ urls, onChange, uploadFolder, busy, maxImages, pu
         )}
       </div>
 
-      {/* URL paste fallback */}
+      {/* URL paste fallback. Hidden for theme art: a pasted URL skips the
+          purpose-gated size/format checks, and publish only verifies the HOST —
+          so a 20 MB PNG would sail through and ship to every phone. Theme
+          assets must come through the upload path above. */}
+      {themeCap ? null : (
       <div className="border-t border-rule pt-5">
         <Label htmlFor="gUrl" hint="paste a hosted image URL">
           Or add by URL
@@ -329,6 +333,7 @@ export function MediaGallery({ urls, onChange, uploadFolder, busy, maxImages, pu
           </Button>
         </div>
       </div>
+      )}
 
       {/* Crop modal — lazy-loaded, only mounts when there's a picked file */}
       <Suspense fallback={null}>
