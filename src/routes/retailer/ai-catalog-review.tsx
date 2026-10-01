@@ -26,7 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { AlertTriangle, ArrowLeft, Check, RefreshCw, Sparkles, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, Loader2, RefreshCw, X } from 'lucide-react';
 
 export default function RetailerAiCatalogReview() {
   const { id } = useParams<{ id: string }>();
@@ -224,7 +224,7 @@ export default function RetailerAiCatalogReview() {
             {data.status === 'processing' ? (
               <div className="grid h-72 place-items-center rounded-md border border-line bg-bg-2/30">
                 <div className="flex flex-col items-center gap-2 text-ink-3">
-                  <Sparkles className="size-5 animate-pulse" />
+                  <Loader2 className="size-5 animate-spin" />
                   <span className="text-[12.5px]">Generating… polling every 2 s</span>
                 </div>
               </div>

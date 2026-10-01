@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, useMemo } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, Eye, EyeOff, Loader2, MapPin, Paperclip, Search, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, ClipboardList, Eye, EyeOff, Loader2, MapPin, Paperclip, Search } from 'lucide-react';
 import type { ResubmitSnapshot } from '@/lib/types';
 import { Page } from '@/components/ui/page';
 import { CopyableId } from '@/components/ui/copyable-id';
@@ -879,7 +879,7 @@ export default function RetailerApplication() {
             className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-dashed border-line-strong px-2.5 py-1 text-[12px] text-ink-3 transition-colors hover:bg-bg-3 hover:text-ink"
             title="Dev helper — fills this step with sample data; every field stays editable"
           >
-            <Sparkles className="size-3" /> Fill step with mock data
+            <ClipboardList className="size-3" /> Fill step with mock data
           </button>
         </div>
 

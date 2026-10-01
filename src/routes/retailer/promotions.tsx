@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowUpRight, Info, Pause, Play, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Info, Pause, Play, Plus, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/cn';
@@ -255,7 +255,7 @@ function PerformanceTab() {
                           pulse
                           title={m.anomalyReasons.map((r) => ANOMALY_LABEL[r]).join(' · ')}
                         >
-                          <Sparkles className="size-3 mr-1 inline" />
+                          <AlertTriangle className="size-3 mr-1 inline" />
                           {m.anomalyReasons.map((r) => ANOMALY_LABEL[r]).join(' · ')}
                         </Badge>
                       ) : (

@@ -6,7 +6,6 @@ import {
   Funnel,
   GanttChart,
   ShieldAlert,
-  Sparkles,
   Trophy,
 } from 'lucide-react';
 import { Page, PageHeader } from '@/components/ui/page';
@@ -61,7 +60,7 @@ const REPORTS: ReadonlyArray<ReportCard> = [
     to: '/admin/reports/feature-usage',
     title: 'Feature usage',
     description: 'Adoption and cost for virtual try-on and AI catalog. Decide what to scale or sunset.',
-    icon: Sparkles,
+    icon: BarChart3,
     group: 'Adoption',
     action: 'reports.view',
   },

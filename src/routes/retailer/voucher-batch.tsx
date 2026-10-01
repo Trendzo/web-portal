@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Copy, Download, Sparkles } from 'lucide-react';
+import { ArrowLeft, Copy, Download, Ticket } from 'lucide-react';
 import { api, ApiError, BASE } from '@/lib/api';
 import { getToken } from '@/lib/auth';
 import type { Promotion } from '@/lib/types';
@@ -210,7 +210,7 @@ export default function RetailerVoucherBatch() {
             {error && <FieldError>{error}</FieldError>}
             <Button
               variant="accent"
-              iconLeft={<Sparkles className="size-3.5" />}
+              iconLeft={<Ticket className="size-3.5" />}
               loading={generate.isPending}
               onClick={() => generate.mutate()}
             >

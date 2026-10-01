@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Download, FileText, Sparkles } from 'lucide-react';
+import { Download, FileText } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatAge } from '@/lib/status';
 import type { GstReturnFile } from '@/lib/types';
@@ -84,7 +84,7 @@ export function GstReturnsPanel() {
                             </a>
                           </Button>
                         ) : (
-                          <Button size="sm" variant="accent" iconLeft={<Sparkles className="size-3.5" />} onClick={() => void generate(period, f.kind)}>
+                          <Button size="sm" variant="accent" iconLeft={<FileText className="size-3.5" />} onClick={() => void generate(period, f.kind)}>
                             Generate
                           </Button>
                         )}

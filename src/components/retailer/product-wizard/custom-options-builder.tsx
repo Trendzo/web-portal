@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Sparkles, Wand2, X } from 'lucide-react';
+import { Plus, Wand2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { AttributeTemplate } from '@/lib/types';
@@ -305,7 +305,7 @@ function NewTemplateSheet({
             variant="ink"
             size="sm"
             loading={create.isPending}
-            iconLeft={<Sparkles className="size-3.5" />}
+            iconLeft={<Plus className="size-3.5" />}
             disabled={!name.trim() || !axes.some((a) => a.name.trim() && a.selectedValues.length > 0)}
             onClick={() => create.mutate()}
           >

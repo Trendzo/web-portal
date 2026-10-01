@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Gift, IndianRupee, Sparkles } from 'lucide-react';
+import { ArrowLeft, Award, Gift, IndianRupee } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { consumerStatusMeta, formatPaise } from '@/lib/status';
 import type {
@@ -168,7 +168,7 @@ export default function AdminConsumerDetail() {
               <CardTitle>Loyalty</CardTitle>
               <p className="text-[12px] text-ink-3 mt-0.5">Points + tier</p>
             </div>
-            <Sparkles className="size-5 text-ink-3" />
+            <Award className="size-5 text-ink-3" />
           </CardHeader>
           <CardContent>
             {loyalty.isLoading ? (

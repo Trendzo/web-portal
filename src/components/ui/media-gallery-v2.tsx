@@ -32,7 +32,6 @@ import {
   ImageOff,
   Images,
   Loader2,
-  Sparkles,
   Star,
   Upload,
   X,
@@ -302,7 +301,7 @@ export function MediaGalleryV2({ urls, onChange, uploadFolder, maxImages = 20, o
             type="button"
             variant="outline"
             size="sm"
-            iconLeft={<Sparkles className="size-3.5" />}
+            iconLeft={<Images className="size-3.5" />}
             disabled={atCapacity}
             onClick={onRequestAiGenerate}
           >

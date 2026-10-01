@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowUpRight, Plus, Search, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Plus, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import {
@@ -303,7 +303,7 @@ function PerformanceTab() {
                     </td>
                     <td className="px-3 py-2 text-right font-mono">{(m.refundRateBp / 100).toFixed(2)}%</td>
                     <td className="px-3 py-2 text-center">
-                      {m.anomalyFlagged ? <Badge tone="danger" pulse><Sparkles className="size-3 mr-1 inline" />Flagged</Badge> : <span className="text-ink-4">—</span>}
+                      {m.anomalyFlagged ? <Badge tone="danger" pulse><AlertTriangle className="size-3 mr-1 inline" />Flagged</Badge> : <span className="text-ink-4">—</span>}
                     </td>
                   </tr>
                 ))}

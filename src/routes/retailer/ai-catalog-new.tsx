@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, ImagePlus, Sparkles, Upload, X } from 'lucide-react';
+import { ArrowLeft, ImagePlus, Images, Upload, X } from 'lucide-react';
 
 const POSE_OPTIONS = ['front', 'back', 'three-quarter', 'side', 'detail', 'flat'];
 const MAX_REFS = 5;
@@ -157,7 +157,7 @@ export default function RetailerAiCatalogNew() {
               variant="accent"
               loading={submitting}
               disabled={!listingId || quotaExhausted || noVariants || refs.length === 0 || prompt.trim().length < 8}
-              iconLeft={<Sparkles className="size-4" />}
+              iconLeft={<Images className="size-4" />}
               onClick={submit}
             >
               Generate

@@ -63,7 +63,7 @@ function buildGroups(store: Store | null): SidebarGroup[] {
         // { to: '/retailer/inventory', label: 'Inventory', end: true, icon: Warehouse, action: 'inventory.view' },
         // { to: '/retailer/pricing', label: 'Pricing', end: true, icon: Tag, action: 'listings.view' },
         // { to: '/retailer/attribute-templates', label: 'Attribute templates', end: false, icon: SlidersHorizontal, action: 'attribute_templates.view' },
-        // { to: '/retailer/ai-catalog', label: 'AI catalog', end: false, icon: Sparkles, action: 'ai_catalog.generate' },
+        // { to: '/retailer/ai-catalog', label: 'AI catalog', end: false, icon: Images, action: 'ai_catalog.generate' },
       ],
     },
     {

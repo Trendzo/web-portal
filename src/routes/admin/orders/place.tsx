@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Minus, Plus, Sparkles, Trash2, UserPlus } from 'lucide-react';
+import { Minus, Plus, ShoppingCart, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { formatPaise } from '@/lib/status';
@@ -447,7 +447,7 @@ function PlaceTestOrderInner() {
                 disabled={!canSubmit}
                 loading={place.isPending}
                 onClick={() => place.mutate()}
-                iconLeft={<Sparkles className="size-4" />}
+                iconLeft={<ShoppingCart className="size-4" />}
               >
                 Place test order
               </Button>
