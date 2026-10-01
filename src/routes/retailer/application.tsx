@@ -146,14 +146,16 @@ const DOC_SLOTS: { kind: DocKind; label: string }[] = [
 ];
 
 /**
- * Known-good Cloudinary assets already in our media library — used by the
- * one-click "Fill with mock documents" dev helper so testers don't have to
- * pick 5 real files. URLs cycle across the 5 slots.
+ * Known-good assets already in our media store (the Cloudinary originals,
+ * migrated to MinIO) — used by the one-click "Fill with mock documents" dev
+ * helper so testers don't have to pick 5 real files. URLs cycle across the 5 slots.
  */
+const MOCK_DOC_BASE =
+  'https://closetx-media.synquic.tech/trendzo-media/legacy/cloudinary/dwroh4zkk/image/upload';
 const MOCK_DOC_URLS = [
-  'https://res.cloudinary.com/dwroh4zkk/image/upload/v1780580209/closetx/applications/q0yea7kfy3wx4qqt91xo.png',
-  'https://res.cloudinary.com/dwroh4zkk/image/upload/v1780580212/closetx/applications/my0ia6frucqyaxgfd7u8.png',
-  'https://res.cloudinary.com/dwroh4zkk/image/upload/v1780580215/closetx/applications/qgdomrjyzf3khlysg0uo.png',
+  `${MOCK_DOC_BASE}/v1780580209/closetx/applications/q0yea7kfy3wx4qqt91xo.png`,
+  `${MOCK_DOC_BASE}/v1780580212/closetx/applications/my0ia6frucqyaxgfd7u8.png`,
+  `${MOCK_DOC_BASE}/v1780580215/closetx/applications/qgdomrjyzf3khlysg0uo.png`,
 ] as const;
 
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
@@ -554,14 +556,14 @@ export default function RetailerApplication() {
 
   /**
    * Dev/test helper — fills every empty (or stale-flagged) document slot with a
-   * known-good Cloudinary asset in ONE click, so testers don't have to pick
+   * known-good stored asset in ONE click, so testers don't have to pick
    * five real files to reach Submit. Cycles across the mock URLs and stamps a
    * per-slot filename so each row reads distinctly in the UI and admin review.
    */
   function fillMockDocs() {
     // Cache-buster keeps each fill unique so a re-apply after a previous
     // mock-filled submission never trips the "old file shown" staleness check
-    // (Cloudinary serves the asset regardless of unknown query params).
+    // (the media store serves the asset regardless of unknown query params).
     const stamp = Date.now();
     setDocs(() => {
       const next: Partial<Record<DocKind, UploadedDoc>> = {};
