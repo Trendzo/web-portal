@@ -28,8 +28,7 @@ export default function AdminLogin() {
     formState: { errors, isSubmitting },
   } = useForm({
     resolver: zodResolver(Schema),
-    // Prefilled with seeded creds for one-click dev sign-in.
-    defaultValues: { email: 'admin@trendzo.local', password: 'admin1234' },
+    defaultValues: { email: '', password: '' },
   });
 
   async function onSubmit(values: FormValues) {
