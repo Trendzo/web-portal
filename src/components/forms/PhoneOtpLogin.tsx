@@ -9,20 +9,10 @@ import { Input } from '@/components/ui/input';
 import { OtpInput } from '@/components/ui/otp-input';
 import { FieldError, Label } from '@/components/ui/label';
 
-const OTP_LENGTH = 4;
-import {
-  COUNTRY_CODES,
-  buildIdentifier,
-  extractAccessToken,
-  retryOtp,
-  sendOtp,
-  useMsg91Widget,
-  verifyOtp,
-} from '@/lib/msg91';
+import { COUNTRY_CODES } from '@/lib/msg91';
+import { useOtp } from '@/lib/otp';
 
 type OtpLoginResponse = { token: string; retailer: RetailerProfile };
-
-const RESEND_SECONDS = 30;
 
 function messageOf(err: unknown, fallback: string): string {
   if (err instanceof Error && err.message) return err.message;
@@ -30,8 +20,9 @@ function messageOf(err: unknown, fallback: string): string {
 }
 
 /**
- * Retailer phone-OTP login (primary). Drives the MSG91 web widget (send → verify), then posts
- * the verified access token to `POST /auth/retailer/otp/msg91`. On success it hands the
+ * Retailer phone-OTP login (primary). Drives the OTP provider the backend selects (MSG91
+ * widget or Slide; see lib/otp) through send → verify, then posts the verified access token
+ * and provider tag to `POST /auth/retailer/otp/login`. On success it hands the
  * `{ token, retailer }` back to the parent, which commits the session exactly like email login.
  */
 export function PhoneOtpLogin({
@@ -43,7 +34,8 @@ export function PhoneOtpLogin({
   initialPhone?: string;
 }) {
   const navigate = useNavigate();
-  const { ready, error: widgetError } = useMsg91Widget();
+  const otpClient = useOtp();
+  const { ready, error: widgetError, otpLength: OTP_LENGTH, resendSeconds: RESEND_SECONDS } = otpClient;
 
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [dial, setDial] = useState('91');
@@ -77,7 +69,7 @@ export function PhoneOtpLogin({
     }
     setSending(true);
     try {
-      await sendOtp(buildIdentifier(dial, nationalDigits));
+      await otpClient.send(dial, nationalDigits);
       setStep('otp');
       setOtp('');
       setResendIn(RESEND_SECONDS);
@@ -92,7 +84,7 @@ export function PhoneOtpLogin({
   async function handleResend() {
     if (resendIn > 0) return;
     try {
-      await retryOtp(null);
+      await otpClient.resend();
       setResendIn(RESEND_SECONDS);
       toast.success('OTP resent.');
     } catch (err) {
@@ -110,12 +102,10 @@ export function PhoneOtpLogin({
     if (verifying) return;
     setVerifying(true);
     try {
-      const data = await verifyOtp(code);
-      const accessToken = extractAccessToken(data);
-      if (!accessToken) throw new Error('OTP verification failed');
-      const { token, retailer } = await api<OtpLoginResponse>('/auth/retailer/otp/msg91', {
+      const { accessToken, provider } = await otpClient.verify(code);
+      const { token, retailer } = await api<OtpLoginResponse>('/auth/retailer/otp/login', {
         method: 'POST',
-        body: { accessToken },
+        body: { accessToken, provider },
       });
       await onAuthenticated(token, retailer);
     } catch (err) {

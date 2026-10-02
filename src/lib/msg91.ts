@@ -114,11 +114,15 @@ function loadWidget(): Promise<void> {
   return widgetPromise;
 }
 
-/** Loads + initialises the widget on mount. `ready` gates the send/verify calls. */
-export function useMsg91Widget(): { ready: boolean; error: string | null } {
+/**
+ * Loads + initialises the widget on mount. `ready` gates the send/verify calls. Pass
+ * `enabled: false` when another OTP provider is active so its script is never loaded.
+ */
+export function useMsg91Widget(enabled = true): { ready: boolean; error: string | null } {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
+    if (!enabled) return;
     let alive = true;
     loadWidget()
       .then(() => alive && setReady(true))
@@ -126,7 +130,7 @@ export function useMsg91Widget(): { ready: boolean; error: string | null } {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [enabled]);
   return { ready, error };
 }
 
