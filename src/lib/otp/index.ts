@@ -50,7 +50,10 @@ function writeCache(cfg: OtpConfig): void {
 }
 
 /** Fresh config, or the last known one, or MSG91's — a config outage must never block login. */
-export async function loadOtpConfig(path = '/auth/otp-config'): Promise<OtpConfig> {
+/** The web portal has its own Slide widget (settings/analytics), selected with `?client=web`. */
+const WEB_CONFIG_PATH = '/auth/otp-config?client=web';
+
+export async function loadOtpConfig(path = WEB_CONFIG_PATH): Promise<OtpConfig> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const cfg = await Promise.race([
