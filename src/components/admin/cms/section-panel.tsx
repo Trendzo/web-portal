@@ -507,7 +507,7 @@ function SortableItemRow({
   item: CmsItem;
   spec: CmsSectionSpec;
   canEdit: boolean;
-  status?: CmsItemStatus;
+  status?: CmsItemStatus | undefined;
   previewUrl: string | null;
   onEdit: () => void;
   onRemove: () => void;
