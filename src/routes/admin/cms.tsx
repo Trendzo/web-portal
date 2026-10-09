@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SectionPanel } from '@/components/admin/cms/section-panel';
 import { PublishPanel } from '@/components/admin/cms/publish-panel';
 import { CategoryImageryPanel } from '@/components/admin/cms/category-imagery-panel';
+import { QuickPublish } from '@/components/admin/cms/quick-publish';
+import { useCmsStatus } from '@/components/admin/cms/use-cms-status';
 
 /**
  * Home CMS — every image, word and link on the consumer app's home page and the pages it opens.
@@ -33,6 +35,16 @@ export default function AdminCms() {
     queryFn: () => api<CmsSchema>('/admin/cms/schema'),
     staleTime: 10 * 60_000,
   });
+
+  const status = useCmsStatus();
+
+  // Section key → human label, for the publish summary and anywhere a key needs a name.
+  const labelByKey = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of schema.data?.tabs ?? []) for (const s of t.sections) m.set(s.key, s.label);
+    return m;
+  }, [schema.data]);
+  const labelFor = (key: string) => labelByKey.get(key) ?? key;
 
   const tabs = useMemo(() => {
     const fromSchema = (schema.data?.tabs ?? []).map((t) => ({
@@ -60,12 +72,35 @@ export default function AdminCms() {
     setParams(next);
   }
 
+  // How many unpublished changes sit under a tab — drives the dot on its trigger.
+  function tabPending(tab: { key: string; sections: { key: string }[] }): number {
+    if (tab.key === 'publish') {
+      const t = status.data?.totals;
+      return t
+        ? t.new + t.changed + t.removed + t.sectionsChanged + (status.data?.removedSections.length ?? 0)
+        : 0;
+    }
+    let n = 0;
+    for (const s of tab.sections) {
+      const st = status.data?.sections[s.key];
+      if (st) n += st.counts.new + st.counts.changed + st.counts.removed + (st.changed ? 1 : 0);
+    }
+    return n;
+  }
+
   return (
     <Page>
       <PageHeader
         kicker="Content"
         title="Home CMS"
         description="Everything the app shows above its product feed — campaign banners, Top Stories, Steals, occasions, the Her and His Edit pages, and the category banners in Browse. Edits stay invisible until you publish."
+        actions={
+          <QuickPublish
+            canPublish={canPublish}
+            labelFor={labelFor}
+            onOpenFullView={() => setTab('publish')}
+          />
+        }
       />
 
       {schema.isLoading ? (
@@ -82,7 +117,15 @@ export default function AdminCms() {
           <TabsList className="overflow-x-auto whitespace-nowrap">
             {tabs.map((t) => (
               <TabsTrigger key={t.key} value={t.key}>
-                {t.label}
+                <span className="inline-flex items-center gap-1.5">
+                  {t.label}
+                  {tabPending(t) > 0 && (
+                    <span
+                      className="size-1.5 rounded-full bg-warning"
+                      aria-label="Unpublished changes"
+                    />
+                  )}
+                </span>
               </TabsTrigger>
             ))}
           </TabsList>

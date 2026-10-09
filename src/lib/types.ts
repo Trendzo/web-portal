@@ -2179,6 +2179,28 @@ export type CmsPublication = {
   publishedByAdminId: string | null;
 };
 
+/** Per-item publish state vs the live snapshot: GET /admin/cms/status. */
+export type CmsItemStatus = 'new' | 'changed' | 'live';
+
+export type CmsPublishStatus = {
+  liveVersion: number | null;
+  livePublishedAt: string | null;
+  hasChanges: boolean;
+  totals: { new: number; changed: number; removed: number; sectionsChanged: number };
+  /** Section keys present live but deleted from the draft. */
+  removedSections: string[];
+  sections: Record<
+    string,
+    {
+      changed: boolean;
+      items: Record<string, CmsItemStatus>;
+      /** Item keys live now but gone from the draft — they go away on publish. */
+      removed: string[];
+      counts: { new: number; changed: number; removed: number };
+    }
+  >;
+};
+
 /** What GET /admin/cms/preview and GET /cms/home return — already filtered. */
 export type CmsPreview = {
   source: 'draft' | 'published';

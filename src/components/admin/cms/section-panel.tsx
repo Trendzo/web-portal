@@ -27,10 +27,12 @@ import type {
   CmsAsset,
   CmsGender,
   CmsItem,
+  CmsItemStatus,
   CmsSectionDetail,
   CmsSectionSpec,
   Collection,
 } from '@/lib/types';
+import { useCmsStatus } from './use-cms-status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
@@ -80,6 +82,14 @@ export function SectionPanel({
     queryKey: ['admin', 'cms', 'section', sectionKey],
     queryFn: () => api<CmsSectionDetail>(`/admin/cms/sections/${sectionKey}`),
   });
+
+  // Draft-vs-live publish state for this section (shared query across the whole CMS page).
+  const statusQ = useCmsStatus();
+  const secStatus = statusQ.data?.sections[sectionKey];
+  const sectionDirty =
+    !!secStatus &&
+    (secStatus.changed ||
+      secStatus.counts.new + secStatus.counts.changed + secStatus.counts.removed > 0);
 
   const assets = useQuery({
     queryKey: ['admin', 'cms', 'assets'],
@@ -176,6 +186,7 @@ export function SectionPanel({
           <div className="flex items-center gap-2">
             <h3 className="text-[15px] font-semibold text-ink">{spec.label}</h3>
             {!section.isEnabled && <Badge tone="warning" flat>Hidden</Badge>}
+            {sectionDirty && <Badge tone="warning">Unpublished changes</Badge>}
             {spec.maxItems > 0 && (
               <span className="text-[11.5px] text-ink-3">
                 {railCount}/{spec.maxItems}
@@ -237,6 +248,7 @@ export function SectionPanel({
                   item={item}
                   spec={spec}
                   canEdit={canEdit}
+                  status={secStatus?.items[item.key]}
                   previewUrl={item.imageUrl ?? previewByKey.get(item.assetKey ?? '') ?? null}
                   onEdit={() => {
                     setTarget(item);
@@ -248,6 +260,13 @@ export function SectionPanel({
             </ul>
           </SortableContext>
         </DndContext>
+      )}
+
+      {secStatus && secStatus.removed.length > 0 && (
+        <p className="text-[11.5px] text-warning">
+          {secStatus.removed.length} item{secStatus.removed.length === 1 ? '' : 's'} removed here
+          {' '}will disappear from the app when you publish.
+        </p>
       )}
 
       <ItemDialog
@@ -468,11 +487,18 @@ function SectionCopyForm({
   );
 }
 
+const STATUS_BADGE: Record<CmsItemStatus, { tone: 'success' | 'warning' | 'info'; label: string }> = {
+  live: { tone: 'success', label: 'Live' },
+  changed: { tone: 'warning', label: 'Edited' },
+  new: { tone: 'info', label: 'New' },
+};
+
 function SortableItemRow({
   ord,
   item,
   spec,
   canEdit,
+  status,
   previewUrl,
   onEdit,
   onRemove,
@@ -481,6 +507,7 @@ function SortableItemRow({
   item: CmsItem;
   spec: CmsSectionSpec;
   canEdit: boolean;
+  status?: CmsItemStatus;
   previewUrl: string | null;
   onEdit: () => void;
   onRemove: () => void;
@@ -535,6 +562,11 @@ function SortableItemRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-[13.5px] font-medium text-ink">{primary}</span>
+          {status && (
+            <Badge tone={STATUS_BADGE[status].tone} flat>
+              {STATUS_BADGE[status].label}
+            </Badge>
+          )}
           {spec.genderSplit && item.gender !== 'all' && (
             <Badge tone="neutral" flat>
               {item.gender.toUpperCase()}
