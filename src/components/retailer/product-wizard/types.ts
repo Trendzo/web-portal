@@ -3,13 +3,13 @@ import type { Listing } from '@/lib/types';
 
 /** Scalar fields owned by react-hook-form (Steps 1 + 3). */
 export const WizardFormSchema = z.object({
-  name: z.string().trim().min(1, 'Required').max(200),
+  name: z.string().trim().max(200),
   sku: z.string().trim().max(64).optional(),
   description: z.string().trim().max(2000).optional(),
   descriptionLong: z.string().optional(),
-  brandId: z.string().min(1, 'Pick a brand'),
-  categoryId: z.string().min(1, 'Pick a category'),
-  gender: z.enum(['her', 'him', 'unisex']),
+  brandId: z.string(),
+  categoryId: z.string(),
+  gender: z.enum(['her', 'him', 'unisex']).nullable(),
   occasion: z.array(z.string().trim().min(1).max(40)).max(10),
   ageGroups: z.array(z.string()).max(7),
   listingPolicy: z.enum(['return', 'replace', 'final_sale']),
@@ -114,6 +114,14 @@ export function seedVariantState(l: Listing): {
   groups: GroupDraft[];
   variants: VariantDraft[];
 } {
+  const staged = l.draftVariantData?.web as {
+    mode: VariantMode; variants: VariantDraft[]; groups: GroupDraft[];
+  } | undefined;
+  if (staged) return {
+    mode: staged.mode,
+    variants: staged.variants,
+    groups: staged.groups.map(g => ({ ...g, clientKey: nextGroupKey() })),
+  };
   const mode = l.variantMode;
   const flat = (l.variants ?? []).map(variantToDraft);
   if (mode !== 'color_size') {
