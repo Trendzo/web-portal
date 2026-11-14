@@ -470,12 +470,12 @@ function ListingRow({ listing, threshold, selected, onSelectChange, onToggleStat
       <td className="px-3 py-3 align-middle">
         <div className="flex flex-col">
           <span className="font-display italic text-[15px] leading-snug text-ink truncate max-w-xs">
-            {listing.name}
+            {listing.name || 'Untitled draft'}
           </span>
           <span className="mt-0.5 text-[11px] text-ink-3 truncate">
             <span className="font-medium text-ink-2">{listing.brand?.name ?? 'Unbranded'}</span>
-            {' · '}{listing.category?.label ?? listing.categoryId}
-            {' · '}<span className="capitalize">{listing.gender}</span>
+            {' · '}{listing.category?.label ?? 'Category to add'}
+            {' · '}<span className="capitalize">{listing.gender ?? 'Cut to add'}</span>
           </span>
         </div>
       </td>

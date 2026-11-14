@@ -4,7 +4,7 @@
  *
  *  Step 1 Basics & media → Step 2 Variants → Step 3 Details.
  *
- * A draft listing is created as soon as Step 1's required fields are filled;
+ * A draft listing is created when the retailer adds product information;
  * thereafter scalar edits autosave (debounced PATCH) and gallery changes save
  * immediately. Variants persist from Step 2; publishing (whole listing or a
  * single variant) happens from the publish bar / variant rows behind a review.
@@ -53,7 +53,7 @@ function listingToForm(l: Listing): WizardFormValues {
     description: l.description ?? '',
     descriptionLong: l.descriptionLong ?? '',
     brandId: l.brandId ?? '',
-    categoryId: l.categoryId,
+    categoryId: l.categoryId ?? '',
     gender: l.gender,
     occasion: l.occasion ?? [],
     ageGroups: l.ageGroups ?? [],
@@ -96,7 +96,7 @@ export function ProductWizard({ mode }: { mode: 'create' | 'edit' }) {
     resolver: zodResolver(WizardFormSchema),
     defaultValues: {
       name: '', sku: '', description: '', descriptionLong: '', brandId: '', categoryId: '',
-      gender: 'unisex', occasion: [], ageGroups: [], listingPolicy: 'return', hsn: '',
+      gender: null, occasion: [], ageGroups: [], listingPolicy: 'return', hsn: '',
     },
   });
 
@@ -120,9 +120,9 @@ export function ProductWizard({ mode }: { mode: 'create' | 'edit' }) {
         method: 'POST',
         body: {
           name: v.name,
-          brandId: v.brandId,
-          categoryId: v.categoryId,
-          gender: v.gender,
+          ...(v.brandId ? { brandId: v.brandId } : {}),
+          ...(v.categoryId ? { categoryId: v.categoryId } : {}),
+          ...(v.gender ? { gender: v.gender } : {}),
           ...(v.description ? { description: v.description } : {}),
           ...(v.descriptionLong ? { descriptionLong: v.descriptionLong } : {}),
           listingPolicy: v.listingPolicy,
@@ -158,8 +158,9 @@ export function ProductWizard({ mode }: { mode: 'create' | 'edit' }) {
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(() => void persistScalars(), 700);
   }
-  async function persistScalars() {
-    if (!listingId) return;
+  async function persistScalars(): Promise<boolean> {
+    if (!listingId) return false;
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     const v = form.getValues();
     try {
       await api(`/retailer/listings/${listingId}`, {
@@ -168,8 +169,8 @@ export function ProductWizard({ mode }: { mode: 'create' | 'edit' }) {
           name: v.name,
           description: v.description ?? '',
           descriptionLong: v.descriptionLong ? v.descriptionLong : null,
-          brandId: v.brandId,
-          categoryId: v.categoryId,
+          brandId: v.brandId || null,
+          categoryId: v.categoryId || null,
           gender: v.gender,
           listingPolicy: v.listingPolicy,
           occasion: v.occasion,
@@ -179,8 +180,10 @@ export function ProductWizard({ mode }: { mode: 'create' | 'edit' }) {
       });
       setSavedAt(new Date().toISOString());
       void qc.invalidateQueries({ queryKey: ['retailer', 'listing', listingId] });
+      return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Autosave failed');
+      return false;
     }
   }
 
@@ -209,6 +212,12 @@ export function ProductWizard({ mode }: { mode: 'create' | 'edit' }) {
     if (listingId) return true;
     const ok = await form.trigger(STEP_FIELDS[0]);
     if (!ok) return false;
+    const v = form.getValues();
+    if (!v.name.trim() && !v.brandId && !v.categoryId && !v.gender &&
+      !v.description?.trim() && !v.descriptionLong?.trim() && !gallery.length) {
+      toast.info('Add a product name, category, description or photo to start a draft.');
+      return false;
+    }
     const l = await createDraft.mutateAsync(form.getValues());
     return !!l;
   }
@@ -307,6 +316,7 @@ export function ProductWizard({ mode }: { mode: 'create' | 'edit' }) {
                   listingId={listingId}
                   values={form.getValues()}
                   gallery={gallery}
+                  onBeforePublish={persistScalars}
                   onPublished={() => {
                     seeded.current = false;
                     void qc.invalidateQueries({ queryKey: ['retailer', 'listing', listingId] });

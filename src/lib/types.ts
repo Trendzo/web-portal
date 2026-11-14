@@ -153,14 +153,14 @@ export type Listing = {
   id: string;
   storeId: string;
   brandId: string | null;
-  categoryId: string;
+  categoryId: string | null;
   templateId: string | null;
   name: string;
   description: string | null;
   /** Rich HTML, sanitized server-side on write — safe to render verbatim. */
   descriptionLong: string | null;
   hsn: string | null;
-  gender: Gender;
+  gender: Gender | null;
   listingPolicy: ListingPolicy;
   galleryUrls: string[];
   occasion: string[];
@@ -173,6 +173,7 @@ export type Listing = {
   createdAt: string;
   updatedAt: string;
   variantMode: VariantMode;
+  draftVariantData?: { web?: unknown } | null;
   brand?: Brand;
   category?: Category;
   variants?: Variant[];

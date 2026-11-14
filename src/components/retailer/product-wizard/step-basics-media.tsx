@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { UseFormReturn } from 'react-hook-form';
-import { Check, Loader2 } from 'lucide-react';
+import { Check, ChevronDown, Loader2, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Category } from '@/lib/types';
 import { Input, Textarea } from '@/components/ui/input';
@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/select';
 import { BrandSelect } from '@/components/retailer/brand-select';
 import { MediaGalleryV2 } from '@/components/ui/media-gallery-v2';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/cn';
 import type { WizardFormValues } from './types';
 
 const RichTextEditor = lazy(() =>
@@ -49,17 +51,24 @@ export function StepBasicsMedia({
     return parent ? `${parent.label} › ${c.label}` : c.label;
   };
   const visibleCategories = categories
-    .filter((c) => (c.isLeaf ?? true) && (c.gender === gender || c.gender === 'unisex'))
+    .filter((c) => (c.isLeaf ?? true) && (!gender || c.gender === gender || c.gender === 'unisex'))
     .map((c) => ({ c, parentSort: (c.parentId ? byId.get(c.parentId)?.sortOrder : 0) ?? 0 }))
     .sort((a, b) => a.parentSort - b.parentSort || a.c.sortOrder - b.c.sortOrder)
     .map(({ c }) => c);
+
+  useEffect(() => {
+    const selected = form.getValues('categoryId');
+    if (categories.length && selected && !visibleCategories.some(c => c.id === selected)) {
+      setValue('categoryId', '', { shouldDirty: true, shouldValidate: true });
+    }
+  }, [gender, categories, setValue]);
 
   return (
     <div className="grid gap-8 lg:grid-cols-2">
       {/* LEFT — fields */}
       <div className="space-y-5">
         <div>
-          <Label htmlFor="name" required>Product name</Label>
+          <Label htmlFor="name" hint="Needed to publish">Product name</Label>
           <Input id="name" placeholder="e.g. Linen relaxed shirt" {...register('name')} />
           <FieldError>{errors.name?.message}</FieldError>
         </div>
@@ -104,10 +113,11 @@ export function StepBasicsMedia({
             error={errors.brandId?.message}
           />
           <div>
-            <Label required>Cut for</Label>
-            <Select value={gender} onValueChange={(v) => setValue('gender', v as WizardFormValues['gender'], { shouldDirty: true })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+            <Label hint="Needed to publish">Cut for</Label>
+            <Select value={gender ?? '__later__'} onValueChange={(v) => setValue('gender', v === '__later__' ? null : v as WizardFormValues['gender'], { shouldDirty: true })}>
+              <SelectTrigger><SelectValue placeholder="Choose later" /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="__later__">Choose later</SelectItem>
                 <SelectItem value="her">Her</SelectItem>
                 <SelectItem value="him">Him</SelectItem>
                 <SelectItem value="unisex">Unisex</SelectItem>
@@ -118,27 +128,13 @@ export function StepBasicsMedia({
         </div>
 
         <div>
-          <Label required>Category</Label>
-          <Select
+          <Label hint="Needed to publish">Category</Label>
+          <CategoryPicker
+            categories={visibleCategories}
             value={watch('categoryId')}
-            onValueChange={(v) => setValue('categoryId', v, { shouldValidate: true, shouldDirty: true })}
-          >
-            <SelectTrigger>
-              <span className={watch('categoryId') ? undefined : 'text-ink-4'}>
-                {watch('categoryId')
-                  ? (() => {
-                      const cur = byId.get(watch('categoryId'));
-                      return cur ? pathFor(cur) : '…';
-                    })()
-                  : 'Pick a category'}
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              {visibleCategories.map((c) => (
-                <SelectItem key={c.id} value={c.id}>{pathFor(c)}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            pathFor={pathFor}
+            onChange={(v) => setValue('categoryId', v, { shouldValidate: true, shouldDirty: true })}
+          />
           <FieldError>{errors.categoryId?.message}</FieldError>
         </div>
       </div>
@@ -157,6 +153,41 @@ export function StepBasicsMedia({
         />
       </div>
     </div>
+  );
+}
+
+function CategoryPicker({ categories, value, pathFor, onChange }: {
+  categories: Category[]; value: string; pathFor: (category: Category) => string;
+  onChange: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const selected = categories.find(c => c.id === value);
+  const filtered = categories.filter(c => pathFor(c).toLowerCase().includes(query.trim().toLowerCase()));
+  return (
+    <Popover open={open} onOpenChange={(next) => { setOpen(next); if (!next) setQuery(''); }}>
+      <PopoverTrigger asChild>
+        <button type="button" className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-line-2 bg-bg px-3 text-left text-[13.5px] hover:border-line-strong focus:outline-none focus:border-ink">
+          <span className={cn('truncate', !selected && 'text-ink-4')}>{selected ? pathFor(selected) : 'Choose later'}</span>
+          <ChevronDown className="size-4 shrink-0 text-ink-3" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] min-w-[280px] p-0">
+        <div className="relative border-b border-line p-2">
+          <Search className="absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-ink-4" />
+          <Input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search categories…" className="pl-7 h-8 text-[12.5px]" />
+        </div>
+        <div className="max-h-72 overflow-y-auto py-1">
+          <button type="button" onClick={() => { onChange(''); setOpen(false); }} className="w-full px-3 py-2 text-left text-[12.5px] text-ink-3 hover:bg-bg-2">Choose later</button>
+          {filtered.map(c => (
+            <button key={c.id} type="button" onClick={() => { onChange(c.id); setOpen(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] hover:bg-bg-2">
+              <Check className={cn('size-3.5 shrink-0', c.id !== value && 'invisible')} />{pathFor(c)}
+            </button>
+          ))}
+          {!filtered.length && <p className="px-3 py-4 text-[12px] text-ink-4">No matching category</p>}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

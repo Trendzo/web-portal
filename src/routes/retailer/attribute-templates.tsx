@@ -42,7 +42,7 @@ export default function RetailerAttributeTemplates() {
   const categoryTemplateIds = useMemo(() => {
     const map = new Map<string, Set<string>>();
     for (const l of listingsQ.data ?? []) {
-      if (!l.templateId) continue;
+      if (!l.templateId || !l.categoryId) continue;
       if (!map.has(l.categoryId)) map.set(l.categoryId, new Set());
       map.get(l.categoryId)!.add(l.templateId);
     }

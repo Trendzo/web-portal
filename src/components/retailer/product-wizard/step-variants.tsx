@@ -101,6 +101,10 @@ export function StepVariants(props: Props) {
   // ── Mode switching ───────────────────────────────────────────────────────
   function requestMode(next: VariantMode) {
     if (next === mode) return;
+    if (listing?.status === 'active') {
+      toast.error('Move this product to draft before changing its variant structure.');
+      return;
+    }
     // Destructive when saved variants exist under a different structure.
     const hasSaved = serverVariants.length > 0;
     if (hasSaved && serverMode !== next) {
@@ -139,13 +143,42 @@ export function StepVariants(props: Props) {
   }
 
   // ── Save (one reconciler per mode) ───────────────────────────────────────
+  const snapshot = () => ({
+    mode,
+    variants,
+    groups: groups.map(({ clientKey: _clientKey, ...group }) => {
+      void _clientKey;
+      return group;
+    }),
+  });
+  const saveProgress = async () => {
+    if (!listingId) throw new Error('Save the product first');
+    if (listing?.status === 'active') throw new Error('Move this product to draft before saving incomplete variants');
+    await api(`/retailer/listings/${listingId}`, {
+      method: 'PATCH',
+      body: { draftVariantData: { ...(listing?.draftVariantData ?? {}), web: snapshot() } },
+    });
+  };
+  const saveDraft = useMutation({
+    mutationFn: saveProgress,
+    onSuccess: () => { toast.success('Variant progress saved to draft'); onReload(); },
+    onError: e => toast.error(e instanceof Error ? e.message : 'Could not save variant progress'),
+  });
   const save = useMutation({
     mutationFn: async () => {
       if (!listingId) throw new Error('Save the product first');
 
-      if (mode === 'single') return saveSingle();
-      if (mode === 'color_size') return saveGrouped();
-      return saveCustom();
+      if (listing?.status !== 'active') await saveProgress();
+      if (mode === 'single') await saveSingle();
+      else if (mode === 'color_size') await saveGrouped();
+      else await saveCustom();
+      if (listing?.status !== 'active') {
+        const remaining = { ...(listing?.draftVariantData ?? {}) };
+        delete remaining.web;
+        await api(`/retailer/listings/${listingId}`, {
+          method: 'PATCH', body: { draftVariantData: Object.keys(remaining).length ? remaining : null },
+        });
+      }
     },
     onSuccess: () => {
       toast.success('Variants saved');
@@ -178,6 +211,16 @@ export function StepVariants(props: Props) {
     if (!draft) throw new Error('Set a price first');
     if (draft.pricePaise === null) throw new Error('Set a selling price');
     assertWithinLimits(draft, 'this product');
+    if (listing?.status === 'active' && serverMode === 'single' && serverVariants[0]) {
+      await api(`/retailer/variants/${serverVariants[0].id}`, {
+        method: 'PATCH', body: {
+          pricePaise: draft.pricePaise, compareAtPrice: draft.compareAtPrice,
+          stock: draft.stock ?? 0, imageUrls: draft.imageUrls,
+          ...(draft.sku.trim() ? { sku: draft.sku.trim() } : {}),
+        },
+      });
+      return;
+    }
     // Clear any color groups left over from a previous structure (cascades sizes).
     const namedIds = new Set(namedServerGroups.map((g) => g.id));
     for (const g of namedServerGroups) {
@@ -251,20 +294,32 @@ export function StepVariants(props: Props) {
     for (const g of next) {
       if (g.id) continue;
       if (g.isNoColor) {
-        const def = await api<VariantGroup>(`/retailer/listings/${listingId}/default-group`, {
+        const existing = serverGroups.find(group => group.isDefault);
+        g.id = existing?.id ?? (await api<VariantGroup>(`/retailer/listings/${listingId}/default-group`, {
           method: 'POST',
-        });
-        g.id = def.id;
+        })).id;
       } else {
-        const created = await api<VariantGroup>(`/retailer/listings/${listingId}/groups`, {
+        const existing = serverGroups.find(group => !group.isDefault &&
+          group.name.toLowerCase() === g.name.trim().toLowerCase());
+        g.id = existing?.id ?? (await api<VariantGroup>(`/retailer/listings/${listingId}/groups`, {
           method: 'POST',
           body: {
             name: g.name.trim(),
             sortOrder: g.sortOrder,
             ...(g.colorHex ? { colorHex: g.colorHex } : {}),
           },
-        });
-        g.id = created.id;
+        })).id;
+      }
+    }
+    // A previous attempt may have created rows before the connection failed.
+    // Match by the backend's group + size identity before deciding what to delete.
+    const claimed = new Set(next.flatMap(g => g.sizes.map(s => s.id).filter((id): id is string => !!id)));
+    for (const g of next) {
+      for (const size of g.sizes) {
+        if (size.id) continue;
+        const existing = serverVariants.find(v => v.groupId === g.id && !claimed.has(v.id) &&
+          (v.attributes?.size ?? NO_SIZE).toLowerCase() === size.size.toLowerCase());
+        if (existing) { size.id = existing.id; claimed.add(existing.id); }
       }
     }
     setGroups(next);
@@ -343,13 +398,23 @@ export function StepVariants(props: Props) {
     for (const g of namedServerGroups) {
       await deleteIfPresent(`/retailer/groups/${g.id}`);
     }
-    const keptIds = new Set(variants.filter((v) => v.id).map((v) => v.id!));
+    const identity = (attributes: Record<string, string>) =>
+      JSON.stringify(Object.entries(attributes).sort(([a], [b]) => a.localeCompare(b)));
+    const resolved = variants.map(v => ({ ...v }));
+    const claimed = new Set(resolved.map(v => v.id).filter((id): id is string => !!id));
+    for (const variant of resolved) {
+      if (variant.id) continue;
+      const match = serverVariants.find(v => !claimed.has(v.id) &&
+        identity(v.attributes) === identity(variant.attributes));
+      if (match) { variant.id = match.id; claimed.add(match.id); }
+    }
+    const keptIds = new Set(resolved.filter((v) => v.id).map((v) => v.id!));
     for (const v of serverVariants) {
       if (!keptIds.has(v.id) && !cascading.has(v.groupId)) {
         await deleteIfPresent(`/retailer/variants/${v.id}`);
       }
     }
-    for (const v of variants.filter((d) => !d.id)) {
+    for (const v of resolved.filter((d) => !d.id)) {
       if (v.pricePaise === null) throw new Error(`Set a price for "${v.attributesLabel}"`);
       assertWithinLimits(v, `"${v.attributesLabel}"`);
       await api(`/retailer/listings/${listingId}/variants`, {
@@ -366,7 +431,7 @@ export function StepVariants(props: Props) {
       });
     }
     const serverVariantById = new Map(serverVariants.map((v) => [v.id, v]));
-    for (const v of variants.filter((d) => d.id)) {
+    for (const v of resolved.filter((d) => d.id)) {
       const orig = serverVariantById.get(v.id!);
       if (!orig) continue;
       const body = variantPatchBody(v, orig);
@@ -471,6 +536,10 @@ export function StepVariants(props: Props) {
         ))}
 
       <div className="flex items-center justify-end gap-2 border-t border-rule pt-4">
+        {listing?.status !== 'active' && <Button type="button" variant="outline" loading={saveDraft.isPending}
+          disabled={!listingId || save.isPending} onClick={() => saveDraft.mutate()}>
+          Save draft progress
+        </Button>}
         <Button
           type="button"
           variant="ink"
@@ -478,7 +547,7 @@ export function StepVariants(props: Props) {
           disabled={saveDisabled}
           onClick={() => save.mutate()}
         >
-          Save variants
+          Save complete variants
         </Button>
       </div>
 
