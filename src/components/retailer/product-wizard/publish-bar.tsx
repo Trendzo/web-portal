@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CircleAlert, Rocket } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
@@ -18,42 +18,39 @@ import {
 } from '@/components/ui/dialog';
 import type { WizardFormValues } from './types';
 
-type Requirement = { label: string; met: boolean };
+type Readiness = { canPublish: boolean; publishIssues: Array<{ code: string; field: string; message: string }> };
 
 export function PublishBar({
   listing,
   listingId,
   values,
   gallery,
+  onBeforePublish,
   onPublished,
 }: {
   listing: Listing | null;
   listingId: string | null;
   values: WizardFormValues;
   gallery: string[];
+  onBeforePublish: () => Promise<boolean>;
   onPublished: () => void;
 }) {
   const qc = useQueryClient();
   const [reviewOpen, setReviewOpen] = useState(false);
 
-  const variants = listing?.variants ?? [];
-  const hasCompleteActive = variants.some(
-    (v) =>
-      v.isActive &&
-      v.pricePaise > 0 &&
-      !!v.sku &&
-      (v.imageUrls.length > 0 || gallery.length > 0),
-  );
+  const readiness = useQuery({
+    queryKey: ['retailer', 'listing-readiness', listingId],
+    enabled: !!listingId && listing?.status !== 'active',
+    queryFn: () => api<Readiness>(`/retailer/listings/${listingId}/readiness`),
+    refetchOnWindowFocus: true,
+  });
 
-  const reqs: Requirement[] = [
-    { label: 'Product name', met: !!values.name?.trim() },
-    { label: 'Short description', met: !!values.description?.trim() },
-    { label: 'Full description', met: !!values.descriptionLong?.trim() },
-    { label: 'At least one image', met: gallery.length > 0 },
-    { label: 'Return policy', met: !!values.listingPolicy },
-    { label: 'A complete, active variant', met: hasCompleteActive },
-  ];
-  const ready = reqs.every((r) => r.met);
+  useEffect(() => {
+    if (listingId && listing?.status !== 'active') void readiness.refetch();
+  }, [listingId, listing, gallery]);
+
+  const variants = listing?.variants ?? [];
+  const ready = readiness.data?.canPublish === true;
   const isPublished = listing?.status === 'active';
 
   const publish = useMutation({
@@ -66,8 +63,12 @@ export function PublishBar({
       onPublished();
     },
     onError: (e) => {
-      const msg = e instanceof ApiError ? e.message : 'Could not publish';
+      const details = e instanceof ApiError ? e.details as { issues?: Array<{ message: string }> } | undefined : undefined;
+      const msg = details?.issues?.length
+        ? details.issues.map(issue => issue.message).join('; ')
+        : e instanceof ApiError ? e.message : 'Could not publish';
       toast.error(msg);
+      void readiness.refetch();
     },
   });
 
@@ -112,8 +113,14 @@ export function PublishBar({
           <Button
             variant="accent"
             iconLeft={<Rocket className="size-3.5" />}
-            disabled={!ready}
-            onClick={() => setReviewOpen(true)}
+            disabled={readiness.isFetching}
+            onClick={async () => {
+              if (!(await onBeforePublish())) return;
+              const result = await readiness.refetch();
+              if (result.error) toast.error(result.error instanceof Error ? result.error.message : 'Could not check publish readiness');
+              else if (result.data?.canPublish) setReviewOpen(true);
+              else toast.error('Complete the items below before publishing');
+            }}
           >
             Review &amp; publish
           </Button>
@@ -122,16 +129,15 @@ export function PublishBar({
 
       {!isPublished && (
         <ul className="mt-3 grid gap-1 sm:grid-cols-2">
-          {reqs.map((r) => (
-            <li key={r.label} className="flex items-center gap-1.5 text-[12px]">
-              {r.met ? (
-                <Check className="size-3.5 text-success" />
-              ) : (
-                <CircleAlert className="size-3.5 text-ink-4" />
-              )}
-              <span className={r.met ? 'text-ink-2' : 'text-ink-4'}>{r.label}</span>
+          {readiness.isLoading && <li className="text-[12px] text-ink-4">Checking requirements…</li>}
+          {readiness.isError && <li className="text-[12px] text-ink-4">Requirements could not be loaded. Try again.</li>}
+          {(readiness.data?.publishIssues ?? []).map((r) => (
+            <li key={r.code} className="flex items-center gap-1.5 text-[12px]">
+              <CircleAlert className="size-3.5 text-ink-4" />
+              <span className="text-ink-4">{r.message}</span>
             </li>
           ))}
+          {ready && <li className="flex items-center gap-1.5 text-[12px] text-success"><Check className="size-3.5" />Ready to publish</li>}
         </ul>
       )}
 
