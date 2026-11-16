@@ -173,7 +173,7 @@ export type Listing = {
   createdAt: string;
   updatedAt: string;
   variantMode: VariantMode;
-  draftVariantData?: { web?: unknown } | null;
+  draftVariantData?: Record<string, unknown> | null;
   brand?: Brand;
   category?: Category;
   variants?: Variant[];

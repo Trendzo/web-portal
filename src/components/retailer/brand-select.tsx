@@ -1,20 +1,13 @@
 /**
- * Brand picker with inline "create new brand" — self-contained (owns its own
- * brands query + create mutation). Extracted from the old listing wizard so
- * both create and edit flows share one implementation.
+ * Brand picker with type-to-search and inline "create new brand" - self-contained
+ * (owns its own brands query + create mutation). Shared by create and edit flows.
  *
- * The Radix workarounds here are deliberate crash fixes — do not "simplify":
- *  - No <SelectValue/>: Radix portals the selected item's text into the value
- *    node; for a brand selected programmatically right after creation the item
- *    isn't mounted yet, so the label sticks on the placeholder, and manual
- *    SelectValue children race that portal → React removeChild crash. A plain
- *    span we control is always correct.
- *  - onCloseAutoFocus preventDefault + focus the panel input: otherwise the
- *    user's typing lands on the trigger's typeahead and silently selects random
- *    brands.
- *  - setQueryData seed before select: keeps the new item mounted at selection.
+ * Built on SearchablePicker (a popover list), not a Radix Select: the search box
+ * keeps typing out of the trigger's typeahead, and a brand created a moment ago
+ * is selectable immediately because the label is looked up from the cached list.
  */
 import { useRef, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
@@ -23,14 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FieldError, Label } from '@/components/ui/label';
 import { MediaGallery } from '@/components/ui/media-gallery';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from '@/components/ui/select';
-
-const CREATE_BRAND_SENTINEL = '__create__';
+import { SearchablePicker } from '@/components/ui/searchable-picker';
 
 /** URL-safe slug matching the server's ^[a-z0-9]+(?:-[a-z0-9]+)*$ rule. */
 export function slugifyBrandName(name: string): string {
@@ -58,7 +44,6 @@ export function BrandSelect({ value, onChange, error }: Props) {
   const [newLogoUrl, setNewLogoUrl] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
-  const focusPanelRef = useRef(false);
 
   const createBrand = useMutation({
     mutationFn: async (name: string) => {
@@ -122,50 +107,30 @@ export function BrandSelect({ value, onChange, error }: Props) {
 
   return (
     <div>
-      <Label required>Brand</Label>
-      <Select
+      <Label hint="Optional">Brand</Label>
+      <SearchablePicker
+        options={(brands.data ?? []).map((b) => ({ value: b.id, label: b.name }))}
         value={value}
-        onValueChange={(v) => {
-          if (v === CREATE_BRAND_SENTINEL) {
-            focusPanelRef.current = true;
-            setCreating(true);
-            setCreateError(null);
-            return;
-          }
-          if (!v) return;
-          onChange(v);
-        }}
-      >
-        <SelectTrigger>
-          <span className={value ? undefined : 'text-ink-4'}>
-            {value
-              ? brands.data?.find((b) => b.id === value)?.name ?? '…'
-              : brands.isLoading
-                ? 'Loading…'
-                : 'Pick a brand'}
-          </span>
-        </SelectTrigger>
-        <SelectContent
-          onCloseAutoFocus={(e) => {
-            if (!focusPanelRef.current) return;
-            focusPanelRef.current = false;
-            e.preventDefault();
-            requestAnimationFrame(() => nameInputRef.current?.focus());
-          }}
-        >
-          {(brands.data ?? []).map((b) => (
-            <SelectItem key={b.id} value={b.id}>
-              {b.name}
-            </SelectItem>
-          ))}
-          <SelectItem
-            value={CREATE_BRAND_SENTINEL}
-            className="mt-1 border-t border-rule/60 font-medium text-accent"
+        placeholder="Pick a brand"
+        searchPlaceholder="Search brands…"
+        loading={brands.isLoading && !brands.data}
+        emptyMessage={brands.isError ? 'Brands could not be loaded. Close and reopen to retry.' : 'No brands yet - create one below'}
+        onChange={onChange}
+        footer={(close) => (
+          <button
+            type="button"
+            onClick={() => {
+              close();
+              setCreating(true);
+              setCreateError(null);
+              requestAnimationFrame(() => nameInputRef.current?.focus());
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] font-medium text-accent hover:bg-bg-2"
           >
-            ＋ Create new brand…
-          </SelectItem>
-        </SelectContent>
-      </Select>
+            <Plus className="size-3.5" /> Create new brand…
+          </button>
+        )}
+      />
       <FieldError>{error}</FieldError>
 
       {creating && (

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { UseFormReturn } from 'react-hook-form';
-import { Check, ChevronDown, Loader2, Search } from 'lucide-react';
+import { Check, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Category } from '@/lib/types';
 import { Input, Textarea } from '@/components/ui/input';
@@ -15,8 +15,7 @@ import {
 } from '@/components/ui/select';
 import { BrandSelect } from '@/components/retailer/brand-select';
 import { MediaGalleryV2 } from '@/components/ui/media-gallery-v2';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { cn } from '@/lib/cn';
+import { SearchablePicker } from '@/components/ui/searchable-picker';
 import type { WizardFormValues } from './types';
 
 const RichTextEditor = lazy(() =>
@@ -129,10 +128,13 @@ export function StepBasicsMedia({
 
         <div>
           <Label hint="Needed to publish">Category</Label>
-          <CategoryPicker
-            categories={visibleCategories}
+          <SearchablePicker
+            options={visibleCategories.map((c) => ({ value: c.id, label: pathFor(c) }))}
             value={watch('categoryId')}
-            pathFor={pathFor}
+            placeholder="Choose later"
+            searchPlaceholder="Search categories…"
+            clearLabel="Choose later"
+            emptyMessage="No categories available"
             onChange={(v) => setValue('categoryId', v, { shouldValidate: true, shouldDirty: true })}
           />
           <FieldError>{errors.categoryId?.message}</FieldError>
@@ -153,41 +155,6 @@ export function StepBasicsMedia({
         />
       </div>
     </div>
-  );
-}
-
-function CategoryPicker({ categories, value, pathFor, onChange }: {
-  categories: Category[]; value: string; pathFor: (category: Category) => string;
-  onChange: (id: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const selected = categories.find(c => c.id === value);
-  const filtered = categories.filter(c => pathFor(c).toLowerCase().includes(query.trim().toLowerCase()));
-  return (
-    <Popover open={open} onOpenChange={(next) => { setOpen(next); if (!next) setQuery(''); }}>
-      <PopoverTrigger asChild>
-        <button type="button" className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-line-2 bg-bg px-3 text-left text-[13.5px] hover:border-line-strong focus:outline-none focus:border-ink">
-          <span className={cn('truncate', !selected && 'text-ink-4')}>{selected ? pathFor(selected) : 'Choose later'}</span>
-          <ChevronDown className="size-4 shrink-0 text-ink-3" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] min-w-[280px] p-0">
-        <div className="relative border-b border-line p-2">
-          <Search className="absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-ink-4" />
-          <Input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search categories…" className="pl-7 h-8 text-[12.5px]" />
-        </div>
-        <div className="max-h-72 overflow-y-auto py-1">
-          <button type="button" onClick={() => { onChange(''); setOpen(false); }} className="w-full px-3 py-2 text-left text-[12.5px] text-ink-3 hover:bg-bg-2">Choose later</button>
-          {filtered.map(c => (
-            <button key={c.id} type="button" onClick={() => { onChange(c.id); setOpen(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] hover:bg-bg-2">
-              <Check className={cn('size-3.5 shrink-0', c.id !== value && 'invisible')} />{pathFor(c)}
-            </button>
-          ))}
-          {!filtered.length && <p className="px-3 py-4 text-[12px] text-ink-4">No matching category</p>}
-        </div>
-      </PopoverContent>
-    </Popover>
   );
 }
 

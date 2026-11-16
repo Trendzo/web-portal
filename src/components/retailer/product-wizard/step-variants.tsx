@@ -16,7 +16,10 @@ import {
 import { ColorGroupEditor } from './color-group-editor';
 import { CustomOptionsBuilder } from './custom-options-builder';
 import { MAX_INT4, MAX_PAISE, MAX_RUPEES, VariantRow } from './variant-row';
-import { NO_SIZE, type GroupDraft, type VariantDraft, type VariantMode } from './types';
+import {
+  NO_SIZE, stageVariantState, withoutStagedVariants,
+  type GroupDraft, type VariantDraft, type VariantMode,
+} from './types';
 
 /**
  * Every price/stock column is Postgres `integer`. Rejecting here keeps an
@@ -143,20 +146,12 @@ export function StepVariants(props: Props) {
   }
 
   // ── Save (one reconciler per mode) ───────────────────────────────────────
-  const snapshot = () => ({
-    mode,
-    variants,
-    groups: groups.map(({ clientKey: _clientKey, ...group }) => {
-      void _clientKey;
-      return group;
-    }),
-  });
   const saveProgress = async () => {
     if (!listingId) throw new Error('Save the product first');
     if (listing?.status === 'active') throw new Error('Move this product to draft before saving incomplete variants');
     await api(`/retailer/listings/${listingId}`, {
       method: 'PATCH',
-      body: { draftVariantData: { ...(listing?.draftVariantData ?? {}), web: snapshot() } },
+      body: { draftVariantData: stageVariantState(listing?.draftVariantData, { mode, variants, groups }) },
     });
   };
   const saveDraft = useMutation({
@@ -173,10 +168,8 @@ export function StepVariants(props: Props) {
       else if (mode === 'color_size') await saveGrouped();
       else await saveCustom();
       if (listing?.status !== 'active') {
-        const remaining = { ...(listing?.draftVariantData ?? {}) };
-        delete remaining.web;
         await api(`/retailer/listings/${listingId}`, {
-          method: 'PATCH', body: { draftVariantData: Object.keys(remaining).length ? remaining : null },
+          method: 'PATCH', body: { draftVariantData: withoutStagedVariants(listing?.draftVariantData) },
         });
       }
     },

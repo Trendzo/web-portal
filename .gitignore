@@ -4,13 +4,10 @@ dist/
 *.tsbuildinfo
 
 # env
-.env
-.env.local
 .env.*.local
 
 # editor
 .idea/
-.vscode/
 *.swp
 
 # OS
@@ -20,3 +17,4 @@ Thumbs.db
 # logs
 *.log
 npm-debug.log*
+config.bat
